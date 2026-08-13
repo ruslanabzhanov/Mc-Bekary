@@ -1,0 +1,1154 @@
+import React, { useState } from 'react';
+import {
+  Product,
+  SemiFinishedProduct,
+  DishCosting,
+  SemiIngredient,
+  DishSemiItem,
+  DishRawItem,
+  RawMaterial
+} from '../types';
+import { calculateSemiCost, calculateDishPrimeCost, INITIAL_RAW_MATERIALS } from '../data/costingData';
+import {
+  Utensils,
+  ChefHat,
+  Plus,
+  Trash2,
+  DollarSign,
+  Info,
+  Edit3,
+  CheckCircle2,
+  BookOpen,
+  Package,
+  Search,
+  Tag,
+  X,
+  Sparkles
+} from 'lucide-react';
+
+interface CostingsManagerProps {
+  products: Product[];
+  semiFinishedList: SemiFinishedProduct[];
+  dishCostings: Record<string, DishCosting>;
+  onUpdateSemiFinished: (list: SemiFinishedProduct[]) => void;
+  onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
+}
+
+export const CostingsManager: React.FC<CostingsManagerProps> = ({
+  products,
+  semiFinishedList,
+  dishCostings,
+  onUpdateSemiFinished,
+  onUpdateDishCostings
+}) => {
+  const [activeTab, setActiveTab] = useState<'dishes' | 'semis' | 'raw_catalog'>('dishes');
+  const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || 'chicken-croissant');
+
+  // Master Raw Materials State
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(INITIAL_RAW_MATERIALS);
+  const [rawSearchQuery, setRawSearchQuery] = useState('');
+  const [rawCategoryFilter, setRawCategoryFilter] = useState<string>('all');
+  const [isAddRawModalOpen, setIsAddRawModalOpen] = useState(false);
+  const [newRawItem, setNewRawItem] = useState<{
+    name: string;
+    category: RawMaterial['category'];
+    categoryLabel: string;
+    unit: string;
+    defaultUnitPrice: number;
+  }>({
+    name: '',
+    category: 'veg',
+    categoryLabel: 'Овощи и зелень',
+    unit: 'кг',
+    defaultUnitPrice: 1000
+  });
+
+  // Category Options for Catalog
+  const rawCategories = [
+    { key: 'all', label: 'Все категории' },
+    { key: 'meat', label: 'Мясо и птица' },
+    { key: 'fish', label: 'Рыба и морепродукты' },
+    { key: 'veg', label: 'Овощи и зелень' },
+    { key: 'sauce', label: 'Соусы и бакалея' },
+    { key: 'bakery', label: 'Крупы и мука' },
+    { key: 'dairy', label: 'Молочные продукты и яйцо' },
+    { key: 'packaging', label: 'Упаковка и расходники' }
+  ];
+
+  // Category Label helper
+  const getCategoryLabel = (cat: RawMaterial['category']) => {
+    switch (cat) {
+      case 'meat': return 'Мясо и птица';
+      case 'fish': return 'Рыба и морепродукты';
+      case 'veg': return 'Овощи и зелень';
+      case 'sauce': return 'Соусы и бакалея';
+      case 'bakery': return 'Крупы и мука';
+      case 'dairy': return 'Молочные продукты и яйцо';
+      case 'packaging': return 'Упаковка и расходники';
+      default: return 'Прочее';
+    }
+  };
+
+  // Quick lookup map for Semis
+  const semiMap = new Map<string, SemiFinishedProduct>(semiFinishedList.map((s) => [s.id, s]));
+
+  // Selected dish costing
+  const selectedProduct = products.find((p) => p.id === selectedProductId) || products[0];
+  const currentDishCosting = dishCostings[selectedProductId] || {
+    productId: selectedProductId,
+    semiFinishedItems: [],
+    rawIngredients: []
+  };
+
+  // Dish Handlers
+  const handleUpdateDishSemiQty = (semiId: string, newQty: number) => {
+    const updatedSemis = currentDishCosting.semiFinishedItems.map((item) =>
+      item.semiFinishedId === semiId ? { ...item, quantity: Math.max(0, newQty) } : item
+    );
+    onUpdateDishCostings({
+      ...dishCostings,
+      [selectedProductId]: { ...currentDishCosting, semiFinishedItems: updatedSemis }
+    });
+  };
+
+  const handleDeleteDishSemi = (semiId: string) => {
+    const updatedSemis = currentDishCosting.semiFinishedItems.filter(
+      (item) => item.semiFinishedId !== semiId
+    );
+    onUpdateDishCostings({
+      ...dishCostings,
+      [selectedProductId]: { ...currentDishCosting, semiFinishedItems: updatedSemis }
+    });
+  };
+
+  const handleAddDishSemi = (semiId: string) => {
+    if (!semiId) return;
+    if (currentDishCosting.semiFinishedItems.some((s) => s.semiFinishedId === semiId)) return;
+    const semi = semiMap.get(semiId);
+    const newItem: DishSemiItem = {
+      semiFinishedId: semiId,
+      quantity: 0.05,
+      unit: semi?.unit || 'кг'
+    };
+    onUpdateDishCostings({
+      ...dishCostings,
+      [selectedProductId]: {
+        ...currentDishCosting,
+        semiFinishedItems: [...currentDishCosting.semiFinishedItems, newItem]
+      }
+    });
+  };
+
+  const handleUpdateDishRawQty = (rawId: string, newQty: number) => {
+    const updatedRaw = currentDishCosting.rawIngredients.map((item) =>
+      item.id === rawId ? { ...item, quantity: Math.max(0, newQty) } : item
+    );
+    onUpdateDishCostings({
+      ...dishCostings,
+      [selectedProductId]: { ...currentDishCosting, rawIngredients: updatedRaw }
+    });
+  };
+
+  const handleUpdateDishRawPrice = (rawId: string, newPrice: number) => {
+    const updatedRaw = currentDishCosting.rawIngredients.map((item) =>
+      item.id === rawId ? { ...item, unitPrice: Math.max(0, newPrice) } : item
+    );
+    onUpdateDishCostings({
+      ...dishCostings,
+      [selectedProductId]: { ...currentDishCosting, rawIngredients: updatedRaw }
+    });
+  };
+
+  const handleDeleteDishRaw = (rawId: string) => {
+    const updatedRaw = currentDishCosting.rawIngredients.filter((item) => item.id !== rawId);
+    onUpdateDishCostings({
+      ...dishCostings,
+      [selectedProductId]: { ...currentDishCosting, rawIngredients: updatedRaw }
+    });
+  };
+
+  // Add Dish Raw Item from Catalog Dropdown
+  const handleAddDishRawFromCatalog = (rawMatId: string) => {
+    if (!rawMatId) return;
+    const raw = rawMaterials.find((r) => r.id === rawMatId);
+    if (!raw) return;
+
+    const newRawItem: DishRawItem = {
+      id: `raw-${Date.now()}`,
+      name: raw.name,
+      quantity: raw.unit === 'шт' ? 1 : 0.05,
+      unit: raw.unit,
+      unitPrice: raw.defaultUnitPrice
+    };
+
+    onUpdateDishCostings({
+      ...dishCostings,
+      [selectedProductId]: {
+        ...currentDishCosting,
+        rawIngredients: [...currentDishCosting.rawIngredients, newRawItem]
+      }
+    });
+  };
+
+  const handleAddDishRawManual = () => {
+    const newRawItem: DishRawItem = {
+      id: `raw-${Date.now()}`,
+      name: 'Новый ингредиент/Упаковка',
+      quantity: 1,
+      unit: 'шт',
+      unitPrice: 50
+    };
+    onUpdateDishCostings({
+      ...dishCostings,
+      [selectedProductId]: {
+        ...currentDishCosting,
+        rawIngredients: [...currentDishCosting.rawIngredients, newRawItem]
+      }
+    });
+  };
+
+  // Semi-Finished Handlers
+  const handleUpdateSemiIngredient = (
+    semiId: string,
+    ingId: string,
+    field: keyof SemiIngredient,
+    value: string | number
+  ) => {
+    const updated = semiFinishedList.map((semi) => {
+      if (semi.id !== semiId) return semi;
+      const updatedIngs = semi.ingredients.map((ing) => {
+        if (ing.id !== ingId) return ing;
+        return { ...ing, [field]: value };
+      });
+      const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost) };
+    });
+    onUpdateSemiFinished(updated);
+  };
+
+  // Add Semi Ingredient from Catalog Dropdown
+  const handleAddSemiIngredientFromCatalog = (semiId: string, rawMatId: string) => {
+    if (!rawMatId) return;
+    const raw = rawMaterials.find((r) => r.id === rawMatId);
+    if (!raw) return;
+
+    const updated = semiFinishedList.map((semi) => {
+      if (semi.id !== semiId) return semi;
+      const newIng: SemiIngredient = {
+        id: `ing-${Date.now()}`,
+        rawMaterialName: raw.name,
+        quantity: raw.unit === 'шт' ? 1 : 0.1,
+        unit: raw.unit,
+        unitPrice: raw.defaultUnitPrice
+      };
+      const updatedIngs = [...semi.ingredients, newIng];
+      const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost) };
+    });
+    onUpdateSemiFinished(updated);
+  };
+
+  const handleAddSemiIngredientManual = (semiId: string) => {
+    const updated = semiFinishedList.map((semi) => {
+      if (semi.id !== semiId) return semi;
+      const newIng: SemiIngredient = {
+        id: `ing-${Date.now()}`,
+        rawMaterialName: 'Новое сырье',
+        quantity: 0.1,
+        unit: 'кг',
+        unitPrice: 1000
+      };
+      const updatedIngs = [...semi.ingredients, newIng];
+      const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost) };
+    });
+    onUpdateSemiFinished(updated);
+  };
+
+  const handleDeleteSemiIngredient = (semiId: string, ingId: string) => {
+    const updated = semiFinishedList.map((semi) => {
+      if (semi.id !== semiId) return semi;
+      const updatedIngs = semi.ingredients.filter((i) => i.id !== ingId);
+      const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost) };
+    });
+    onUpdateSemiFinished(updated);
+  };
+
+  const handleUpdateSemiInstructions = (semiId: string, instructions: string) => {
+    const updated = semiFinishedList.map((semi) =>
+      semi.id === semiId ? { ...semi, prepInstructions: instructions } : semi
+    );
+    onUpdateSemiFinished(updated);
+  };
+
+  const handleAddCustomSemi = () => {
+    const newSemi: SemiFinishedProduct = {
+      id: `semi-${Date.now()}`,
+      name: 'Новый полуфабрикат / Нарезка',
+      unit: 'кг',
+      unitCost: 1500,
+      category: 'prep_veg',
+      categoryLabel: 'Нарезка и овощи',
+      prepInstructions: 'Описание технологии и инструкции подготовки...',
+      ingredients: [
+        { id: `ing-${Date.now()}`, rawMaterialName: 'Основное сырье', quantity: 1.05, unit: 'кг', unitPrice: 1400 }
+      ]
+    };
+    onUpdateSemiFinished([...semiFinishedList, newSemi]);
+  };
+
+  // Master Catalog Handlers
+  const handleUpdateRawMaterial = (id: string, field: keyof RawMaterial, value: string | number) => {
+    setRawMaterials((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
+    );
+  };
+
+  const handleDeleteRawMaterial = (id: string) => {
+    setRawMaterials((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleCreateNewRawMaterial = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRawItem.name.trim()) return;
+
+    const item: RawMaterial = {
+      id: `raw-custom-${Date.now()}`,
+      name: newRawItem.name.trim(),
+      category: newRawItem.category,
+      categoryLabel: getCategoryLabel(newRawItem.category),
+      unit: newRawItem.unit,
+      defaultUnitPrice: Number(newRawItem.defaultUnitPrice) || 0
+    };
+
+    setRawMaterials((prev) => [item, ...prev]);
+    setIsAddRawModalOpen(false);
+    setNewRawItem({
+      name: '',
+      category: 'veg',
+      categoryLabel: 'Овощи и зелень',
+      unit: 'кг',
+      defaultUnitPrice: 1000
+    });
+  };
+
+  // Filtered Raw Materials
+  const filteredRawMaterials = rawMaterials.filter((item) => {
+    const matchesCategory = rawCategoryFilter === 'all' || item.category === rawCategoryFilter;
+    const matchesSearch = item.name.toLowerCase().includes(rawSearchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  // Prime cost for current dish
+  const currentPrimeCost = calculateDishPrimeCost(currentDishCosting, semiMap);
+  const currentPrice = selectedProduct?.price || 1;
+  const foodCostPercent = Math.round((currentPrimeCost / currentPrice) * 100);
+  const marginKzt = currentPrice - currentPrimeCost;
+
+  return (
+    <div className="space-y-6">
+      
+      {/* Sub-Header / Mode Toggles */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center space-x-2">
+            <ChefHat className="w-6 h-6 text-indigo-600" />
+            <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">
+              Калькуляции Блюд, Заготовок и Справочник Сырья
+            </h3>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            Конструктор ТКК, стандартизированный каталог ингредиентов и авто-расчет себестоимости
+          </p>
+        </div>
+
+        {/* Tab Toggle */}
+        <div className="flex flex-wrap bg-slate-100 p-1 rounded-lg border border-slate-200">
+          <button
+            onClick={() => setActiveTab('dishes')}
+            className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
+              activeTab === 'dishes'
+                ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Utensils className="w-3.5 h-3.5" />
+            <span>Калькуляции Блюд ({products.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('semis')}
+            className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
+              activeTab === 'semis'
+                ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Полуфабрикаты ({semiFinishedList.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('raw_catalog')}
+            className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
+              activeTab === 'raw_catalog'
+                ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Package className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Справочник Сырья ({rawMaterials.length})</span>
+          </button>
+        </div>
+      </div>
+
+      {/* DISH COSTINGS TAB */}
+      {activeTab === 'dishes' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* Dish Selector Sidebar */}
+          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-2">
+              Выберите блюдо витрины:
+            </h4>
+            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+              {products.map((p) => {
+                const costing = dishCostings[p.id] || { productId: p.id, semiFinishedItems: [], rawIngredients: [] };
+                const prime = calculateDishPrimeCost(costing, semiMap);
+                const fc = Math.round((prime / p.price) * 100);
+                const isSelected = p.id === selectedProductId;
+
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedProductId(p.id)}
+                    className={`w-full p-3 rounded-lg border text-left transition-all flex items-center justify-between group ${
+                      isSelected
+                        ? 'border-indigo-600 bg-indigo-50/50 shadow-sm ring-1 ring-indigo-500'
+                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="text-2xl">{p.imageEmoji}</span>
+                      <div>
+                        <div className="font-bold text-slate-900 text-sm group-hover:text-indigo-600">
+                          {p.name}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Цена: <strong>{p.price} ₸</strong> | {p.unitWeight}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-xs font-black text-indigo-900">{prime} ₸</div>
+                      <div
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded inline-block mt-0.5 ${
+                          fc > 40 ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
+                        }`}
+                      >
+                        FC: {fc}%
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Detailed Recipe Calculation Card */}
+          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-6">
+            
+            {/* Dish Header Info */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-4">
+              <div className="flex items-center space-x-3">
+                <span className="text-4xl">{selectedProduct.imageEmoji}</span>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
+                      {selectedProduct.categoryLabel}
+                    </span>
+                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">
+                      {selectedProduct.name}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Вес порции: {selectedProduct.unitWeight} | Выход: {selectedProduct.unit} | Цех: {selectedProduct.department}
+                  </p>
+                </div>
+              </div>
+
+              {/* Financial Summary Pill Badges */}
+              <div className="flex items-center space-x-3">
+                <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-center min-w-[100px]">
+                  <span className="text-[9px] font-black uppercase text-slate-400 block">Продажа</span>
+                  <span className="text-sm font-black text-slate-900">{selectedProduct.price} ₸</span>
+                </div>
+                <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-lg text-center min-w-[100px]">
+                  <span className="text-[9px] font-black uppercase text-indigo-600 block">Себестоимость</span>
+                  <span className="text-sm font-black text-indigo-900">{currentPrimeCost} ₸</span>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-center min-w-[100px]">
+                  <span className="text-[9px] font-black uppercase text-emerald-700 block">Маржа (Food Cost)</span>
+                  <span className="text-sm font-black text-emerald-900">
+                    +{marginKzt} ₸ ({foodCostPercent}%)
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 1: Semi-Finished Products Matrix */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center space-x-2">
+                  <ChefHat className="w-4 h-4 text-indigo-600" />
+                  <span>1. Использование Полуфабрикатов (Заготовки цехов):</span>
+                </h4>
+                
+                {/* Dropdown to add Semi */}
+                <select
+                  id="select-add-semi"
+                  onChange={(e) => {
+                    handleAddDishSemi(e.target.value);
+                    e.target.value = '';
+                  }}
+                  className="text-xs border border-slate-300 rounded px-2.5 py-1.5 bg-slate-50 text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="">+ Добавить полуфабрикат...</option>
+                  {semiFinishedList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({calculateSemiCost(s)} ₸/{s.unit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                    <tr>
+                      <th className="py-2.5 px-3">Полуфабрикат / Заготовка</th>
+                      <th className="py-2.5 px-3">Категория</th>
+                      <th className="py-2.5 px-3 text-center">Норма на 1 порцию</th>
+                      <th className="py-2.5 px-3 text-right">Цена за ед.</th>
+                      <th className="py-2.5 px-3 text-right">Стоимость</th>
+                      <th className="py-2.5 px-3 text-center w-10">Удалить</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {currentDishCosting.semiFinishedItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-4 text-center text-slate-400 italic">
+                          Полуфабрикаты не привязаны. Добавьте заготовку из списка выше.
+                        </td>
+                      </tr>
+                    ) : (
+                      currentDishCosting.semiFinishedItems.map((item) => {
+                        const semi = semiMap.get(item.semiFinishedId);
+                        if (!semi) return null;
+                        const unitCost = calculateSemiCost(semi);
+                        const totalCost = Math.round(item.quantity * unitCost);
+
+                        return (
+                          <tr key={item.semiFinishedId} className="hover:bg-slate-50">
+                            <td className="py-2.5 px-3 font-bold text-slate-900">
+                              {semi.name}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500 text-[11px]">
+                              {semi.categoryLabel}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <div className="flex items-center justify-center space-x-1">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={item.quantity}
+                                  onChange={(e) =>
+                                    handleUpdateDishSemiQty(item.semiFinishedId, parseFloat(e.target.value) || 0)
+                                  }
+                                  className="w-20 px-2 py-1 text-center border border-slate-300 rounded font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                />
+                                <span className="text-slate-500 font-medium">{item.unit}</span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-slate-600">
+                              {unitCost.toLocaleString('ru-RU')} ₸/{item.unit}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold text-indigo-900">
+                              {totalCost.toLocaleString('ru-RU')} ₸
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <button
+                                onClick={() => handleDeleteDishSemi(item.semiFinishedId)}
+                                className="text-slate-400 hover:text-rose-600 p-1"
+                                title="Удалить из рецептуры"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* SECTION 2: Direct Raw Materials & Packaging */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center space-x-2">
+                  <Utensils className="w-4 h-4 text-indigo-600" />
+                  <span>2. Прямые сырьевые ингредиенты и Упаковка:</span>
+                </h4>
+                
+                <div className="flex items-center space-x-2">
+                  {/* Select raw material from master catalog */}
+                  <select
+                    id="select-add-dish-raw-catalog"
+                    onChange={(e) => {
+                      handleAddDishRawFromCatalog(e.target.value);
+                      e.target.value = '';
+                    }}
+                    className="text-xs border border-indigo-200 rounded px-2.5 py-1.5 bg-indigo-50 text-indigo-900 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">+ Из Справочника Сырья...</option>
+                    {rawMaterials.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} ({r.defaultUnitPrice} ₸/{r.unit})
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={handleAddDishRawManual}
+                    className="flex items-center space-x-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>+ Ручной ввод</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                    <tr>
+                      <th className="py-2.5 px-3">Наименование сырья / Упаковки</th>
+                      <th className="py-2.5 px-3 text-center">Норма на 1 шт</th>
+                      <th className="py-2.5 px-3 text-right">Цена за ед. сырья (₸)</th>
+                      <th className="py-2.5 px-3 text-right">Затраты на порцию</th>
+                      <th className="py-2.5 px-3 text-center w-10">Удалить</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {currentDishCosting.rawIngredients.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-4 text-center text-slate-400 italic">
+                          Прямые ингредиенты не привязаны. Выберите сырье из справочника выше.
+                        </td>
+                      </tr>
+                    ) : (
+                      currentDishCosting.rawIngredients.map((item) => {
+                        const totalCost = Math.round(item.quantity * item.unitPrice);
+
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-semibold text-slate-900">
+                              {item.name}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <div className="flex items-center justify-center space-x-1">
+                                <input
+                                  type="number"
+                                  step="0.001"
+                                  min="0"
+                                  value={item.quantity}
+                                  onChange={(e) =>
+                                    handleUpdateDishRawQty(item.id, parseFloat(e.target.value) || 0)
+                                  }
+                                  className="w-20 px-2 py-1 text-center border border-slate-300 rounded font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                />
+                                <span className="text-slate-500 font-medium">{item.unit}</span>
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                value={item.unitPrice}
+                                onChange={(e) =>
+                                  handleUpdateDishRawPrice(item.id, parseFloat(e.target.value) || 0)
+                                }
+                                className="w-24 px-2 py-1 text-right border border-slate-300 rounded font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-right font-bold text-indigo-900">
+                              {totalCost.toLocaleString('ru-RU')} ₸
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                onClick={() => handleDeleteDishRaw(item.id)}
+                                className="text-slate-400 hover:text-rose-600 p-1"
+                                title="Удалить"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* SEMI-FINISHED COSTINGS TAB */}
+      {activeTab === 'semis' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-bold uppercase tracking-wider text-slate-900">
+                Калькуляции и нормативные рецептуры Полуфабрикатов (Цех Заготовок)
+              </h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Расчет закладки исходного сырья из Справочника на 1 кг или 1 литр готового полуфабриката
+              </p>
+            </div>
+
+            <button
+              onClick={handleAddCustomSemi}
+              className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded text-xs uppercase tracking-wider transition-all shadow-sm"
+            >
+              <Plus className="w-4 h-4 text-white" />
+              <span>Создать новый полуфабрикат</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {semiFinishedList.map((semi) => {
+              const currentCost = calculateSemiCost(semi);
+
+              return (
+                <div
+                  key={semi.id}
+                  className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 hover:border-slate-300 transition-all"
+                >
+                  {/* Card Header */}
+                  <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
+                          {semi.categoryLabel}
+                        </span>
+                        <h4 className="font-bold text-slate-900 text-base">{semi.name}</h4>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Единица выпуска: <strong>1 {semi.unit}</strong>
+                      </p>
+                    </div>
+
+                    <div className="text-right bg-slate-50 p-2.5 rounded-lg border border-slate-200 min-w-[120px]">
+                      <span className="text-[9px] font-black uppercase text-slate-400 block">Себестоимость 1 {semi.unit}</span>
+                      <span className="text-base font-black text-indigo-900">
+                        {currentCost.toLocaleString('ru-RU')} ₸
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Technology Prep Instructions */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
+                    <span className="font-bold text-slate-700 block mb-1">
+                      📋 Технологическая инструкция заготовки:
+                    </span>
+                    <textarea
+                      rows={2}
+                      value={semi.prepInstructions}
+                      onChange={(e) => handleUpdateSemiInstructions(semi.id, e.target.value)}
+                      className="w-full text-xs text-slate-700 bg-white border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  {/* Ingredients Table for 1 kg/l */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase flex-wrap gap-2">
+                      <span>Закладка сырья на 1 {semi.unit} полуфабриката:</span>
+                      
+                      <div className="flex items-center space-x-2">
+                        {/* Select from Raw Catalog */}
+                        <select
+                          id={`select-semi-raw-catalog-${semi.id}`}
+                          onChange={(e) => {
+                            handleAddSemiIngredientFromCatalog(semi.id, e.target.value);
+                            e.target.value = '';
+                          }}
+                          className="text-[11px] border border-indigo-200 rounded px-2 py-1 bg-indigo-50 text-indigo-900 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <option value="">+ Из Справочника Сырья...</option>
+                          {rawMaterials.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.name} ({r.defaultUnitPrice} ₸/{r.unit})
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          onClick={() => handleAddSemiIngredientManual(semi.id)}
+                          className="text-slate-600 hover:text-slate-900 text-[11px] font-bold flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded"
+                        >
+                          <Plus className="w-3 h-3 text-indigo-600" />
+                          <span>Ввод вручную</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                          <tr>
+                            <th className="py-2 px-3">Наименование сырья</th>
+                            <th className="py-2 px-3 text-center">Расход на 1 {semi.unit}</th>
+                            <th className="py-2 px-3 text-right">Цена сырья (₸)</th>
+                            <th className="py-2 px-3 text-right">Сумма</th>
+                            <th className="py-2 px-3 text-center w-8"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {semi.ingredients.map((ing) => {
+                            const sum = Math.round(ing.quantity * ing.unitPrice);
+
+                            return (
+                              <tr key={ing.id} className="hover:bg-slate-50">
+                                <td className="py-1.5 px-3">
+                                  <input
+                                    type="text"
+                                    value={ing.rawMaterialName}
+                                    onChange={(e) =>
+                                      handleUpdateSemiIngredient(semi.id, ing.id, 'rawMaterialName', e.target.value)
+                                    }
+                                    className="w-full bg-transparent font-medium text-slate-900 border-b border-transparent focus:border-indigo-500 focus:outline-none"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-3 text-center">
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={ing.quantity}
+                                      onChange={(e) =>
+                                        handleUpdateSemiIngredient(
+                                          semi.id,
+                                          ing.id,
+                                          'quantity',
+                                          parseFloat(e.target.value) || 0
+                                        )
+                                      }
+                                      className="w-16 px-1.5 py-0.5 text-center border border-slate-300 rounded font-bold text-slate-900 focus:outline-none"
+                                    />
+                                    <span className="text-slate-500 text-[11px]">{ing.unit}</span>
+                                  </div>
+                                </td>
+                                <td className="py-1.5 px-3 text-right">
+                                  <input
+                                    type="number"
+                                    value={ing.unitPrice}
+                                    onChange={(e) =>
+                                      handleUpdateSemiIngredient(
+                                        semi.id,
+                                        ing.id,
+                                        'unitPrice',
+                                        parseFloat(e.target.value) || 0
+                                      )
+                                    }
+                                    className="w-20 px-1.5 py-0.5 text-right border border-slate-300 rounded text-slate-800 focus:outline-none"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-3 text-right font-bold text-indigo-900">
+                                  {sum.toLocaleString('ru-RU')} ₸
+                                </td>
+                                <td className="py-1.5 px-3 text-center">
+                                  <button
+                                    onClick={() => handleDeleteSemiIngredient(semi.id, ing.id)}
+                                    className="text-slate-400 hover:text-rose-600 p-0.5"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* MASTER RAW MATERIALS CATALOG TAB */}
+      {activeTab === 'raw_catalog' && (
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-6">
+          
+          {/* Catalog Top Action Bar */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Package className="w-6 h-6 text-indigo-600" />
+                <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">
+                  Справочник Сырья и Ингредиентов ({rawMaterials.length} позиций)
+                </h3>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Единый номенклатурный справочник для исключения ошибок при добавлении ингредиентов в ТКК
+              </p>
+            </div>
+
+            <button
+              id="btn-open-add-raw-modal"
+              onClick={() => setIsAddRawModalOpen(true)}
+              className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-lg text-xs uppercase tracking-wider transition-all shadow-sm"
+            >
+              <Plus className="w-4 h-4 text-white" />
+              <span>Добавить новое сырье в справочник</span>
+            </button>
+          </div>
+
+          {/* Search and Category Filters */}
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            {/* Search Input */}
+            <div className="relative w-full md:w-80">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={rawSearchQuery}
+                onChange={(e) => setRawSearchQuery(e.target.value)}
+                placeholder="Поиск ингредиента по названию..."
+                className="w-full pl-9 pr-4 py-2 text-xs border border-slate-300 rounded-lg bg-slate-50 text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition-all"
+              />
+            </div>
+
+            {/* Category Filter Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto overflow-x-auto pb-1">
+              {rawCategories.map((cat) => (
+                <button
+                  key={cat.key}
+                  onClick={() => setRawCategoryFilter(cat.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    rawCategoryFilter === cat.key
+                      ? 'bg-indigo-900 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Raw Materials Table */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">Наименование Сырья / Ингредиента</th>
+                  <th className="py-3 px-4">Категория</th>
+                  <th className="py-3 px-4 text-center">Единица измерения</th>
+                  <th className="py-3 px-4 text-right">Базовая закуп цена (₸)</th>
+                  <th className="py-3 px-4 text-center w-16">Удалить</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredRawMaterials.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-slate-400 italic">
+                      Ингредиенты не найдены. Попробуйте изменить фильтр или добавить новую позицию.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRawMaterials.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-4">
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => handleUpdateRawMaterial(item.id, 'name', e.target.value)}
+                          className="w-full font-bold text-slate-900 bg-transparent border-b border-transparent focus:border-indigo-500 focus:outline-none"
+                        />
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                          {getCategoryLabel(item.category)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <select
+                          value={item.unit}
+                          onChange={(e) => handleUpdateRawMaterial(item.id, 'unit', e.target.value)}
+                          className="bg-slate-50 border border-slate-300 rounded px-2 py-1 font-bold text-slate-800 text-center focus:outline-none"
+                        >
+                          <option value="кг">кг</option>
+                          <option value="л">л</option>
+                          <option value="шт">шт</option>
+                        </select>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end space-x-1">
+                          <input
+                            type="number"
+                            value={item.defaultUnitPrice}
+                            onChange={(e) =>
+                              handleUpdateRawMaterial(item.id, 'defaultUnitPrice', parseFloat(e.target.value) || 0)
+                            }
+                            className="w-28 px-2 py-1 text-right font-black text-indigo-900 border border-slate-300 rounded bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                          <span className="text-slate-500 font-bold">₸ / {item.unit}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => handleDeleteRawMaterial(item.id)}
+                          className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors"
+                          title="Удалить из справочника"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      )}
+
+      {/* MODAL: Add New Raw Material */}
+      {isAddRawModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in duration-200">
+            
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Package className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-900 text-base">
+                  Добавить сырье в справочник
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsAddRawModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewRawMaterial} className="space-y-4 text-xs">
+              
+              <div>
+                <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                  Наименование ингредиента / продукта:
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Например: Авокадо Хасс свежий"
+                  value={newRawItem.name}
+                  onChange={(e) => setNewRawItem({ ...newRawItem, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                    Категория:
+                  </label>
+                  <select
+                    value={newRawItem.category}
+                    onChange={(e) =>
+                      setNewRawItem({
+                        ...newRawItem,
+                        category: e.target.value as RawMaterial['category'],
+                        categoryLabel: getCategoryLabel(e.target.value as RawMaterial['category'])
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+                  >
+                    <option value="meat">Мясо и птица</option>
+                    <option value="fish">Рыба и морепродукты</option>
+                    <option value="veg">Овощи и зелень</option>
+                    <option value="sauce">Соусы и бакалея</option>
+                    <option value="bakery">Крупы и мука</option>
+                    <option value="dairy">Молочные продукты и яйцо</option>
+                    <option value="packaging">Упаковка и расходники</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                    Ед. измерения:
+                  </label>
+                  <select
+                    value={newRawItem.unit}
+                    onChange={(e) => setNewRawItem({ ...newRawItem, unit: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+                  >
+                    <option value="кг">кг</option>
+                    <option value="л">л</option>
+                    <option value="шт">шт</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                  Базовая цена закупки за 1 {newRawItem.unit} (₸):
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  value={newRawItem.defaultUnitPrice}
+                  onChange={(e) => setNewRawItem({ ...newRawItem, defaultUnitPrice: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-bold"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddRawModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm transition-all"
+                >
+                  Сохранить в справочник
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};

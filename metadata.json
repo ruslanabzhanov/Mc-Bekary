@@ -1,0 +1,6 @@
+{
+  "name": "Master Coffee Kazakhstan - Система Заказов",
+  "description": "Система автоматизации заказа продукции на витрины для сети 27 кофеен Master Coffee Kazakhstan с ИИ-скорингом, детекцией аномалий и цеховыми чек-листами",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
