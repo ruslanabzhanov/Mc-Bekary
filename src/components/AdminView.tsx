@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting } from '../types';
-import { MatrixTable } from './MatrixTable';
 import { DisciplineTracker } from './DisciplineTracker';
 import { AiProcurementModal } from './AiProcurementModal';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
-import { PrintPrepChecklistModal } from './PrintPrepChecklistModal';
 import { CostingsManager } from './CostingsManager';
 import {
   ShieldCheck,
@@ -15,12 +13,12 @@ import {
   AlertTriangle,
   RotateCcw,
   Zap,
-  BarChart3,
   Bell,
   PackageCheck,
   ChefHat,
   Utensils,
-  BookOpen
+  BookOpen,
+  ChevronDown
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -54,9 +52,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onSimulateAll,
   onOpenSubmittedOrdersModal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'matrix' | 'costings' | 'discipline'>('matrix');
-  const [selectedPrintDept, setSelectedPrintDept] = useState<'bakery' | 'desserts' | 'sandwiches' | 'bar_prep' | 'kitchen_prep' | 'new_items' | null>(null);
-  const [isPrepPrintOpen, setIsPrepPrintOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'costings' | 'discipline'>('costings');
+  const [selectedPrintDept, setSelectedPrintDept] = useState<'bakery' | 'desserts' | 'bar_prep' | 'kitchen_prep' | null>(null);
+  const [isChecklistsMenuOpen, setIsChecklistsMenuOpen] = useState(false);
   const [isAiProcurementOpen, setIsAiProcurementOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -117,15 +115,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       {/* TOP DASHBOARD METRIC CARDS & ACTIONS */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
-          <div>
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="w-6 h-6 text-indigo-600" />
-              <h2 className="text-xl font-bold tracking-tight uppercase text-indigo-900">Управляющий производством</h2>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Контроль заказов 27 точек, дисциплины и автоматическая печать цеховых чек-листов
-            </p>
+        <div className="flex items-center justify-center gap-4 border-b border-slate-100 pb-5">
+          <div className="flex items-center space-x-2 whitespace-nowrap">
+            <ShieldCheck className="w-6 h-6 text-indigo-600 shrink-0" />
+            <h2 className="text-xl font-bold tracking-tight uppercase text-indigo-900">Управляющий производством</h2>
           </div>
         </div>
 
@@ -143,7 +136,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </span>
             <div className="flex items-baseline space-x-2 mt-1 justify-center">
               <span className="text-2xl font-black text-slate-900">{submittedCount}</span>
-              <span className="text-xs text-slate-500">из 27 точек ({Math.round((submittedCount/27)*100)}%)</span>
+              <span className="text-2xl font-black text-slate-900">из 27</span>
             </div>
             <div className="w-full bg-slate-200 h-2 rounded mt-2 overflow-hidden">
               <div
@@ -164,7 +157,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </span>
             <div className="flex items-baseline space-x-2 mt-1 justify-center">
               <span className="text-2xl font-black text-emerald-600">{acceptedCount}</span>
-              <span className="text-xs text-slate-500">принято</span>
+              <span className="text-2xl font-black text-emerald-600">из 27</span>
             </div>
             <span className="text-[11px] text-slate-500 font-medium block mt-1">
               Ожидают подтверждения: {submittedCount - acceptedCount}
@@ -244,20 +237,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
 
           <button
-            id="btn-open-prep-checklist-modal"
-            onClick={() => setIsPrepPrintOpen(true)}
-            className="flex items-center justify-center space-x-2 bg-indigo-900 hover:bg-black text-white font-bold px-4 py-2.5 rounded-lg text-xs uppercase tracking-wider transition-all shadow-sm ring-2 ring-indigo-500/20"
+            id="btn-toggle-checklists"
+            onClick={() => setIsChecklistsMenuOpen((open) => !open)}
+            className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-lg text-xs uppercase tracking-wider transition-all shadow-sm"
           >
-            <ChefHat className="w-4 h-4 text-emerald-400" />
-            <span>🔪 Чек-лист Заготовок (Полуфабрикаты)</span>
+            <span>Чек-листы</span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${isChecklistsMenuOpen ? 'rotate-180' : ''}`} />
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {isChecklistsMenuOpen && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {/* Print 1: Bakery */}
           <button
             id="btn-print-bakery"
-            onClick={() => setSelectedPrintDept('bakery')}
+            onClick={() => { setSelectedPrintDept('bakery'); setIsChecklistsMenuOpen(false); }}
             className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
           >
             <div className="flex items-center justify-between mb-1.5">
@@ -274,30 +268,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </p>
           </button>
 
-          {/* Print 2: Sandwiches */}
-          <button
-            id="btn-print-sandwiches"
-            onClick={() => setSelectedPrintDept('sandwiches')}
-            className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xl">🥪</span>
-              <span className="text-[9px] font-black uppercase bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
-                14 поз
-              </span>
-            </div>
-            <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-xs">
-              Сэндвичи и завтраки
-            </h4>
-            <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-              Твист, Бейгл, Креп...
-            </p>
-          </button>
-
           {/* Print 3: Desserts */}
           <button
             id="btn-print-desserts"
-            onClick={() => setSelectedPrintDept('desserts')}
+            onClick={() => { setSelectedPrintDept('desserts'); setIsChecklistsMenuOpen(false); }}
             className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
           >
             <div className="flex items-center justify-between mb-1.5">
@@ -317,7 +291,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           {/* Print 4: Bar Prep */}
           <button
             id="btn-print-bar-prep"
-            onClick={() => setSelectedPrintDept('bar_prep')}
+            onClick={() => { setSelectedPrintDept('bar_prep'); setIsChecklistsMenuOpen(false); }}
             className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
           >
             <div className="flex items-center justify-between mb-1.5">
@@ -337,7 +311,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           {/* Print 5: Kitchen Prep */}
           <button
             id="btn-print-kitchen-prep"
-            onClick={() => setSelectedPrintDept('kitchen_prep')}
+            onClick={() => { setSelectedPrintDept('kitchen_prep'); setIsChecklistsMenuOpen(false); }}
             className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
           >
             <div className="flex items-center justify-between mb-1.5">
@@ -353,44 +327,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
               Полуфабрикат котлет...
             </p>
           </button>
-
-          {/* Print 6: New Items */}
-          <button
-            id="btn-print-new-items"
-            onClick={() => setSelectedPrintDept('new_items')}
-            className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xl">⚡</span>
-              <span className="text-[9px] font-black uppercase bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
-                3 поз
-              </span>
-            </div>
-            <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-xs">
-              Новинки (Колд-Брю)
-            </h4>
-            <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-              Черри, Гранат Брю...
-            </p>
-          </button>
         </div>
+        )}
       </div>
 
-      {/* ADMIN SUB-TABS (Matrix View vs Costings vs Discipline Monitor) */}
+      {/* ADMIN SUB-TABS (Costings vs Discipline Monitor) */}
       <div className="flex bg-slate-100 p-1.5 rounded-lg border border-slate-200 space-x-1">
-        <button
-          id="btn-admin-tab-matrix"
-          onClick={() => setActiveTab('matrix')}
-          className={`flex-1 py-2 px-4 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 ${
-            activeTab === 'matrix'
-              ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          <span>Заявки 27 Точек</span>
-        </button>
-
         <button
           id="btn-admin-tab-costings"
           onClick={() => setActiveTab('costings')}
@@ -419,10 +361,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       </div>
 
       {/* VIEW PANEL CONTENT */}
-      {activeTab === 'matrix' && (
-        <MatrixTable shops={shops} products={products} orders={orders} />
-      )}
-
       {activeTab === 'costings' && (
         <CostingsManager
           products={products}
@@ -451,16 +389,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
         shops={shops}
         products={products}
         orders={orders}
-      />
-
-      <PrintPrepChecklistModal
-        isOpen={isPrepPrintOpen}
-        onClose={() => setIsPrepPrintOpen(false)}
-        shops={shops}
-        products={products}
-        orders={orders}
-        semiFinishedList={semiFinishedList}
-        dishCostings={dishCostings}
       />
 
       <AiProcurementModal

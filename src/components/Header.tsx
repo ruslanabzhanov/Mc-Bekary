@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck, UserCheck, Clock, Lock, LogOut, KeyRound, X } from 'lucide-react';
-import masterCoffeeLogo from '../assets/images/master_coffee_brand_logo_1786606481277.jpg';
+import { CartoonTurtle } from './CartoonTurtle';
 
 interface HeaderProps {
   currentRole: 'manager' | 'admin';
@@ -44,23 +44,13 @@ export const Header: React.FC<HeaderProps> = ({
           
           {/* Turtle Logo & Brand Title */}
           <div className="flex items-center space-x-2.5">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden border border-amber-400/50 shadow-sm flex-shrink-0 bg-slate-900 ring-2 ring-indigo-50">
-              <img
-                src={masterCoffeeLogo}
-                alt="Master Coffee Logo"
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden shadow-sm flex-shrink-0 flex items-center justify-center bg-white border border-slate-200">
+              <CartoonTurtle className="w-9 h-9 sm:w-10 sm:h-10 animate-turtle" />
             </div>
-            <div>
-              <div className="flex items-center space-x-1.5">
-                <h1 className="text-base sm:text-lg font-black tracking-tight uppercase text-indigo-950 flex items-center gap-1">
-                  <span>MASTER COFFEE</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold normal-case">
-                    KZ 🇰🇿
-                  </span>
-                </h1>
-              </div>
+            <div className="flex-1">
+              <h1 className="font-brand text-base sm:text-lg font-extrabold tracking-[0.15em] text-center text-indigo-950">
+                Master Coffee
+              </h1>
             </div>
           </div>
 

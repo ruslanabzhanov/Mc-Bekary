@@ -14,6 +14,7 @@ interface PrintChecklistsModalProps {
 const DEPARTMENT_CONFIG = {
   bakery: {
     title: 'ЦЕХ КРУАССАНОВ И ВЫПЕЧКИ',
+    shortTitle: 'Чек-лист Пекарей',
     subtitle: 'Выпечка круассанов и слоеных изделий',
     icon: '🥐',
     category: 'croissants',
@@ -21,6 +22,7 @@ const DEPARTMENT_CONFIG = {
   },
   sandwiches: {
     title: 'ЦЕХ СЭНДВИЧЕЙ И ЗАВТРАКОВ',
+    shortTitle: 'Чек-лист Сэндвичей',
     subtitle: 'Сборка сэндвичей, завтраков, твистов и каш',
     icon: '🥪',
     category: 'sandwiches',
@@ -28,6 +30,7 @@ const DEPARTMENT_CONFIG = {
   },
   desserts: {
     title: 'КОНДИТЕРСКИЙ ЦЕХ (ДЕСЕРТЫ)',
+    shortTitle: 'Чек-лист Кондитеров',
     subtitle: 'Торты, чизкейки, кукисы и кремовые десерты',
     icon: '🍰',
     category: 'desserts',
@@ -35,6 +38,7 @@ const DEPARTMENT_CONFIG = {
   },
   bar_prep: {
     title: 'ЦЕХ ЗАГОТОВОК БАРА',
+    shortTitle: 'Чек-лист Заготовок Бара',
     subtitle: 'Сиропы, пюре, заготовки смородины, манго и сырная пена',
     icon: '🧃',
     category: 'bar_prep',
@@ -42,6 +46,7 @@ const DEPARTMENT_CONFIG = {
   },
   kitchen_prep: {
     title: 'ЦЕХ ЗАГОТОВОК КУХНИ',
+    shortTitle: 'Чек-лист Заготовщиков',
     subtitle: 'Полуфабрикаты котлет, бриоши, сырников цеха и заготовок',
     icon: '👨‍🍳',
     category: 'kitchen_prep',
@@ -49,6 +54,7 @@ const DEPARTMENT_CONFIG = {
   },
   new_items: {
     title: 'ЦЕХ НОВИНОК (КОЛД-БРЮ)',
+    shortTitle: 'Чек-лист Новинок',
     subtitle: 'Черри Брю, Гранат Брю и Малина Брю',
     icon: '⚡',
     category: 'new_items',
@@ -104,35 +110,30 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
       <div className="bg-white border border-slate-200 rounded-xl w-full max-w-4xl overflow-hidden shadow-xl flex flex-col max-h-[92vh] print:max-h-none print:border-none print:shadow-none print:bg-white print:text-black">
         
         {/* Modal Header (Hidden on Print) */}
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white print:hidden">
-          <div className="flex items-center space-x-3">
-            <span className="text-3xl">{dept.icon}</span>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 uppercase tracking-tight">Печатная форма: {dept.title}</h2>
-              <p className="text-xs text-slate-500">
-                Цеховой чек-лист сборки и фасовки для 27 кофеен сети
-              </p>
+        <div className="p-6 border-b border-slate-100 bg-white print:hidden space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <span className="text-3xl">{dept.icon}</span>
+              <h2 className="text-lg font-bold text-slate-900 uppercase tracking-tight">{dept.shortTitle}</h2>
             </div>
-          </div>
-
-          <div className="flex items-center space-x-3">
-            <button
-              id="btn-trigger-print"
-              onClick={handlePrint}
-              className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded text-xs uppercase tracking-wider transition-all shadow-sm"
-            >
-              <Printer className="w-4 h-4 text-white" />
-              <span>Распечатать чек-лист</span>
-            </button>
 
             <button
               id="btn-close-print-modal"
               onClick={onClose}
-              className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center transition-colors"
+              className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center transition-colors shrink-0"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          <button
+            id="btn-trigger-print"
+            onClick={handlePrint}
+            className="w-full flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-3.5 rounded-lg text-sm uppercase tracking-wider shadow-sm animate-pulse-glow hover:animate-none hover:scale-[1.01] active:scale-[0.99] transition-transform"
+          >
+            <Printer className="w-5 h-5 text-white" />
+            <span>Распечатать чек-лист</span>
+          </button>
         </div>
 
         {/* PRINTABLE BODY CONTENT */}
@@ -163,35 +164,46 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
           </div>
 
           {/* Department Product Totals Breakdown */}
-          <div className="bg-slate-50 print:bg-gray-50 p-4 rounded-xl border border-slate-200 print:border-gray-300">
-            <h3 className="text-xs font-bold text-slate-700 print:text-black uppercase tracking-wider mb-2">
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-slate-700 print:text-black uppercase tracking-wider">
               Сводная потребность по позициям цеха:
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {deptProducts.map((p) => {
-                const total = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
-                return (
-                  <div
-                    key={p.id}
-                    className="bg-white print:bg-white p-3 rounded-lg border border-slate-200 print:border-gray-300 flex items-center justify-between shadow-sm"
-                  >
-                    <div>
-                      <span className="font-bold text-slate-900 print:text-black text-sm block">
-                        {p.name}
-                      </span>
-                      <span className="text-[11px] text-slate-500 print:text-gray-600">
-                        Вес: {p.unitWeight} | Срок: {p.shelfLife}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-lg font-black text-indigo-900 print:text-black">
-                        {total}
-                      </span>
-                      <span className="text-xs text-slate-500 print:text-gray-600"> {p.unit}</span>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="border border-slate-200 print:border-black rounded-lg overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 print:bg-gray-200 text-slate-700 print:text-black font-bold border-b border-slate-200 print:border-black uppercase text-[10px] tracking-wider">
+                  <tr>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black w-12 text-center">№</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black">Наименование</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black">Вес</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black">Срок годности</th>
+                    <th className="py-2.5 px-3 text-center font-extrabold">Количество</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 print:divide-gray-400 bg-white">
+                  {deptProducts.map((p, index) => {
+                    const total = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50 print:hover:bg-transparent">
+                        <td className="py-2 px-3 text-center font-bold text-slate-500 print:text-black border-r border-slate-200 print:border-black">
+                          {index + 1}
+                        </td>
+                        <td className="py-2 px-3 font-bold text-slate-900 print:text-black border-r border-slate-200 print:border-black">
+                          {p.name}
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 print:text-black border-r border-slate-200 print:border-black">
+                          {p.unitWeight}
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 print:text-black border-r border-slate-200 print:border-black">
+                          {p.shelfLife}
+                        </td>
+                        <td className="py-2 px-3 text-center font-black text-indigo-900 print:text-black">
+                          {total} {p.unit}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
 

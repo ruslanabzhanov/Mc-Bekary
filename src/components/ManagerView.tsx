@@ -1,19 +1,21 @@
 import React, { useState, useMemo } from 'react';
 import { CoffeeShop, Product, ShopOrder, Category } from '../types';
-import { 
-  Sparkles, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Eye, 
-  Send, 
-  Building2, 
-  Plus, 
-  Minus, 
-  Clock, 
+import {
+  Sparkles,
+  AlertTriangle,
+  CheckCircle2,
+  Eye,
+  Send,
+  Building2,
+  Plus,
+  Minus,
+  Clock,
   Zap,
   TrendingUp,
-  Info
+  Info,
+  ClipboardList
 } from 'lucide-react';
+import { CartoonTurtle } from './CartoonTurtle';
 
 interface ManagerViewProps {
   coffeeShops: CoffeeShop[];
@@ -238,7 +240,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <button
             id="btn-apply-ai-all"
             onClick={handleApplyAllAiRecommendations}
-            className="col-span-2 sm:col-span-2 lg:col-span-2 bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-xl font-bold transition-all shadow-2xs flex flex-col justify-between items-start text-left group cursor-pointer"
+            className="relative col-span-2 sm:col-span-2 lg:col-span-2 bg-indigo-600 hover:bg-indigo-700 text-white p-3 pr-11 rounded-xl font-bold transition-all shadow-2xs flex flex-col justify-between items-center text-center group cursor-pointer overflow-hidden"
             title="Заполнить все товары на основе ИИ-норм дня"
           >
             <div className="flex items-center justify-center w-full mb-1">
@@ -246,13 +248,15 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 Быстрый автономный заказ
               </span>
             </div>
-            <div className="flex items-center justify-between w-full">
+            <div className="flex items-center justify-center w-full">
               <span className="text-sm font-black uppercase tracking-tight text-white flex items-center gap-1">
                 ⚡ Заявка в один клик
               </span>
-              <span className="text-[10px] bg-indigo-500/90 px-2 py-0.5 rounded text-white font-bold tracking-wide">
-                Авто-расчет
-              </span>
+            </div>
+
+            <div className="absolute bottom-1.5 right-1.5 w-9 h-9 shrink-0 animate-turtle-walk">
+              <CartoonTurtle className="w-full h-full" />
+              <ClipboardList className="w-3.5 h-3.5 text-amber-300 absolute -top-1 -right-1.5 drop-shadow" />
             </div>
           </button>
         </div>

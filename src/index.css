@@ -1,1 +1,68 @@
 @import "tailwindcss";
+
+/* Brand teal (from the turtle logo background, #28798D) replaces the default Tailwind indigo scale everywhere */
+@theme {
+  --color-indigo-50: #f2fbfd;
+  --color-indigo-100: #e1f4f9;
+  --color-indigo-200: #c5e9f1;
+  --color-indigo-300: #9ad5e4;
+  --color-indigo-400: #68bfd4;
+  --color-indigo-500: #38aac7;
+  --color-indigo-600: #2d889f;
+  --color-indigo-700: #237185;
+  --color-indigo-800: #1c5e6e;
+  --color-indigo-900: #144957;
+  --color-indigo-950: #0b2b32;
+}
+
+.font-brand {
+  font-family: 'Poppins', sans-serif;
+}
+
+@keyframes turtle-bob {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-3px) rotate(-4deg);
+  }
+  75% {
+    transform: translateY(1px) rotate(4deg);
+  }
+}
+
+.animate-turtle {
+  animation: turtle-bob 2.8s ease-in-out infinite;
+}
+
+@keyframes turtle-walk {
+  0%, 100% {
+    transform: translateX(0) translateY(0) rotate(-3deg);
+  }
+  25% {
+    transform: translateX(2px) translateY(-2px) rotate(0deg);
+  }
+  50% {
+    transform: translateX(4px) translateY(0) rotate(3deg);
+  }
+  75% {
+    transform: translateX(2px) translateY(-2px) rotate(0deg);
+  }
+}
+
+.animate-turtle-walk {
+  animation: turtle-walk 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(40, 121, 141, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(40, 121, 141, 0);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
