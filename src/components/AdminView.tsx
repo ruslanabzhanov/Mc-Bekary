@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting } from '../types';
-import { DisciplineTracker } from './DisciplineTracker';
+import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting } from '../types';
 import { AiProcurementModal } from './AiProcurementModal';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
 import { CostingsManager } from './CostingsManager';
@@ -13,7 +12,6 @@ import {
   AlertTriangle,
   RotateCcw,
   Zap,
-  Bell,
   PackageCheck,
   ChefHat,
   Utensils,
@@ -25,14 +23,13 @@ interface AdminViewProps {
   shops: CoffeeShop[];
   products: Product[];
   orders: Record<number, ShopOrder>;
-  notifications: DisciplineNotification[];
   semiFinishedList: SemiFinishedProduct[];
   dishCostings: Record<string, DishCosting>;
   onUpdateSemiFinished: (list: SemiFinishedProduct[]) => void;
   onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
+  onUpdateProduct: (productId: string, updates: Partial<Product>) => void;
   onAcceptAllOrders: () => void;
   onSendRemindersAll: () => void;
-  onSendReminderSingle: (shopId: number) => void;
   onSimulateAll: () => void;
   onOpenSubmittedOrdersModal?: () => void;
 }
@@ -41,18 +38,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
   shops,
   products,
   orders,
-  notifications,
   semiFinishedList,
   dishCostings,
   onUpdateSemiFinished,
   onUpdateDishCostings,
+  onUpdateProduct,
   onAcceptAllOrders,
   onSendRemindersAll,
-  onSendReminderSingle,
   onSimulateAll,
   onOpenSubmittedOrdersModal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'costings' | 'discipline'>('costings');
   const [selectedPrintDept, setSelectedPrintDept] = useState<'bakery' | 'desserts' | 'bar_prep' | 'kitchen_prep' | null>(null);
   const [isChecklistsMenuOpen, setIsChecklistsMenuOpen] = useState(false);
   const [isAiProcurementOpen, setIsAiProcurementOpen] = useState(false);
@@ -331,55 +326,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
         )}
       </div>
 
-      {/* ADMIN SUB-TABS (Costings vs Discipline Monitor) */}
-      <div className="flex bg-slate-100 p-1.5 rounded-lg border border-slate-200 space-x-1">
-        <button
-          id="btn-admin-tab-costings"
-          onClick={() => setActiveTab('costings')}
-          className={`flex-1 py-2 px-4 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 ${
-            activeTab === 'costings'
-              ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <ChefHat className="w-4 h-4" />
-          <span>Калькуляции Блюд и Полуфабрикатов</span>
-        </button>
-
-        <button
-          id="btn-admin-tab-discipline"
-          onClick={() => setActiveTab('discipline')}
-          className={`flex-1 py-2 px-4 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 ${
-            activeTab === 'discipline'
-              ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Bell className="w-4 h-4" />
-          <span>Дисциплина Подачи</span>
-        </button>
-      </div>
-
-      {/* VIEW PANEL CONTENT */}
-      {activeTab === 'costings' && (
-        <CostingsManager
-          products={products}
-          semiFinishedList={semiFinishedList}
-          dishCostings={dishCostings}
-          onUpdateSemiFinished={onUpdateSemiFinished}
-          onUpdateDishCostings={onUpdateDishCostings}
-        />
-      )}
-
-      {activeTab === 'discipline' && (
-        <DisciplineTracker
-          shops={shops}
-          orders={orders}
-          notifications={notifications}
-          onSendRemindersAll={onSendRemindersAll}
-          onSendReminderSingle={onSendReminderSingle}
-        />
-      )}
+      {/* CALCULATIONS PANEL */}
+      <CostingsManager
+        products={products}
+        semiFinishedList={semiFinishedList}
+        dishCostings={dishCostings}
+        onUpdateSemiFinished={onUpdateSemiFinished}
+        onUpdateDishCostings={onUpdateDishCostings}
+        onUpdateProduct={onUpdateProduct}
+      />
 
       {/* MODALS */}
       <PrintChecklistsModal

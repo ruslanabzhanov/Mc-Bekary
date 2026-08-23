@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck, UserCheck, Clock, Lock, LogOut, KeyRound, X } from 'lucide-react';
-import { CartoonTurtle } from './CartoonTurtle';
+import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
 
 interface HeaderProps {
   currentRole: 'manager' | 'admin';
@@ -40,68 +40,71 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="bg-white text-slate-900 border-b border-slate-200 sticky top-0 z-40 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-row items-center justify-between py-2.5 gap-3">
-          
-          {/* Turtle Logo & Brand Title */}
-          <div className="flex items-center space-x-2.5">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden shadow-sm flex-shrink-0 flex items-center justify-center bg-white border border-slate-200">
-              <CartoonTurtle className="w-9 h-9 sm:w-10 sm:h-10 animate-turtle" />
-            </div>
-            <div className="flex-1">
-              <h1 className="font-brand text-base sm:text-lg font-extrabold tracking-[0.15em] text-center text-indigo-950">
-                Master Coffee
-              </h1>
-            </div>
+        <div className="flex flex-row items-center py-2.5 gap-3">
+
+          {/* Croissant Logo Icon */}
+          <div className="w-11 h-11 sm:w-12 sm:h-12 flex-shrink-0 flex items-center justify-center">
+            <img src={masterCoffeeCroissant} alt="Master Bakery" className="w-full h-full object-contain" />
           </div>
 
-          {/* Center Info: Live Time & Discipline Bar */}
-          <div className="hidden md:flex items-center space-x-4 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
-            <div className="flex items-center space-x-1.5 text-slate-600 font-medium">
-              <Clock className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Дедлайн: <strong className="text-slate-900">10:30</strong></span>
-            </div>
-            <div className="h-4 w-px bg-slate-200" />
-            <button 
-              onClick={onOpenSubmittedOrdersModal}
-              className="flex items-center space-x-2 hover:bg-slate-200/60 px-2 py-0.5 rounded transition-all cursor-pointer group"
-              title="Открыть список подавших заявку кофеен"
-            >
-              <span className="text-[10px] uppercase font-bold text-slate-500 group-hover:text-indigo-900">Подано:</span>
-              <span className="font-bold text-emerald-600">{submittedCount}/{totalShops}</span>
-              <div className="w-16 bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                <div
-                  className="bg-indigo-600 h-full transition-all duration-500"
-                  style={{ width: `${percentage}%` }}
-                />
+          {/* Brand Title: centered between the icon and the right-side controls */}
+          <div className="flex-1 flex items-center justify-center">
+            <h1 className="font-brand text-lg sm:text-xl tracking-[0.1em] text-center text-indigo-950">
+              Master Bakery
+            </h1>
+          </div>
+
+          {/* Right side: Live Time & Discipline Bar + Executive Access */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Center Info: Live Time & Discipline Bar */}
+            <div className="hidden md:flex items-center space-x-4 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
+              <div className="flex items-center space-x-1.5 text-slate-600 font-medium">
+                <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Дедлайн: <strong className="text-slate-900">10:30</strong></span>
               </div>
-            </button>
-          </div>
-
-          {/* Executive Access Button / Executive Active State */}
-          <div className="flex items-center space-x-2">
-            {currentRole === 'manager' ? (
+              <div className="h-4 w-px bg-slate-200" />
               <button
-                id="btn-admin-login"
-                onClick={() => setIsPinModalOpen(true)}
-                className="p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-indigo-600 hover:text-indigo-900 transition-all shadow-2xs cursor-pointer"
-                title="Вход для Управляющего Производством"
+                onClick={onOpenSubmittedOrdersModal}
+                className="flex items-center space-x-2 hover:bg-slate-200/60 px-2 py-0.5 rounded transition-all cursor-pointer group"
+                title="Открыть список подавших заявку кофеен"
               >
-                <Lock className="w-4 h-4" />
-              </button>
-            ) : (
-              <div className="flex items-center space-x-1.5 bg-indigo-50 border border-indigo-200 p-1 rounded-xl shadow-2xs">
-                <div className="p-1 text-indigo-700 flex items-center justify-center" title="Управляющий Производством">
-                  <ShieldCheck className="w-4 h-4" />
+                <span className="text-[10px] uppercase font-bold text-slate-500 group-hover:text-indigo-900">Подано:</span>
+                <span className="font-bold text-emerald-600">{submittedCount}/{totalShops}</span>
+                <div className="w-16 bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-indigo-600 h-full transition-all duration-500"
+                    style={{ width: `${percentage}%` }}
+                  />
                 </div>
+              </button>
+            </div>
+
+            {/* Executive Access Button / Executive Active State */}
+            <div className="flex items-center space-x-2">
+              {currentRole === 'manager' ? (
                 <button
-                  onClick={() => onRoleChange('manager')}
-                  className="p-1 text-rose-700 hover:text-rose-800 bg-white border border-rose-200 rounded-lg shadow-2xs hover:bg-rose-50 transition-colors cursor-pointer"
-                  title="Выйти из режима Управляющего"
+                  id="btn-admin-login"
+                  onClick={() => setIsPinModalOpen(true)}
+                  className="p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-indigo-600 hover:text-indigo-900 transition-all shadow-2xs cursor-pointer"
+                  title="Вход для Управляющего Производством"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <Lock className="w-4 h-4" />
                 </button>
-              </div>
-            )}
+              ) : (
+                <div className="flex items-center space-x-1.5 bg-indigo-50 border border-indigo-200 p-1 rounded-xl shadow-2xs">
+                  <div className="p-1 text-indigo-700 flex items-center justify-center" title="Управляющий Производством">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <button
+                    onClick={() => onRoleChange('manager')}
+                    className="p-1 text-rose-700 hover:text-rose-800 bg-white border border-rose-200 rounded-lg shadow-2xs hover:bg-rose-50 transition-colors cursor-pointer"
+                    title="Выйти из режима Управляющего"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
         </div>

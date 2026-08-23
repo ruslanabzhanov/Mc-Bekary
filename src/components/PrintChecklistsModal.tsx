@@ -150,7 +150,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
               </div>
               <p className="text-xs text-slate-500 print:text-gray-700 mt-0.5">{dept.subtitle}</p>
               <p className="text-xs font-bold text-indigo-700 print:text-black mt-2 uppercase tracking-wider">
-                СЕТЬ 27 КОФЕЕН "MASTER COFFEE" • ЦЕХОВОЕ ЗАДАНИЕ НА ВЫПУСК
+                СЕТЬ 27 КОФЕЕН "MASTER BAKERY" • ЦЕХОВОЕ ЗАДАНИЕ НА ВЫПУСК
               </p>
             </div>
 

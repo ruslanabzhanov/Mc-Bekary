@@ -123,6 +123,11 @@ export default function App() {
     }
   };
 
+  // Admin: Update a single product's card fields (photo, category, price, etc.)
+  const handleUpdateProduct = (productId: string, updates: Partial<Product>) => {
+    setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, ...updates } : p)));
+  };
+
   // Admin: Accept all submitted orders
   const handleAcceptAllOrders = async () => {
     const now = new Date();
@@ -241,22 +246,19 @@ export default function App() {
               onUpdateOrder={handleUpdateOrder}
               onOpenPreview={() => setIsPreviewOpen(true)}
               notifications={notifications}
-              submittedCount={submittedCount}
-              onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
             />
           ) : (
             <AdminView
               shops={shops}
               products={products}
               orders={orders}
-              notifications={notifications}
               semiFinishedList={semiFinishedList}
               dishCostings={dishCostings}
               onUpdateSemiFinished={setSemiFinishedList}
               onUpdateDishCostings={setDishCostings}
+              onUpdateProduct={handleUpdateProduct}
               onAcceptAllOrders={handleAcceptAllOrders}
               onSendRemindersAll={handleSendRemindersAll}
-              onSendReminderSingle={handleSendReminderSingle}
               onSimulateAll={handleSimulateAll}
               onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
             />
@@ -295,7 +297,7 @@ export default function App() {
           </span>
           <span>Anomaly Detection: Scan complete</span>
         </div>
-        <div>© 2026 Master Coffee Supply System</div>
+        <div>© 2026 Master Bakery Supply System</div>
       </footer>
 
     </div>

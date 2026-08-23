@@ -12,10 +12,8 @@ import {
   Clock,
   Zap,
   TrendingUp,
-  Info,
-  ClipboardList
+  Info
 } from 'lucide-react';
-import { CartoonTurtle } from './CartoonTurtle';
 
 interface ManagerViewProps {
   coffeeShops: CoffeeShop[];
@@ -26,8 +24,6 @@ interface ManagerViewProps {
   onUpdateOrder: (shopId: number, items: Record<string, number>, status?: 'draft' | 'submitted') => void;
   onOpenPreview: () => void;
   notifications: Array<{ id: string; sentAt: string; message: string }>;
-  submittedCount?: number;
-  onOpenSubmittedOrdersModal?: () => void;
 }
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
@@ -39,10 +35,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   onUpdateOrder,
   onOpenPreview,
   notifications,
-  submittedCount = 21,
-  onOpenSubmittedOrdersModal,
 }) => {
-  const [activeTab, setActiveTab] = useState<Category | 'all' | 'frequent'>('all');
+  const [activeTab, setActiveTab] = useState<Category | 'all'>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const selectedShop = useMemo(
@@ -58,11 +52,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   // Filter products by tab
   const filteredProducts = useMemo(() => {
     if (activeTab === 'all') return products;
-    if (activeTab === 'frequent') {
-      return products.filter((p) => frequentProductIds.includes(p.id));
-    }
     return products.filter((p) => p.category === activeTab);
-  }, [products, activeTab, frequentProductIds]);
+  }, [products, activeTab]);
 
   // Quantity updates with validation
   const handleQuantityChange = (productId: string, val: string) => {
@@ -176,7 +167,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
       {/* STEP 1: Tile Grid Dashboard (Информационные карточки плиткой) */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           {/* Tile 1: Закрепленная точка */}
           <div className="bg-indigo-50/80 p-3 rounded-xl border border-indigo-100 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
@@ -195,10 +186,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
           {/* Tile 2: Менеджер */}
           <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between">
-            <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Менеджер точки</span>
             <span className="font-bold text-slate-800 text-xs truncate" title={selectedShop.manager}>
               {selectedShop.manager}
             </span>
+            <span className="text-[10px] font-black uppercase text-slate-400 block mt-1">Менеджер точки</span>
           </div>
 
           {/* Tile 3: Статус заявки */}
@@ -222,42 +213,20 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             )}
           </div>
 
-          {/* Tile 4: Заявок подано */}
-          <div 
-            onClick={onOpenSubmittedOrdersModal}
-            className="bg-indigo-50/70 hover:bg-indigo-100/80 p-3 rounded-xl border border-indigo-200 flex flex-col items-center justify-center text-center cursor-pointer transition-all group shadow-2xs"
-            title="Нажмите, чтобы открыть реестр 27 точек: кто подал, во сколько и статус"
-          >
-            <span className="text-[10px] font-black uppercase text-indigo-800 tracking-wide block mb-1">
-              Заявок подано
-            </span>
-            <div className="font-extrabold text-indigo-950 text-xs">
-              {submittedCount} <span className="text-[10px] font-bold text-slate-500">из 27</span>
-            </div>
-          </div>
-
-          {/* Tile 5: Кнопка ИИ-заполнения (на 2 плитки) */}
+          {/* Tile 4: Заявка в один клик */}
           <button
             id="btn-apply-ai-all"
             onClick={handleApplyAllAiRecommendations}
-            className="relative col-span-2 sm:col-span-2 lg:col-span-2 bg-indigo-600 hover:bg-indigo-700 text-white p-3 pr-11 rounded-xl font-bold transition-all shadow-2xs flex flex-col justify-between items-center text-center group cursor-pointer overflow-hidden"
-            title="Заполнить все товары на основе ИИ-норм дня"
+            className="bg-slate-50 hover:bg-indigo-50 p-3 rounded-xl border border-slate-200 hover:border-indigo-300 flex items-center justify-between transition-all cursor-pointer group shadow-2xs text-left"
+            title="Заявка в один клик: заполнить все товары на основе ИИ-норм дня"
           >
-            <div className="flex items-center justify-center w-full mb-1">
-              <span className="text-xs font-black uppercase tracking-wider text-amber-300 animate-pulse transition-transform group-hover:scale-105 inline-block text-center">
-                Быстрый автономный заказ
+            <div>
+              <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Заявка</span>
+              <span className="font-bold uppercase tracking-wider text-xs text-indigo-700 group-hover:text-indigo-900">
+                В один клик
               </span>
             </div>
-            <div className="flex items-center justify-center w-full">
-              <span className="text-sm font-black uppercase tracking-tight text-white flex items-center gap-1">
-                ⚡ Заявка в один клик
-              </span>
-            </div>
-
-            <div className="absolute bottom-1.5 right-1.5 w-9 h-9 shrink-0 animate-turtle-walk">
-              <CartoonTurtle className="w-full h-full" />
-              <ClipboardList className="w-3.5 h-3.5 text-amber-300 absolute -top-1 -right-1.5 drop-shadow" />
-            </div>
+            <Zap className="w-5 h-5 text-indigo-600 flex-shrink-0" />
           </button>
         </div>
       </div>
@@ -277,22 +246,6 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <span>Все товары</span>
             <span className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold">
               {products.length}
-            </span>
-          </button>
-
-          <button
-            id="tab-frequent"
-            onClick={() => setActiveTab('frequent')}
-            className={`py-2 px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap flex items-center justify-center space-x-1.5 ${
-              activeTab === 'frequent'
-                ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50/60'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-            <span>ИИ-Частое</span>
-            <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold">
-              {frequentProductIds.length}
             </span>
           </button>
 
@@ -551,10 +504,11 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         })}
       </div>
 
-      {/* FORM FOOTER STICKY BAR */}
-      <div className="fixed bottom-9 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-2 sm:p-3 md:p-4 z-40 shadow-lg">
+      {/* FORM FOOTER STICKY BAR: only while composing a draft with at least 1 item, hides once submitted */}
+      {totalPcs > 0 && currentOrder.status === 'draft' && (
+      <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-2 sm:p-3 md:p-4 z-40 shadow-lg">
         <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-2 sm:gap-4">
-          
+
           {/* Order Totals Summary */}
           <div className="flex items-center space-x-2.5 sm:space-x-6 min-w-0">
             <div>
@@ -581,7 +535,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             )}
           </div>
 
-          {/* Action Buttons & Status Widget */}
+          {/* Action Buttons */}
           <div className="flex items-center space-x-1.5 sm:space-x-3 flex-shrink-0">
             <button
               id="btn-preview-order"
@@ -596,35 +550,15 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <button
               id="btn-submit-order"
               onClick={handleSubmitOrder}
-              disabled={currentOrder.status === 'submitted' || currentOrder.status === 'accepted'}
-              className={`flex items-center justify-center space-x-1.5 px-3.5 py-1.5 sm:px-6 sm:py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-sm whitespace-nowrap ${
-                currentOrder.status === 'accepted'
-                  ? 'bg-emerald-600 text-white cursor-default'
-                  : currentOrder.status === 'submitted'
-                  ? 'bg-indigo-600 text-white cursor-default opacity-90'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95'
-              }`}
+              className="flex items-center justify-center space-x-1.5 px-3.5 py-1.5 sm:px-6 sm:py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-sm whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95"
             >
-              {currentOrder.status === 'accepted' ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Принято</span>
-                </>
-              ) : currentOrder.status === 'submitted' ? (
-                <>
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Отправлено</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Отправить</span>
-                </>
-              )}
+              <Send className="w-3.5 h-3.5" />
+              <span>Отправить</span>
             </button>
           </div>
         </div>
       </div>
+      )}
 
     </div>
   );
