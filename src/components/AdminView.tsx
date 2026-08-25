@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting } from '../types';
+import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest } from '../types';
 import { AiProcurementModal } from './AiProcurementModal';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
 import { CostingsManager } from './CostingsManager';
+import { PersonnelManager } from './PersonnelManager';
+import { SalesPointsManager } from './SalesPointsManager';
 import {
   ShieldCheck,
   Send,
   CheckCircle2,
-  Printer,
   Sparkles,
   AlertTriangle,
   RotateCcw,
@@ -16,7 +17,12 @@ import {
   ChefHat,
   Utensils,
   BookOpen,
-  ChevronDown
+  ChevronDown,
+  Wrench,
+  Users,
+  Printer,
+  Store,
+  X
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -28,6 +34,17 @@ interface AdminViewProps {
   onUpdateSemiFinished: (list: SemiFinishedProduct[]) => void;
   onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
   onUpdateProduct: (productId: string, updates: Partial<Product>) => void;
+  staff: StaffMember[];
+  registrationRequests: RegistrationRequest[];
+  onUpdateStaffMember: (staffId: string, updates: Partial<StaffMember>) => void;
+  onUpdateRegistrationRequest: (requestId: string, updates: Partial<RegistrationRequest>) => void;
+  onApproveRegistrationRequest: (requestId: string) => void;
+  onRejectRegistrationRequest: (requestId: string) => void;
+  onAddShop: (data: { address: string; manager: string; district: string }) => void;
+  onUpdateShop: (shopId: number, updates: Partial<Pick<CoffeeShop, 'district' | 'address'>>) => void;
+  onAddStaffMember: (member: Omit<StaffMember, 'id'>) => void;
+  onDeleteStaffMember: (staffId: string) => void;
+  onAssignTerritorialManager: (shopId: number, staffId: string) => void;
   onAcceptAllOrders: () => void;
   onSendRemindersAll: () => void;
   onSimulateAll: () => void;
@@ -43,6 +60,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onUpdateSemiFinished,
   onUpdateDishCostings,
   onUpdateProduct,
+  staff,
+  registrationRequests,
+  onUpdateStaffMember,
+  onUpdateRegistrationRequest,
+  onApproveRegistrationRequest,
+  onRejectRegistrationRequest,
+  onAddShop,
+  onUpdateShop,
+  onAddStaffMember,
+  onDeleteStaffMember,
+  onAssignTerritorialManager,
   onAcceptAllOrders,
   onSendRemindersAll,
   onSimulateAll,
@@ -50,6 +78,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
 }) => {
   const [selectedPrintDept, setSelectedPrintDept] = useState<'bakery' | 'desserts' | 'bar_prep' | 'kitchen_prep' | null>(null);
   const [isChecklistsMenuOpen, setIsChecklistsMenuOpen] = useState(false);
+  const [isPersonnelModalOpen, setIsPersonnelModalOpen] = useState(false);
+  const [isSalesPointsModalOpen, setIsSalesPointsModalOpen] = useState(false);
+  const [isCostingsModalOpen, setIsCostingsModalOpen] = useState(false);
   const [isAiProcurementOpen, setIsAiProcurementOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -218,26 +249,64 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       </div>
 
-      {/* 4 DEPARTMENT PRINT CHECKLISTS QUICK ACTION PANEL */}
+      {/* УПРАВЛЕНИЕ ЦЕХОМ */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
-              <Printer className="w-5 h-5 text-indigo-600" />
-              <span>Генерация и печать цеховых чек-листов и заготовок</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Расфасовка готовой продукции по 27 точкам и ведомость заготовки полуфабрикатов на сегодня
-            </p>
-          </div>
+        <h3 className="text-base font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+          <Wrench className="w-5 h-5 text-indigo-600" />
+          <span>Управление цехом</span>
+        </h3>
 
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <button
             id="btn-toggle-checklists"
             onClick={() => setIsChecklistsMenuOpen((open) => !open)}
-            className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-lg text-xs uppercase tracking-wider transition-all shadow-sm"
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
           >
-            <span>Чек-листы</span>
-            <ChevronDown className={`w-4 h-4 transition-transform ${isChecklistsMenuOpen ? 'rotate-180' : ''}`} />
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Чек-листы
+            </span>
+            <div className="flex items-center justify-center mt-1.5 space-x-1">
+              <Printer className="w-6 h-6 text-slate-900" />
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isChecklistsMenuOpen ? 'rotate-180' : ''}`} />
+            </div>
+          </button>
+
+          <button
+            id="btn-open-costings-modal"
+            onClick={() => setIsCostingsModalOpen(true)}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+          >
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Блюда и ТКК
+            </span>
+            <ChefHat className="w-6 h-6 text-slate-900 mt-1.5" />
+          </button>
+
+          <button
+            id="btn-open-personnel-modal"
+            onClick={() => setIsPersonnelModalOpen(true)}
+            className="relative bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+          >
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Сотрудники
+            </span>
+            <Users className="w-6 h-6 text-slate-900 mt-1.5" />
+            {registrationRequests.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-sm">
+                {registrationRequests.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            id="btn-open-sales-points-modal"
+            onClick={() => setIsSalesPointsModalOpen(true)}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+          >
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Точки ({shops.length})
+            </span>
+            <Store className="w-6 h-6 text-slate-900 mt-1.5" />
           </button>
         </div>
 
@@ -326,15 +395,96 @@ export const AdminView: React.FC<AdminViewProps> = ({
         )}
       </div>
 
-      {/* CALCULATIONS PANEL */}
-      <CostingsManager
-        products={products}
-        semiFinishedList={semiFinishedList}
-        dishCostings={dishCostings}
-        onUpdateSemiFinished={onUpdateSemiFinished}
-        onUpdateDishCostings={onUpdateDishCostings}
-        onUpdateProduct={onUpdateProduct}
-      />
+      {/* CALCULATIONS FULLSCREEN WINDOW */}
+      {isCostingsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <ChefHat className="w-5 h-5 text-indigo-600" />
+              <span>Блюда и ТКК</span>
+            </h2>
+            <button
+              onClick={() => setIsCostingsModalOpen(false)}
+              className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6">
+            <CostingsManager
+              products={products}
+              semiFinishedList={semiFinishedList}
+              dishCostings={dishCostings}
+              onUpdateSemiFinished={onUpdateSemiFinished}
+              onUpdateDishCostings={onUpdateDishCostings}
+              onUpdateProduct={onUpdateProduct}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* PERSONNEL FULLSCREEN WINDOW */}
+      {isPersonnelModalOpen && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <Users className="w-5 h-5 text-indigo-600" />
+              <span>Персонал</span>
+            </h2>
+            <button
+              onClick={() => setIsPersonnelModalOpen(false)}
+              className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6">
+            <PersonnelManager
+              shops={shops}
+              staff={staff}
+              registrationRequests={registrationRequests}
+              onUpdateStaffMember={onUpdateStaffMember}
+              onUpdateRegistrationRequest={onUpdateRegistrationRequest}
+              onApproveRegistrationRequest={onApproveRegistrationRequest}
+              onRejectRegistrationRequest={onRejectRegistrationRequest}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* SALES POINTS FULLSCREEN WINDOW */}
+      {isSalesPointsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <Store className="w-5 h-5 text-indigo-600" />
+              <span>Точки продаж</span>
+            </h2>
+            <button
+              onClick={() => setIsSalesPointsModalOpen(false)}
+              className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6">
+            <SalesPointsManager
+              shops={shops}
+              orders={orders}
+              products={products}
+              staff={staff}
+              onAddShop={onAddShop}
+              onUpdateShop={onUpdateShop}
+              onAddStaffMember={onAddStaffMember}
+              onDeleteStaffMember={onDeleteStaffMember}
+              onAssignTerritorialManager={onAssignTerritorialManager}
+            />
+          </div>
+        </div>
+      )}
 
       {/* MODALS */}
       <PrintChecklistsModal

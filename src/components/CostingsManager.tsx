@@ -539,12 +539,12 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
               </h3>
 
               {/* Active Tiles: bigger Photo on the left, Category & Price (stacked) on the right */}
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 {/* Photo Tile - click to upload a new photo */}
                 <button
                   type="button"
                   onClick={() => photoInputRef.current?.click()}
-                  className="relative flex-1 min-w-0 h-56 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 group"
+                  className="relative w-full sm:flex-1 sm:min-w-0 h-40 sm:h-56 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 group"
                   title="Нажмите, чтобы загрузить новое фото"
                 >
                   <img
@@ -571,9 +571,9 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   onChange={handleDishPhotoSelected}
                 />
 
-                <div className="flex flex-col gap-2 w-28 shrink-0 min-w-0">
+                <div className="grid grid-cols-2 sm:flex sm:flex-col gap-2 sm:w-28 sm:shrink-0 min-w-0">
                   {/* Category Tile - click to change */}
-                  <div className="relative flex-1 min-w-0">
+                  <div className="relative min-w-0 sm:flex-1">
                     <button
                       type="button"
                       onClick={() => setIsCategoryPickerOpen((v) => !v)}

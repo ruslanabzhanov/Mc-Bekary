@@ -1,4 +1,4 @@
-import { Product, CoffeeShop, ShopOrder } from '../types';
+import { Product, CoffeeShop, ShopOrder, StaffMember, RegistrationRequest, StaffRole } from '../types';
 
 export const PRODUCTS: Product[] = [
   // -------------------------------------------------------------
@@ -964,3 +964,53 @@ COFFEE_SHOPS.forEach((shop) => {
     };
   }
 });
+
+export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
+  employee: 'Внутренний сотрудник',
+  territorial_manager: 'Территориальный управляющий',
+  shop_manager: 'Менеджер точки'
+};
+
+export const INITIAL_STAFF: StaffMember[] = [
+  { id: 'staff-1', name: 'Айгерим С.', role: 'shop_manager', shopId: 1, phone: '+7 707 101 21' },
+  { id: 'staff-2', name: 'Данияр Т.', role: 'shop_manager', shopId: 2, phone: '+7 707 102 22' },
+  { id: 'staff-3', name: 'Мадина К.', role: 'shop_manager', shopId: 3, phone: '+7 707 103 23' },
+  {
+    id: 'staff-4',
+    name: 'Ерлан Б.',
+    role: 'territorial_manager',
+    shopId: null,
+    phone: '+7 707 201 41',
+    assignedShopIds: Array.from({ length: 14 }, (_, i) => i + 1)
+  },
+  {
+    id: 'staff-5',
+    name: 'Алина Р.',
+    role: 'territorial_manager',
+    shopId: null,
+    phone: '+7 707 202 42',
+    assignedShopIds: Array.from({ length: 13 }, (_, i) => i + 15)
+  },
+  { id: 'staff-6', name: 'Арман М.', role: 'employee', shopId: 1, phone: '+7 707 301 61' },
+  { id: 'staff-7', name: 'Зарина Н.', role: 'employee', shopId: 4, phone: '+7 707 302 62' },
+  { id: 'staff-8', name: 'Руслан А.', role: 'employee', shopId: 9, phone: '+7 707 303 63' }
+];
+
+export const INITIAL_REGISTRATION_REQUESTS: RegistrationRequest[] = [
+  {
+    id: 'reg-1',
+    name: 'Камила В.',
+    phone: '+7 707 405 55',
+    requestedShopId: 5,
+    requestedRole: 'employee',
+    submittedAt: '08:12'
+  },
+  {
+    id: 'reg-2',
+    name: 'Алишер С.',
+    phone: '+7 707 406 56',
+    requestedShopId: 12,
+    requestedRole: 'shop_manager',
+    submittedAt: '08:47'
+  }
+];

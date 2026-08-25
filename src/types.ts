@@ -101,3 +101,25 @@ export interface DishCosting {
   rawIngredients: DishRawItem[];
 }
 
+export type UserRole = 'manager' | 'admin' | 'territorial';
+
+export type StaffRole = 'employee' | 'territorial_manager' | 'shop_manager';
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  role: StaffRole;
+  shopId: number | null; // assigned point, null for staff not tied to a single point
+  assignedShopIds?: number[]; // for territorial managers: the points they oversee
+  phone?: string;
+}
+
+export interface RegistrationRequest {
+  id: string;
+  name: string;
+  phone?: string;
+  requestedShopId: number;
+  requestedRole: StaffRole;
+  submittedAt: string;
+}
+
