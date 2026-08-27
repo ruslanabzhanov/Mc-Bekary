@@ -1,16 +1,153 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
-import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS } from './src/data/mockData.js';
+import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './src/data/mockData.js';
+import { INITIAL_RAW_MATERIALS, INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS } from './src/data/costingData.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Shared state in memory
-let ordersState = { ...INITIAL_ORDERS };
-let notificationsLog: Array<{ id: string; shopId: number; shopName: string; sentAt: string; message: string }> = [];
+// All admin-edited data is persisted to this file, so it survives dev-server restarts
+// (not just browser reloads). Without this, everything lived only in the Node process's
+// memory and a restart (e.g. to apply a server.ts code change) silently wiped it.
+const DATA_DIR = path.join(__dirname, '.data');
+const DATA_FILE = path.join(DATA_DIR, 'app-state.json');
+const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+const MAX_BACKUPS = 50;
+
+function readJsonSafe(file: string): Record<string, any> | null {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+// Loads the last saved state. If the main file is missing/corrupted, falls back to the
+// most recent backup rather than silently reverting to the hardcoded seed data — a "process"
+// (a crash mid-write, a bad restart) should never be able to quietly erase real admin data.
+function loadPersistedState(): Record<string, any> {
+  const main = fs.existsSync(DATA_FILE) ? readJsonSafe(DATA_FILE) : null;
+  if (main) return main;
+
+  if (fs.existsSync(DATA_FILE)) {
+    console.error(`${DATA_FILE} exists but failed to parse — trying most recent backup instead.`);
+  }
+
+  if (fs.existsSync(BACKUPS_DIR)) {
+    const backups = fs.readdirSync(BACKUPS_DIR).sort().reverse();
+    for (const name of backups) {
+      const data = readJsonSafe(path.join(BACKUPS_DIR, name));
+      if (data) {
+        console.error(`Recovered state from backup: ${name}`);
+        return data;
+      }
+    }
+  }
+
+  return {};
+}
+
+const DEFAULT_RAW_CATEGORY_DEFS = [
+  { key: 'meat', label: 'Мясо и птица' },
+  { key: 'fish', label: 'Рыба и морепродукты' },
+  { key: 'veg', label: 'Овощи и зелень' },
+  { key: 'sauce', label: 'Соусы и бакалея' },
+  { key: 'bakery', label: 'Крупы и мука' },
+  { key: 'dairy', label: 'Молочные продукты и яйцо' },
+  { key: 'packaging', label: 'Упаковка и расходники' },
+];
+
+// Default checklist -> product assignment, seeded from each department's matching product category
+const DEPT_CATEGORY_MAP: Record<string, string> = {
+  bakery: 'croissants',
+  sandwiches: 'sandwiches',
+  desserts: 'desserts',
+  bar_prep: 'bar_prep',
+  kitchen_prep: 'kitchen_prep',
+  new_items: 'new_items',
+};
+const DEFAULT_CHECKLIST_ASSIGNMENTS: Record<string, string[]> = Object.fromEntries(
+  Object.entries(DEPT_CATEGORY_MAP).map(([deptKey, category]) => [
+    deptKey,
+    PRODUCTS.filter((p) => p.category === category).map((p) => p.id),
+  ])
+);
+
+// Shared state in memory, seeded from disk if a previous run persisted anything
+const persisted = loadPersistedState();
+
+let ordersState: Record<string, any> = persisted.orders || { ...INITIAL_ORDERS };
+let notificationsLog: Array<{ id: string; shopId: number; shopName: string; sentAt: string; message: string }> =
+  persisted.notifications || [];
+let rawMaterialsState = persisted.rawMaterials || [...INITIAL_RAW_MATERIALS];
+let rawCategoryDefsState = persisted.rawCategoryDefs || [...DEFAULT_RAW_CATEGORY_DEFS];
+let semiFinishedState = persisted.semiFinishedList || [...INITIAL_SEMI_FINISHED];
+let dishCostingsState = persisted.dishCostings || { ...INITIAL_DISH_COSTINGS };
+let checklistAssignmentsState: Record<string, string[]> = persisted.checklistAssignments || { ...DEFAULT_CHECKLIST_ASSIGNMENTS };
+let shopsState = persisted.shops || [...COFFEE_SHOPS];
+let productsState = persisted.products || [...PRODUCTS];
+let staffState = persisted.staff || [...INITIAL_STAFF];
+let registrationRequestsState = persisted.registrationRequests || [...INITIAL_REGISTRATION_REQUESTS];
+
+// Copies the current on-disk state into backups/ before it gets overwritten, and prunes
+// old backups beyond MAX_BACKUPS. This is the real safety net: even if a future code change
+// (mine or anyone else's) has a bug that saves bad/empty data, a recent good snapshot exists
+// to recover from — nothing short of the user manually deleting an item is ever the final word.
+function rotateBackup() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return;
+    if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.copyFileSync(DATA_FILE, path.join(BACKUPS_DIR, `app-state-${stamp}.json`));
+
+    const backups = fs.readdirSync(BACKUPS_DIR).sort();
+    const excess = backups.length - MAX_BACKUPS;
+    if (excess > 0) {
+      for (const name of backups.slice(0, excess)) {
+        fs.unlinkSync(path.join(BACKUPS_DIR, name));
+      }
+    }
+  } catch (e) {
+    console.error('Failed to rotate state backup:', e);
+  }
+}
+
+function savePersistedState() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    rotateBackup();
+
+    const payload = JSON.stringify(
+      {
+        orders: ordersState,
+        notifications: notificationsLog,
+        rawMaterials: rawMaterialsState,
+        rawCategoryDefs: rawCategoryDefsState,
+        semiFinishedList: semiFinishedState,
+        dishCostings: dishCostingsState,
+        checklistAssignments: checklistAssignmentsState,
+        shops: shopsState,
+        products: productsState,
+        staff: staffState,
+        registrationRequests: registrationRequestsState,
+      },
+      null,
+      2
+    );
+
+    // Write-then-rename so a crash mid-write can never leave app-state.json half-written/corrupted
+    const tmpFile = `${DATA_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, payload);
+    fs.renameSync(tmpFile, DATA_FILE);
+  } catch (e) {
+    console.error('Failed to persist state to disk:', e);
+  }
+}
 
 // Initialize Gemini SDK lazily if GEMINI_API_KEY is provided
 function getGeminiClient() {
@@ -37,11 +174,99 @@ async function startServer() {
   // API Endpoints
   app.get('/api/initial-data', (req, res) => {
     res.json({
-      shops: COFFEE_SHOPS,
-      products: PRODUCTS,
+      shops: shopsState,
+      products: productsState,
       orders: ordersState,
       notifications: notificationsLog,
+      rawMaterials: rawMaterialsState,
+      rawCategoryDefs: rawCategoryDefsState,
+      semiFinishedList: semiFinishedState,
+      dishCostings: dishCostingsState,
+      checklistAssignments: checklistAssignmentsState,
+      staff: staffState,
+      registrationRequests: registrationRequestsState,
     });
+  });
+
+  // Persist the raw materials catalog (add/edit/delete raw ingredients)
+  app.post('/api/raw-materials', (req, res) => {
+    if (Array.isArray(req.body?.rawMaterials)) {
+      rawMaterialsState = req.body.rawMaterials;
+      savePersistedState();
+    }
+    res.json({ success: true, rawMaterials: rawMaterialsState });
+  });
+
+  // Persist custom raw material categories
+  app.post('/api/raw-category-defs', (req, res) => {
+    if (Array.isArray(req.body?.rawCategoryDefs)) {
+      rawCategoryDefsState = req.body.rawCategoryDefs;
+      savePersistedState();
+    }
+    res.json({ success: true, rawCategoryDefs: rawCategoryDefsState });
+  });
+
+  // Persist the semi-finished products catalog
+  app.post('/api/semi-finished', (req, res) => {
+    if (Array.isArray(req.body?.semiFinishedList)) {
+      semiFinishedState = req.body.semiFinishedList;
+      savePersistedState();
+    }
+    res.json({ success: true, semiFinishedList: semiFinishedState });
+  });
+
+  // Persist dish costings (semi-finished + raw ingredients used per dish)
+  app.post('/api/dish-costings', (req, res) => {
+    if (req.body?.dishCostings && typeof req.body.dishCostings === 'object') {
+      dishCostingsState = req.body.dishCostings;
+      savePersistedState();
+    }
+    res.json({ success: true, dishCostings: dishCostingsState });
+  });
+
+  // Persist which products are assigned to each production checklist
+  app.post('/api/checklist-assignments', (req, res) => {
+    if (req.body?.checklistAssignments && typeof req.body.checklistAssignments === 'object') {
+      checklistAssignmentsState = req.body.checklistAssignments;
+      savePersistedState();
+    }
+    res.json({ success: true, checklistAssignments: checklistAssignmentsState });
+  });
+
+  // Persist the coffee shop list (new points, address/manager edits, territorial manager assignment)
+  app.post('/api/shops', (req, res) => {
+    if (Array.isArray(req.body?.shops)) {
+      shopsState = req.body.shops;
+      savePersistedState();
+    }
+    res.json({ success: true, shops: shopsState });
+  });
+
+  // Persist the product/menu catalog (photo, category, price edits)
+  app.post('/api/products', (req, res) => {
+    if (Array.isArray(req.body?.products)) {
+      productsState = req.body.products;
+      savePersistedState();
+    }
+    res.json({ success: true, products: productsState });
+  });
+
+  // Persist the staff roster
+  app.post('/api/staff', (req, res) => {
+    if (Array.isArray(req.body?.staff)) {
+      staffState = req.body.staff;
+      savePersistedState();
+    }
+    res.json({ success: true, staff: staffState });
+  });
+
+  // Persist pending registration requests
+  app.post('/api/registration-requests', (req, res) => {
+    if (Array.isArray(req.body?.registrationRequests)) {
+      registrationRequestsState = req.body.registrationRequests;
+      savePersistedState();
+    }
+    res.json({ success: true, registrationRequests: registrationRequestsState });
   });
 
   // Submit or save order for a specific coffee shop
@@ -49,7 +274,7 @@ async function startServer() {
     const shopId = parseInt(req.params.shopId, 10);
     const { items, status, notes, managerName } = req.body;
 
-    const shop = COFFEE_SHOPS.find((s) => s.id === shopId);
+    const shop = shopsState.find((s) => s.id === shopId);
     if (!shop) {
       return res.status(404).json({ error: 'Coffee shop not found' });
     }
@@ -86,6 +311,7 @@ async function startServer() {
       notes,
       anomalies: Object.keys(anomalies).length > 0 ? anomalies : undefined,
     };
+    savePersistedState();
 
     res.json({ success: true, order: ordersState[shopId] });
   });
@@ -103,7 +329,7 @@ async function startServer() {
         ordersState[shopId].acceptedAt = timeStr;
       }
     } else {
-      const shop = COFFEE_SHOPS.find((s) => s.id === shopId);
+      const shop = shopsState.find((s) => s.id === shopId);
       ordersState[shopId] = {
         shopId,
         items: {},
@@ -112,6 +338,7 @@ async function startServer() {
         acceptedAt: status === 'accepted' ? timeStr : undefined,
       };
     }
+    savePersistedState();
     res.json({ success: true, order: ordersState[shopId] });
   });
 
@@ -127,6 +354,7 @@ async function startServer() {
         ordersState[id].acceptedAt = timeStr;
       }
     });
+    savePersistedState();
 
     res.json({ success: true, orders: ordersState });
   });
@@ -136,9 +364,9 @@ async function startServer() {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    COFFEE_SHOPS.forEach((shop) => {
+    shopsState.forEach((shop) => {
       const items: Record<string, number> = {};
-      PRODUCTS.forEach((p) => {
+      productsState.forEach((p) => {
         const avg = shop.historicalAvg[p.id] || 12;
         items[p.id] = Math.max(1, Math.round(avg * (0.9 + Math.random() * 0.3)));
       });
@@ -151,6 +379,7 @@ async function startServer() {
         managerName: shop.manager,
       };
     });
+    savePersistedState();
 
     res.json({ success: true, orders: ordersState });
   });
@@ -159,7 +388,7 @@ async function startServer() {
   app.post('/api/reminders/send-all', (req, res) => {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const unsubmittedShops = COFFEE_SHOPS.filter(
+    const unsubmittedShops = shopsState.filter(
       (shop) => !ordersState[shop.id] || ordersState[shop.id].status === 'draft'
     );
 
@@ -172,6 +401,7 @@ async function startServer() {
     }));
 
     notificationsLog = [...newNotifications, ...notificationsLog];
+    savePersistedState();
 
     res.json({
       success: true,
@@ -184,7 +414,7 @@ async function startServer() {
   // AI Order Express Analysis Endpoint
   app.post('/api/ai/analyze-order', async (req, res) => {
     const { shopId, items } = req.body;
-    const shop = COFFEE_SHOPS.find((s) => s.id === shopId);
+    const shop = shopsState.find((s) => s.id === shopId);
     if (!shop) {
       return res.status(404).json({ error: 'Shop not found' });
     }
@@ -195,7 +425,7 @@ async function startServer() {
 
     Object.entries(items || {}).forEach(([pId, qtyVal]) => {
       const qty = Number(qtyVal) || 0;
-      const product = PRODUCTS.find((p) => p.id === pId);
+      const product = productsState.find((p) => p.id === pId);
       if (product && qty > 0) {
         totalPcs += qty;
         totalCost += qty * product.price;
@@ -279,7 +509,7 @@ ${orderDetails.join('\n')}
         submittedShopsCount++;
         Object.entries(order.items || {}).forEach(([pId, qtyVal]) => {
           const qty = Number(qtyVal) || 0;
-          const p = PRODUCTS.find((prod) => prod.id === pId);
+          const p = productsState.find((prod) => prod.id === pId);
           if (p && qty > 0) {
             productTotals[pId] = (productTotals[pId] || 0) + qty;
             categoryTotals[p.department] = (categoryTotals[p.department] || 0) + qty;
@@ -307,7 +537,7 @@ ${orderDetails.join('\n')}
 - Кондитерский цех (Десерты): ${categoryTotals.desserts} шт
 
 Позиции:
-${PRODUCTS.map((p) => `- ${p.name}: ${productTotals[p.id] || 0} ${p.unit}`).join('\n')}
+${productsState.map((p) => `- ${p.name}: ${productTotals[p.id] || 0} ${p.unit}`).join('\n')}
 
 Дай профессиональное ИИ-заключение для шеф-повара и начальника производства:
 1. Анализ нагрузки на цеха.

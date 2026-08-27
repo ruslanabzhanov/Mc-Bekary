@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest } from '../types';
+import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest, RawMaterial, ChecklistAssignments } from '../types';
 import { AiProcurementModal } from './AiProcurementModal';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
 import { CostingsManager } from './CostingsManager';
@@ -34,6 +34,12 @@ interface AdminViewProps {
   onUpdateSemiFinished: (list: SemiFinishedProduct[]) => void;
   onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
   onUpdateProduct: (productId: string, updates: Partial<Product>) => void;
+  rawMaterials: RawMaterial[];
+  setRawMaterials: React.Dispatch<React.SetStateAction<RawMaterial[]>>;
+  rawCategoryDefs: { key: string; label: string }[];
+  setRawCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
+  checklistAssignments: ChecklistAssignments;
+  onUpdateChecklistAssignments: (next: ChecklistAssignments) => void;
   staff: StaffMember[];
   registrationRequests: RegistrationRequest[];
   onUpdateStaffMember: (staffId: string, updates: Partial<StaffMember>) => void;
@@ -60,6 +66,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onUpdateSemiFinished,
   onUpdateDishCostings,
   onUpdateProduct,
+  rawMaterials,
+  setRawMaterials,
+  rawCategoryDefs,
+  setRawCategoryDefs,
+  checklistAssignments,
+  onUpdateChecklistAssignments,
   staff,
   registrationRequests,
   onUpdateStaffMember,
@@ -419,6 +431,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
               onUpdateSemiFinished={onUpdateSemiFinished}
               onUpdateDishCostings={onUpdateDishCostings}
               onUpdateProduct={onUpdateProduct}
+              rawMaterials={rawMaterials}
+              setRawMaterials={setRawMaterials}
+              rawCategoryDefs={rawCategoryDefs}
+              setRawCategoryDefs={setRawCategoryDefs}
             />
           </div>
         </div>
@@ -494,6 +510,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
         shops={shops}
         products={products}
         orders={orders}
+        checklistAssignments={checklistAssignments}
+        onUpdateChecklistAssignments={onUpdateChecklistAssignments}
+        dishCostings={dishCostings}
+        semiFinishedList={semiFinishedList}
+        rawMaterials={rawMaterials}
       />
 
       <AiProcurementModal

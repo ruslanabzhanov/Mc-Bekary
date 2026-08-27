@@ -8,7 +8,7 @@ import {
   DishRawItem,
   RawMaterial
 } from '../types';
-import { calculateSemiCost, calculateDishPrimeCost, INITIAL_RAW_MATERIALS } from '../data/costingData';
+import { calculateSemiCost, calculateDishPrimeCost } from '../data/costingData';
 import {
   Utensils,
   ChefHat,
@@ -34,6 +34,10 @@ interface CostingsManagerProps {
   onUpdateSemiFinished: (list: SemiFinishedProduct[]) => void;
   onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
   onUpdateProduct: (productId: string, updates: Partial<Product>) => void;
+  rawMaterials: RawMaterial[];
+  setRawMaterials: React.Dispatch<React.SetStateAction<RawMaterial[]>>;
+  rawCategoryDefs: { key: string; label: string }[];
+  setRawCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
 }
 
 export const CostingsManager: React.FC<CostingsManagerProps> = ({
@@ -42,7 +46,11 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   dishCostings,
   onUpdateSemiFinished,
   onUpdateDishCostings,
-  onUpdateProduct
+  onUpdateProduct,
+  rawMaterials,
+  setRawMaterials,
+  rawCategoryDefs,
+  setRawCategoryDefs
 }) => {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<'dishes' | 'semis' | 'raw_catalog'>('dishes');
@@ -54,14 +62,13 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   const [ingredientSearch, setIngredientSearch] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
 
-  // Master Raw Materials State
-  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(INITIAL_RAW_MATERIALS);
+  // Master Raw Materials filters/UI (the catalog data itself is lifted to App so it survives closing this window)
   const [rawSearchQuery, setRawSearchQuery] = useState('');
   const [rawCategoryFilter, setRawCategoryFilter] = useState<string>('all');
   const [isAddRawModalOpen, setIsAddRawModalOpen] = useState(false);
   const [newRawItem, setNewRawItem] = useState<{
     name: string;
-    category: RawMaterial['category'];
+    category: string;
     categoryLabel: string;
     unit: string;
     defaultUnitPrice: number;
@@ -73,30 +80,28 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     defaultUnitPrice: 1000
   });
 
-  // Category Options for Catalog
-  const rawCategories = [
-    { key: 'all', label: 'Все категории' },
-    { key: 'meat', label: 'Мясо и птица' },
-    { key: 'fish', label: 'Рыба и морепродукты' },
-    { key: 'veg', label: 'Овощи и зелень' },
-    { key: 'sauce', label: 'Соусы и бакалея' },
-    { key: 'bakery', label: 'Крупы и мука' },
-    { key: 'dairy', label: 'Молочные продукты и яйцо' },
-    { key: 'packaging', label: 'Упаковка и расходники' }
-  ];
+  const rawCategories = [{ key: 'all', label: 'Все категории' }, ...rawCategoryDefs];
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   // Category Label helper
-  const getCategoryLabel = (cat: RawMaterial['category']) => {
-    switch (cat) {
-      case 'meat': return 'Мясо и птица';
-      case 'fish': return 'Рыба и морепродукты';
-      case 'veg': return 'Овощи и зелень';
-      case 'sauce': return 'Соусы и бакалея';
-      case 'bakery': return 'Крупы и мука';
-      case 'dairy': return 'Молочные продукты и яйцо';
-      case 'packaging': return 'Упаковка и расходники';
-      default: return 'Прочее';
-    }
+  const getCategoryLabel = (cat: string) => rawCategoryDefs.find((c) => c.key === cat)?.label || cat;
+
+  const handleAddCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    const label = newCategoryName.trim();
+    if (!label) return;
+    const baseKey = label.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '_').replace(/^_+|_+$/g, '');
+    const key = baseKey && !rawCategoryDefs.some((c) => c.key === baseKey) ? baseKey : `cat-${Date.now()}`;
+    setRawCategoryDefs((prev) => [...prev, { key, label }]);
+    setNewCategoryName('');
+    setIsAddCategoryOpen(false);
+  };
+
+  const handleUpdateRawMaterialCategory = (id: string, categoryKey: string) => {
+    setRawMaterials((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, category: categoryKey, categoryLabel: getCategoryLabel(categoryKey) } : r))
+    );
   };
 
   // Quick lookup map for Semis
@@ -997,12 +1002,9 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
               <div className="flex items-center space-x-2">
                 <Package className="w-6 h-6 text-indigo-600" />
                 <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">
-                  Продукты для приготовления блюд ({rawMaterials.length} позиций)
+                  Товары ({rawMaterials.length})
                 </h3>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
-                Единый номенклатурный справочник для исключения ошибок при добавлении ингредиентов в ТКК
-              </p>
             </div>
 
             <button
@@ -1044,6 +1046,36 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   {cat.label}
                 </button>
               ))}
+
+              {isAddCategoryOpen ? (
+                <form onSubmit={handleAddCategory} className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onBlur={() => {
+                      if (!newCategoryName.trim()) setIsAddCategoryOpen(false);
+                    }}
+                    placeholder="Название категории"
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900"
+                  />
+                  <button
+                    type="submit"
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all"
+                  >
+                    +
+                  </button>
+                </form>
+              ) : (
+                <button
+                  onClick={() => setIsAddCategoryOpen(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Категория</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1078,9 +1110,17 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                         />
                       </td>
                       <td className="py-3 px-4">
-                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                          {getCategoryLabel(item.category)}
-                        </span>
+                        <select
+                          value={item.category}
+                          onChange={(e) => handleUpdateRawMaterialCategory(item.id, e.target.value)}
+                          className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                        >
+                          {rawCategoryDefs.map((cat) => (
+                            <option key={cat.key} value={cat.key}>
+                              {cat.label}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="py-3 px-4 text-center">
                         <select
@@ -1171,19 +1211,17 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                     onChange={(e) =>
                       setNewRawItem({
                         ...newRawItem,
-                        category: e.target.value as RawMaterial['category'],
-                        categoryLabel: getCategoryLabel(e.target.value as RawMaterial['category'])
+                        category: e.target.value,
+                        categoryLabel: getCategoryLabel(e.target.value)
                       })
                     }
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
                   >
-                    <option value="meat">Мясо и птица</option>
-                    <option value="fish">Рыба и морепродукты</option>
-                    <option value="veg">Овощи и зелень</option>
-                    <option value="sauce">Соусы и бакалея</option>
-                    <option value="bakery">Крупы и мука</option>
-                    <option value="dairy">Молочные продукты и яйцо</option>
-                    <option value="packaging">Упаковка и расходники</option>
+                    {rawCategoryDefs.map((cat) => (
+                      <option key={cat.key} value={cat.key}>
+                        {cat.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

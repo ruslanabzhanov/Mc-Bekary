@@ -56,7 +56,7 @@ export interface DisciplineNotification {
 export interface RawMaterial {
   id: string;
   name: string;
-  category: 'meat' | 'fish' | 'veg' | 'dairy' | 'sauce' | 'bakery' | 'packaging';
+  category: string;
   categoryLabel: string;
   unit: string; // 'кг', 'л', 'шт'
   defaultUnitPrice: number; // in KZT
@@ -113,6 +113,8 @@ export interface StaffMember {
   assignedShopIds?: number[]; // for territorial managers: the points they oversee
   phone?: string;
 }
+
+export type ChecklistAssignments = Record<string, string[]>; // checklist dept key -> assigned product IDs
 
 export interface RegistrationRequest {
   id: string;

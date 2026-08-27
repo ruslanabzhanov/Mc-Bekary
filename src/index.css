@@ -19,6 +19,14 @@
   font-family: 'Anton', sans-serif;
 }
 
+/* Print only the active checklist/report: it's portaled outside #root, so hiding #root
+   during print leaves just the portaled content in the page's normal flow. */
+@media print {
+  #root {
+    display: none !important;
+  }
+}
+
 @keyframes pulse-glow {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(40, 121, 141, 0.45);

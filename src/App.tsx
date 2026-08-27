@@ -6,21 +6,90 @@ import { TerritorialManagerView } from './components/TerritorialManagerView';
 import { OrderPreviewModal } from './components/OrderPreviewModal';
 import { SubmittedOrdersModal } from './components/SubmittedOrdersModal';
 import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
-import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS } from './data/costingData';
-import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, RegistrationRequest, UserRole } from './types';
+import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
+import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments } from './types';
+
+// A useState that also fires-and-forgets a POST to persist every update to the Express backend,
+// so the value survives a full page reload (not just re-opening a modal within the same session).
+function useSyncedState<T>(initial: T, endpoint: string, bodyKey: string) {
+  const [value, setValue] = useState<T>(initial);
+  const setSynced: React.Dispatch<React.SetStateAction<T>> = (update) => {
+    setValue((prev) => {
+      const next = typeof update === 'function' ? (update as (p: T) => T)(prev) : update;
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [bodyKey]: next }),
+      }).catch((e) => console.error(`Failed to sync ${bodyKey} to server:`, e));
+      return next;
+    });
+  };
+  return [value, setSynced] as const;
+}
+
+// Default checklist -> product assignment, seeded from each department's matching product category
+const DEPT_CATEGORY_MAP: Record<string, string> = {
+  bakery: 'croissants',
+  sandwiches: 'sandwiches',
+  desserts: 'desserts',
+  bar_prep: 'bar_prep',
+  kitchen_prep: 'kitchen_prep',
+  new_items: 'new_items',
+};
+const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
+  Object.entries(DEPT_CATEGORY_MAP).map(([deptKey, category]) => [
+    deptKey,
+    PRODUCTS.filter((p) => p.category === category).map((p) => p.id),
+  ])
+);
 
 export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>('manager');
   const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(null);
   const [selectedShopId, setSelectedShopId] = useState<number>(1);
-  const [shops, setShops] = useState<CoffeeShop[]>(COFFEE_SHOPS);
-  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [shops, setShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
+  const [products, setProducts] = useSyncedState<Product[]>(PRODUCTS, '/api/products', 'products');
   const [orders, setOrders] = useState<Record<number, ShopOrder>>(INITIAL_ORDERS);
   const [notifications, setNotifications] = useState<DisciplineNotification[]>([]);
-  const [semiFinishedList, setSemiFinishedList] = useState<SemiFinishedProduct[]>(INITIAL_SEMI_FINISHED);
-  const [dishCostings, setDishCostings] = useState<Record<string, DishCosting>>(INITIAL_DISH_COSTINGS);
-  const [staff, setStaff] = useState<StaffMember[]>(INITIAL_STAFF);
-  const [registrationRequests, setRegistrationRequests] = useState<RegistrationRequest[]>(INITIAL_REGISTRATION_REQUESTS);
+  const [semiFinishedList, setSemiFinishedList] = useSyncedState<SemiFinishedProduct[]>(
+    INITIAL_SEMI_FINISHED,
+    '/api/semi-finished',
+    'semiFinishedList'
+  );
+  const [dishCostings, setDishCostings] = useSyncedState<Record<string, DishCosting>>(
+    INITIAL_DISH_COSTINGS,
+    '/api/dish-costings',
+    'dishCostings'
+  );
+  const [rawMaterials, setRawMaterials] = useSyncedState<RawMaterial[]>(
+    INITIAL_RAW_MATERIALS,
+    '/api/raw-materials',
+    'rawMaterials'
+  );
+  const [rawCategoryDefs, setRawCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
+    [
+      { key: 'meat', label: 'Мясо и птица' },
+      { key: 'fish', label: 'Рыба и морепродукты' },
+      { key: 'veg', label: 'Овощи и зелень' },
+      { key: 'sauce', label: 'Соусы и бакалея' },
+      { key: 'bakery', label: 'Крупы и мука' },
+      { key: 'dairy', label: 'Молочные продукты и яйцо' },
+      { key: 'packaging', label: 'Упаковка и расходники' }
+    ],
+    '/api/raw-category-defs',
+    'rawCategoryDefs'
+  );
+  const [checklistAssignments, setChecklistAssignments] = useSyncedState<ChecklistAssignments>(
+    DEFAULT_CHECKLIST_ASSIGNMENTS,
+    '/api/checklist-assignments',
+    'checklistAssignments'
+  );
+  const [staff, setStaff] = useSyncedState<StaffMember[]>(INITIAL_STAFF, '/api/staff', 'staff');
+  const [registrationRequests, setRegistrationRequests] = useSyncedState<RegistrationRequest[]>(
+    INITIAL_REGISTRATION_REQUESTS,
+    '/api/registration-requests',
+    'registrationRequests'
+  );
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -35,6 +104,13 @@ export default function App() {
         if (data.products) setProducts(data.products);
         if (data.orders) setOrders(data.orders);
         if (data.notifications) setNotifications(data.notifications);
+        if (data.rawMaterials) setRawMaterials(data.rawMaterials);
+        if (data.rawCategoryDefs) setRawCategoryDefs(data.rawCategoryDefs);
+        if (data.semiFinishedList) setSemiFinishedList(data.semiFinishedList);
+        if (data.dishCostings) setDishCostings(data.dishCostings);
+        if (data.checklistAssignments) setChecklistAssignments(data.checklistAssignments);
+        if (data.staff) setStaff(data.staff);
+        if (data.registrationRequests) setRegistrationRequests(data.registrationRequests);
       })
       .catch((err) => {
         console.log('Using local fallback state:', err);
@@ -391,6 +467,12 @@ export default function App() {
               onUpdateSemiFinished={setSemiFinishedList}
               onUpdateDishCostings={setDishCostings}
               onUpdateProduct={handleUpdateProduct}
+              rawMaterials={rawMaterials}
+              setRawMaterials={setRawMaterials}
+              rawCategoryDefs={rawCategoryDefs}
+              setRawCategoryDefs={setRawCategoryDefs}
+              checklistAssignments={checklistAssignments}
+              onUpdateChecklistAssignments={setChecklistAssignments}
               staff={staff}
               registrationRequests={registrationRequests}
               onUpdateStaffMember={handleUpdateStaffMember}
