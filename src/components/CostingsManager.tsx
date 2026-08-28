@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Product,
   SemiFinishedProduct,
@@ -8,7 +8,7 @@ import {
   DishRawItem,
   RawMaterial
 } from '../types';
-import { calculateSemiCost, calculateDishPrimeCost, INITIAL_RAW_MATERIALS } from '../data/costingData';
+import { calculateSemiCost, calculateDishPrimeCost } from '../data/costingData';
 import {
   Utensils,
   ChefHat,
@@ -23,7 +23,8 @@ import {
   Search,
   Tag,
   X,
-  Sparkles
+  Sparkles,
+  Camera
 } from 'lucide-react';
 
 interface CostingsManagerProps {
@@ -32,6 +33,11 @@ interface CostingsManagerProps {
   dishCostings: Record<string, DishCosting>;
   onUpdateSemiFinished: (list: SemiFinishedProduct[]) => void;
   onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
+  onUpdateProduct: (productId: string, updates: Partial<Product>) => void;
+  rawMaterials: RawMaterial[];
+  setRawMaterials: React.Dispatch<React.SetStateAction<RawMaterial[]>>;
+  rawCategoryDefs: { key: string; label: string }[];
+  setRawCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
 }
 
 export const CostingsManager: React.FC<CostingsManagerProps> = ({
@@ -39,19 +45,30 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   semiFinishedList,
   dishCostings,
   onUpdateSemiFinished,
-  onUpdateDishCostings
+  onUpdateDishCostings,
+  onUpdateProduct,
+  rawMaterials,
+  setRawMaterials,
+  rawCategoryDefs,
+  setRawCategoryDefs
 }) => {
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<'dishes' | 'semis' | 'raw_catalog'>('dishes');
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || 'chicken-croissant');
+  const [dishCategoryFilter, setDishCategoryFilter] = useState<string>('all');
+  const [isDishCardOpen, setIsDishCardOpen] = useState(false);
+  const [semiCategoryFilter, setSemiCategoryFilter] = useState<string>('all');
+  const [isIngredientSearchOpen, setIsIngredientSearchOpen] = useState(false);
+  const [ingredientSearch, setIngredientSearch] = useState('');
+  const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
 
-  // Master Raw Materials State
-  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(INITIAL_RAW_MATERIALS);
+  // Master Raw Materials filters/UI (the catalog data itself is lifted to App so it survives closing this window)
   const [rawSearchQuery, setRawSearchQuery] = useState('');
   const [rawCategoryFilter, setRawCategoryFilter] = useState<string>('all');
   const [isAddRawModalOpen, setIsAddRawModalOpen] = useState(false);
   const [newRawItem, setNewRawItem] = useState<{
     name: string;
-    category: RawMaterial['category'];
+    category: string;
     categoryLabel: string;
     unit: string;
     defaultUnitPrice: number;
@@ -63,34 +80,66 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     defaultUnitPrice: 1000
   });
 
-  // Category Options for Catalog
-  const rawCategories = [
-    { key: 'all', label: 'Все категории' },
-    { key: 'meat', label: 'Мясо и птица' },
-    { key: 'fish', label: 'Рыба и морепродукты' },
-    { key: 'veg', label: 'Овощи и зелень' },
-    { key: 'sauce', label: 'Соусы и бакалея' },
-    { key: 'bakery', label: 'Крупы и мука' },
-    { key: 'dairy', label: 'Молочные продукты и яйцо' },
-    { key: 'packaging', label: 'Упаковка и расходники' }
-  ];
+  const rawCategories = [{ key: 'all', label: 'Все категории' }, ...rawCategoryDefs];
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   // Category Label helper
-  const getCategoryLabel = (cat: RawMaterial['category']) => {
-    switch (cat) {
-      case 'meat': return 'Мясо и птица';
-      case 'fish': return 'Рыба и морепродукты';
-      case 'veg': return 'Овощи и зелень';
-      case 'sauce': return 'Соусы и бакалея';
-      case 'bakery': return 'Крупы и мука';
-      case 'dairy': return 'Молочные продукты и яйцо';
-      case 'packaging': return 'Упаковка и расходники';
-      default: return 'Прочее';
-    }
+  const getCategoryLabel = (cat: string) => rawCategoryDefs.find((c) => c.key === cat)?.label || cat;
+
+  const handleAddCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    const label = newCategoryName.trim();
+    if (!label) return;
+    const baseKey = label.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '_').replace(/^_+|_+$/g, '');
+    const key = baseKey && !rawCategoryDefs.some((c) => c.key === baseKey) ? baseKey : `cat-${Date.now()}`;
+    setRawCategoryDefs((prev) => [...prev, { key, label }]);
+    setNewCategoryName('');
+    setIsAddCategoryOpen(false);
+  };
+
+  const handleUpdateRawMaterialCategory = (id: string, categoryKey: string) => {
+    setRawMaterials((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, category: categoryKey, categoryLabel: getCategoryLabel(categoryKey) } : r))
+    );
   };
 
   // Quick lookup map for Semis
   const semiMap = new Map<string, SemiFinishedProduct>(semiFinishedList.map((s) => [s.id, s]));
+
+  // Dish categories derived from the product catalog
+  const dishCategories: { key: string; label: string }[] = [
+    { key: 'all', label: 'Все категории' },
+    ...Array.from(new Map<string, string>(products.map((p) => [p.category, p.categoryLabel])).entries()).map(
+      ([key, label]) => ({ key, label })
+    )
+  ];
+  const filteredDishProducts =
+    dishCategoryFilter === 'all' ? products : products.filter((p) => p.category === dishCategoryFilter);
+
+  // Semi-finished categories derived from the semi-finished catalog
+  const semiCategories: { key: string; label: string }[] = [
+    { key: 'all', label: 'Все категории' },
+    ...Array.from(new Map<string, string>(semiFinishedList.map((s) => [s.category, s.categoryLabel])).entries()).map(
+      ([key, label]) => ({ key, label })
+    )
+  ];
+  const filteredSemiFinishedList =
+    semiCategoryFilter === 'all'
+      ? semiFinishedList
+      : semiFinishedList.filter((s) => s.category === semiCategoryFilter);
+
+  // Combined search across semi-finished items and raw materials, for the unified "add ingredient" search
+  const ingredientSearchResults = ingredientSearch.trim()
+    ? [
+        ...semiFinishedList
+          .filter((s) => s.name.toLowerCase().includes(ingredientSearch.trim().toLowerCase()))
+          .map((s) => ({ type: 'semi' as const, id: s.id, name: s.name })),
+        ...rawMaterials
+          .filter((r) => r.name.toLowerCase().includes(ingredientSearch.trim().toLowerCase()))
+          .map((r) => ({ type: 'raw' as const, id: r.id, name: r.name }))
+      ].slice(0, 8)
+    : [];
 
   // Selected dish costing
   const selectedProduct = products.find((p) => p.id === selectedProductId) || products[0];
@@ -98,6 +147,29 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     productId: selectedProductId,
     semiFinishedItems: [],
     rawIngredients: []
+  };
+
+  // Dish Card Handlers (photo, category, price)
+  const handleDishPhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedProduct) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      onUpdateProduct(selectedProduct.id, { imageUrl: reader.result as string });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleDishCategoryChange = (categoryKey: string) => {
+    if (!selectedProduct) return;
+    const label = dishCategories.find((c) => c.key === categoryKey)?.label || selectedProduct.categoryLabel;
+    onUpdateProduct(selectedProduct.id, { category: categoryKey as Product['category'], categoryLabel: label });
+  };
+
+  const handleDishPriceChange = (newPrice: number) => {
+    if (!selectedProduct) return;
+    onUpdateProduct(selectedProduct.id, { price: Math.max(0, newPrice) });
   };
 
   // Dish Handlers
@@ -149,16 +221,6 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     });
   };
 
-  const handleUpdateDishRawPrice = (rawId: string, newPrice: number) => {
-    const updatedRaw = currentDishCosting.rawIngredients.map((item) =>
-      item.id === rawId ? { ...item, unitPrice: Math.max(0, newPrice) } : item
-    );
-    onUpdateDishCostings({
-      ...dishCostings,
-      [selectedProductId]: { ...currentDishCosting, rawIngredients: updatedRaw }
-    });
-  };
-
   const handleDeleteDishRaw = (rawId: string) => {
     const updatedRaw = currentDishCosting.rawIngredients.filter((item) => item.id !== rawId);
     onUpdateDishCostings({
@@ -190,21 +252,15 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     });
   };
 
-  const handleAddDishRawManual = () => {
-    const newRawItem: DishRawItem = {
-      id: `raw-${Date.now()}`,
-      name: 'Новый ингредиент/Упаковка',
-      quantity: 1,
-      unit: 'шт',
-      unitPrice: 50
-    };
-    onUpdateDishCostings({
-      ...dishCostings,
-      [selectedProductId]: {
-        ...currentDishCosting,
-        rawIngredients: [...currentDishCosting.rawIngredients, newRawItem]
-      }
-    });
+  // Unified search: add either a semi-finished item or a raw ingredient to the dish
+  const handleSelectIngredientFromSearch = (type: 'semi' | 'raw', id: string) => {
+    if (type === 'semi') {
+      handleAddDishSemi(id);
+    } else {
+      handleAddDishRawFromCatalog(id);
+    }
+    setIngredientSearch('');
+    setIsIngredientSearchOpen(false);
   };
 
   // Semi-Finished Handlers
@@ -340,12 +396,6 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     return matchesCategory && matchesSearch;
   });
 
-  // Prime cost for current dish
-  const currentPrimeCost = calculateDishPrimeCost(currentDishCosting, semiMap);
-  const currentPrice = selectedProduct?.price || 1;
-  const foodCostPercent = Math.round((currentPrimeCost / currentPrice) * 100);
-  const marginKzt = currentPrice - currentPrimeCost;
-
   return (
     <div className="space-y-6">
       
@@ -355,7 +405,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
           <div className="flex items-center space-x-2">
             <ChefHat className="w-6 h-6 text-indigo-600" />
             <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">
-              Калькуляции Блюд, Заготовок и Справочник Сырья
+              Блюда, Полуфабрикаты и Продукты
             </h3>
           </div>
           <p className="text-xs text-slate-500 mt-1">
@@ -374,7 +424,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             }`}
           >
             <Utensils className="w-3.5 h-3.5" />
-            <span>Калькуляции Блюд ({products.length})</span>
+            <span>Блюда ({products.length})</span>
           </button>
 
           <button
@@ -398,269 +448,311 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             }`}
           >
             <Package className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Справочник Сырья ({rawMaterials.length})</span>
+            <span>Продукты ({rawMaterials.length})</span>
           </button>
         </div>
       </div>
 
       {/* DISH COSTINGS TAB */}
       {activeTab === 'dishes' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
-          {/* Dish Selector Sidebar */}
-          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-2">
-              Выберите блюдо витрины:
-            </h4>
-            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-              {products.map((p) => {
-                const costing = dishCostings[p.id] || { productId: p.id, semiFinishedItems: [], rawIngredients: [] };
-                const prime = calculateDishPrimeCost(costing, semiMap);
-                const fc = Math.round((prime / p.price) * 100);
-                const isSelected = p.id === selectedProductId;
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-2">
+            Выберите блюдо витрины (нажмите, чтобы открыть карточку):
+          </h4>
 
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => setSelectedProductId(p.id)}
-                    className={`w-full p-3 rounded-lg border text-left transition-all flex items-center justify-between group ${
-                      isSelected
-                        ? 'border-indigo-600 bg-indigo-50/50 shadow-sm ring-1 ring-indigo-500'
-                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <span className="text-2xl">{p.imageEmoji}</span>
-                      <div>
-                        <div className="font-bold text-slate-900 text-sm group-hover:text-indigo-600">
-                          {p.name}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          Цена: <strong>{p.price} ₸</strong> | {p.unitWeight}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="text-xs font-black text-indigo-900">{prime} ₸</div>
-                      <div
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded inline-block mt-0.5 ${
-                          fc > 40 ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
-                        }`}
-                      >
-                        FC: {fc}%
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Category Filter Pills */}
+          <div className="flex flex-wrap items-center gap-1.5 px-2">
+            {dishCategories.map((cat) => (
+              <button
+                key={cat.key}
+                onClick={() => setDishCategoryFilter(cat.key)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                  dishCategoryFilter === cat.key
+                    ? 'bg-indigo-900 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
           </div>
 
-          {/* Detailed Recipe Calculation Card */}
-          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-6">
-            
-            {/* Dish Header Info */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-4">
-              <div className="flex items-center space-x-3">
-                <span className="text-4xl">{selectedProduct.imageEmoji}</span>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
-                      {selectedProduct.categoryLabel}
-                    </span>
-                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">
-                      {selectedProduct.name}
-                    </h3>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Вес порции: {selectedProduct.unitWeight} | Выход: {selectedProduct.unit} | Цех: {selectedProduct.department}
-                  </p>
-                </div>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {filteredDishProducts.map((p) => {
+              const costing = dishCostings[p.id] || { productId: p.id, semiFinishedItems: [], rawIngredients: [] };
+              const prime = calculateDishPrimeCost(costing, semiMap);
+              const fc = Math.round((prime / p.price) * 100);
 
-              {/* Financial Summary Pill Badges */}
-              <div className="flex items-center space-x-3">
-                <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-center min-w-[100px]">
-                  <span className="text-[9px] font-black uppercase text-slate-400 block">Продажа</span>
-                  <span className="text-sm font-black text-slate-900">{selectedProduct.price} ₸</span>
-                </div>
-                <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-lg text-center min-w-[100px]">
-                  <span className="text-[9px] font-black uppercase text-indigo-600 block">Себестоимость</span>
-                  <span className="text-sm font-black text-indigo-900">{currentPrimeCost} ₸</span>
-                </div>
-                <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-center min-w-[100px]">
-                  <span className="text-[9px] font-black uppercase text-emerald-700 block">Маржа (Food Cost)</span>
-                  <span className="text-sm font-black text-emerald-900">
-                    +{marginKzt} ₸ ({foodCostPercent}%)
-                  </span>
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    setSelectedProductId(p.id);
+                    setIsDishCardOpen(true);
+                  }}
+                  className="w-full p-3 rounded-lg border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/40 text-left transition-all flex items-center justify-between group shadow-sm"
+                >
+                  <div className="flex items-center space-x-3">
+                    <span className="text-2xl">{p.imageEmoji}</span>
+                    <div>
+                      <div className="font-bold text-slate-900 text-sm group-hover:text-indigo-600">
+                        {p.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Цена: <strong>{p.price} ₸</strong> | {p.unitWeight}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-xs font-black text-indigo-900">{prime} ₸</div>
+                    <div
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded inline-block mt-0.5 ${
+                        fc > 40 ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
+                      }`}
+                    >
+                      FC: {fc}%
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* DISH CARD MODAL: opens with the full recipe calculation for the selected dish */}
+      {isDishCardOpen && activeTab === 'dishes' && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xl space-y-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
+
+            {/* Close Button */}
+            <div className="flex justify-end -mb-2">
+              <button
+                onClick={() => setIsDishCardOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Dish Header Info */}
+            <div className="space-y-3 pb-4 border-b border-slate-100">
+              {/* Full-width dish name, one line */}
+              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight truncate">
+                {selectedProduct.name}
+              </h3>
+
+              {/* Active Tiles: bigger Photo on the left, Category & Price (stacked) on the right */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                {/* Photo Tile - click to upload a new photo */}
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="relative w-full sm:flex-1 sm:min-w-0 h-40 sm:h-56 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 group"
+                  title="Нажмите, чтобы загрузить новое фото"
+                >
+                  <img
+                    src={selectedProduct.imageUrl}
+                    alt={selectedProduct.name}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-slate-950/0 group-hover:bg-slate-950/60 transition-all flex items-center justify-center">
+                    <span className="opacity-0 group-hover:opacity-100 text-white text-xs font-bold uppercase flex items-center gap-1.5 transition-opacity">
+                      <Camera className="w-4 h-4" />
+                      Сменить фото
+                    </span>
+                  </div>
+                </button>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleDishPhotoSelected}
+                />
+
+                <div className="grid grid-cols-2 sm:flex sm:flex-col gap-2 sm:w-28 sm:shrink-0 min-w-0">
+                  {/* Category Tile - click to change */}
+                  <div className="relative min-w-0 sm:flex-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsCategoryPickerOpen((v) => !v)}
+                      className="w-full h-full min-w-0 bg-slate-50 hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-300 rounded-lg p-2 flex flex-col justify-center items-start text-left transition-all overflow-hidden"
+                    >
+                      <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Категория</span>
+                      <span className="w-full block truncate font-bold text-indigo-900 text-[10px] leading-tight uppercase tracking-wide">
+                        {selectedProduct.categoryLabel}
+                      </span>
+                    </button>
+
+                    {isCategoryPickerOpen && (
+                      <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1 max-h-56 overflow-y-auto">
+                        {dishCategories
+                          .filter((c) => c.key !== 'all')
+                          .map((c) => (
+                            <button
+                              key={c.key}
+                              type="button"
+                              onClick={() => {
+                                handleDishCategoryChange(c.key);
+                                setIsCategoryPickerOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 ${
+                                c.key === selectedProduct.category
+                                  ? 'font-bold text-indigo-900 bg-indigo-50/60'
+                                  : 'text-slate-700'
+                              }`}
+                            >
+                              {c.label}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Price Tile - click to edit */}
+                  <div className="flex-1 min-w-0 bg-slate-50 hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-300 rounded-lg p-2 flex flex-col justify-center transition-all overflow-hidden">
+                    <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5 truncate">Цена продажи</span>
+                    <div className="flex items-baseline min-w-0">
+                      <input
+                        type="number"
+                        min="0"
+                        value={selectedProduct.price}
+                        onChange={(e) => handleDishPriceChange(parseFloat(e.target.value) || 0)}
+                        className="w-full min-w-0 bg-transparent font-black text-slate-900 text-sm focus:outline-none"
+                      />
+                      <span className="text-slate-500 font-bold text-[10px] shrink-0">₸</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* SECTION 1: Semi-Finished Products Matrix */}
+            {/* Состав блюда: полуфабрикаты + сырьё через единый поиск */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="relative flex items-center justify-between flex-wrap gap-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center space-x-2">
                   <ChefHat className="w-4 h-4 text-indigo-600" />
-                  <span>1. Использование Полуфабрикатов (Заготовки цехов):</span>
+                  <span>Состав блюда (полуфабрикаты и сырьё):</span>
                 </h4>
-                
-                {/* Dropdown to add Semi */}
-                <select
-                  id="select-add-semi"
-                  onChange={(e) => {
-                    handleAddDishSemi(e.target.value);
-                    e.target.value = '';
-                  }}
-                  className="text-xs border border-slate-300 rounded px-2.5 py-1.5 bg-slate-50 text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
+
+                <button
+                  type="button"
+                  onClick={() => setIsIngredientSearchOpen((v) => !v)}
+                  className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded text-xs uppercase tracking-wider transition-all shadow-sm"
                 >
-                  <option value="">+ Добавить полуфабрикат...</option>
-                  {semiFinishedList.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({calculateSemiCost(s)} ₸/{s.unit})
-                    </option>
-                  ))}
-                </select>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Добавить</span>
+                </button>
+
+                {isIngredientSearchOpen && (
+                  <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-xl z-20 p-2">
+                    <div className="relative mb-2">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      <input
+                        type="text"
+                        value={ingredientSearch}
+                        onChange={(e) => setIngredientSearch(e.target.value)}
+                        placeholder="Поиск полуфабриката или сырья..."
+                        className="w-full pl-8 pr-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div className="max-h-56 overflow-y-auto space-y-0.5">
+                      {ingredientSearchResults.length === 0 ? (
+                        <p className="text-[11px] text-slate-400 italic text-center py-3">
+                          {ingredientSearch.trim() ? 'Ничего не найдено' : 'Начните вводить название...'}
+                        </p>
+                      ) : (
+                        ingredientSearchResults.map((r) => (
+                          <button
+                            key={`${r.type}-${r.id}`}
+                            type="button"
+                            onClick={() => handleSelectIngredientFromSearch(r.type, r.id)}
+                            className="w-full text-left px-2.5 py-1.5 rounded hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs group"
+                          >
+                            <span className="font-medium text-slate-800 group-hover:text-indigo-900 truncate">
+                              {r.name}
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${
+                                r.type === 'semi' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {r.type === 'semi' ? 'п/ф' : 'сырьё'}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
                     <tr>
-                      <th className="py-2.5 px-3">Полуфабрикат / Заготовка</th>
-                      <th className="py-2.5 px-3">Категория</th>
-                      <th className="py-2.5 px-3 text-center">Норма на 1 порцию</th>
-                      <th className="py-2.5 px-3 text-right">Цена за ед.</th>
-                      <th className="py-2.5 px-3 text-right">Стоимость</th>
-                      <th className="py-2.5 px-3 text-center w-10">Удалить</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {currentDishCosting.semiFinishedItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-4 text-center text-slate-400 italic">
-                          Полуфабрикаты не привязаны. Добавьте заготовку из списка выше.
-                        </td>
-                      </tr>
-                    ) : (
-                      currentDishCosting.semiFinishedItems.map((item) => {
-                        const semi = semiMap.get(item.semiFinishedId);
-                        if (!semi) return null;
-                        const unitCost = calculateSemiCost(semi);
-                        const totalCost = Math.round(item.quantity * unitCost);
-
-                        return (
-                          <tr key={item.semiFinishedId} className="hover:bg-slate-50">
-                            <td className="py-2.5 px-3 font-bold text-slate-900">
-                              {semi.name}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-500 text-[11px]">
-                              {semi.categoryLabel}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={item.quantity}
-                                  onChange={(e) =>
-                                    handleUpdateDishSemiQty(item.semiFinishedId, parseFloat(e.target.value) || 0)
-                                  }
-                                  className="w-20 px-2 py-1 text-center border border-slate-300 rounded font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                />
-                                <span className="text-slate-500 font-medium">{item.unit}</span>
-                              </div>
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-slate-600">
-                              {unitCost.toLocaleString('ru-RU')} ₸/{item.unit}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-bold text-indigo-900">
-                              {totalCost.toLocaleString('ru-RU')} ₸
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              <button
-                                onClick={() => handleDeleteDishSemi(item.semiFinishedId)}
-                                className="text-slate-400 hover:text-rose-600 p-1"
-                                title="Удалить из рецептуры"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* SECTION 2: Direct Raw Materials & Packaging */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center space-x-2">
-                  <Utensils className="w-4 h-4 text-indigo-600" />
-                  <span>2. Прямые сырьевые ингредиенты и Упаковка:</span>
-                </h4>
-                
-                <div className="flex items-center space-x-2">
-                  {/* Select raw material from master catalog */}
-                  <select
-                    id="select-add-dish-raw-catalog"
-                    onChange={(e) => {
-                      handleAddDishRawFromCatalog(e.target.value);
-                      e.target.value = '';
-                    }}
-                    className="text-xs border border-indigo-200 rounded px-2.5 py-1.5 bg-indigo-50 text-indigo-900 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="">+ Из Справочника Сырья...</option>
-                    {rawMaterials.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} ({r.defaultUnitPrice} ₸/{r.unit})
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    onClick={handleAddDishRawManual}
-                    className="flex items-center space-x-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded transition-all"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>+ Ручной ввод</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                    <tr>
-                      <th className="py-2.5 px-3">Наименование сырья / Упаковки</th>
+                      <th className="py-2.5 px-3">Наименование</th>
                       <th className="py-2.5 px-3 text-center">Норма на 1 шт</th>
-                      <th className="py-2.5 px-3 text-right">Цена за ед. сырья (₸)</th>
-                      <th className="py-2.5 px-3 text-right">Затраты на порцию</th>
                       <th className="py-2.5 px-3 text-center w-10">Удалить</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {currentDishCosting.rawIngredients.length === 0 ? (
+                    {currentDishCosting.semiFinishedItems.length === 0 && currentDishCosting.rawIngredients.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-4 text-center text-slate-400 italic">
-                          Прямые ингредиенты не привязаны. Выберите сырье из справочника выше.
+                        <td colSpan={3} className="py-4 text-center text-slate-400 italic">
+                          Состав не заполнен. Нажмите «Добавить», чтобы найти полуфабрикат или сырьё.
                         </td>
                       </tr>
                     ) : (
-                      currentDishCosting.rawIngredients.map((item) => {
-                        const totalCost = Math.round(item.quantity * item.unitPrice);
+                      <>
+                        {currentDishCosting.semiFinishedItems.map((item) => {
+                          const semi = semiMap.get(item.semiFinishedId);
+                          if (!semi) return null;
 
-                        return (
-                          <tr key={item.id} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 font-semibold text-slate-900">
+                          return (
+                            <tr key={`semi-${item.semiFinishedId}`} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3 font-bold text-slate-900">
+                                {semi.name}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <div className="flex items-center justify-center space-x-1">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={item.quantity}
+                                    onChange={(e) =>
+                                      handleUpdateDishSemiQty(item.semiFinishedId, parseFloat(e.target.value) || 0)
+                                    }
+                                    className="w-20 px-2 py-1 text-center border border-slate-300 rounded font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                  />
+                                  <span className="text-slate-500 font-medium">{item.unit}</span>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <button
+                                  onClick={() => handleDeleteDishSemi(item.semiFinishedId)}
+                                  className="text-slate-400 hover:text-rose-600 p-1"
+                                  title="Удалить из рецептуры"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {currentDishCosting.rawIngredients.map((item) => (
+                          <tr key={`raw-${item.id}`} className="hover:bg-slate-50">
+                            <td className="py-2.5 px-3 font-semibold text-slate-900">
                               {item.name}
                             </td>
-                            <td className="py-2 px-3 text-center">
+                            <td className="py-2.5 px-3 text-center">
                               <div className="flex items-center justify-center space-x-1">
                                 <input
                                   type="number"
@@ -675,21 +767,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                                 <span className="text-slate-500 font-medium">{item.unit}</span>
                               </div>
                             </td>
-                            <td className="py-2 px-3 text-right">
-                              <input
-                                type="number"
-                                min="0"
-                                value={item.unitPrice}
-                                onChange={(e) =>
-                                  handleUpdateDishRawPrice(item.id, parseFloat(e.target.value) || 0)
-                                }
-                                className="w-24 px-2 py-1 text-right border border-slate-300 rounded font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                              />
-                            </td>
-                            <td className="py-2 px-3 text-right font-bold text-indigo-900">
-                              {totalCost.toLocaleString('ru-RU')} ₸
-                            </td>
-                            <td className="py-2 px-3 text-center">
+                            <td className="py-2.5 px-3 text-center">
                               <button
                                 onClick={() => handleDeleteDishRaw(item.id)}
                                 className="text-slate-400 hover:text-rose-600 p-1"
@@ -699,8 +777,8 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                               </button>
                             </td>
                           </tr>
-                        );
-                      })
+                        ))}
+                      </>
                     )}
                   </tbody>
                 </table>
@@ -733,8 +811,25 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             </button>
           </div>
 
+          {/* Category Filter Pills */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {semiCategories.map((cat) => (
+              <button
+                key={cat.key}
+                onClick={() => setSemiCategoryFilter(cat.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  semiCategoryFilter === cat.key
+                    ? 'bg-indigo-900 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {semiFinishedList.map((semi) => {
+            {filteredSemiFinishedList.map((semi) => {
               const currentCost = calculateSemiCost(semi);
 
               return (
@@ -907,12 +1002,9 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
               <div className="flex items-center space-x-2">
                 <Package className="w-6 h-6 text-indigo-600" />
                 <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">
-                  Справочник Сырья и Ингредиентов ({rawMaterials.length} позиций)
+                  Товары ({rawMaterials.length})
                 </h3>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
-                Единый номенклатурный справочник для исключения ошибок при добавлении ингредиентов в ТКК
-              </p>
             </div>
 
             <button
@@ -954,6 +1046,36 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   {cat.label}
                 </button>
               ))}
+
+              {isAddCategoryOpen ? (
+                <form onSubmit={handleAddCategory} className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onBlur={() => {
+                      if (!newCategoryName.trim()) setIsAddCategoryOpen(false);
+                    }}
+                    placeholder="Название категории"
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900"
+                  />
+                  <button
+                    type="submit"
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all"
+                  >
+                    +
+                  </button>
+                </form>
+              ) : (
+                <button
+                  onClick={() => setIsAddCategoryOpen(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Категория</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -988,9 +1110,17 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                         />
                       </td>
                       <td className="py-3 px-4">
-                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                          {getCategoryLabel(item.category)}
-                        </span>
+                        <select
+                          value={item.category}
+                          onChange={(e) => handleUpdateRawMaterialCategory(item.id, e.target.value)}
+                          className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                        >
+                          {rawCategoryDefs.map((cat) => (
+                            <option key={cat.key} value={cat.key}>
+                              {cat.label}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="py-3 px-4 text-center">
                         <select
@@ -1081,19 +1211,17 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                     onChange={(e) =>
                       setNewRawItem({
                         ...newRawItem,
-                        category: e.target.value as RawMaterial['category'],
-                        categoryLabel: getCategoryLabel(e.target.value as RawMaterial['category'])
+                        category: e.target.value,
+                        categoryLabel: getCategoryLabel(e.target.value)
                       })
                     }
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
                   >
-                    <option value="meat">Мясо и птица</option>
-                    <option value="fish">Рыба и морепродукты</option>
-                    <option value="veg">Овощи и зелень</option>
-                    <option value="sauce">Соусы и бакалея</option>
-                    <option value="bakery">Крупы и мука</option>
-                    <option value="dairy">Молочные продукты и яйцо</option>
-                    <option value="packaging">Упаковка и расходники</option>
+                    {rawCategoryDefs.map((cat) => (
+                      <option key={cat.key} value={cat.key}>
+                        {cat.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

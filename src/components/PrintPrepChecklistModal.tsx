@@ -174,7 +174,7 @@ export const PrintPrepChecklistModal: React.FC<PrintPrepChecklistModalProps> = (
                 </h1>
               </div>
               <p className="text-xs font-bold text-indigo-700 print:text-black mt-1 uppercase tracking-wider">
-                СЕТЬ 27 КОФЕЕН "MASTER COFFEE" • ЦЕНТРАЛЬНАЯ КУХНЯ
+                СЕТЬ 27 КОФЕЕН "MASTER BAKERY" • ЦЕНТРАЛЬНАЯ КУХНЯ
               </p>
             </div>
 

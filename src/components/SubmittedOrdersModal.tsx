@@ -12,7 +12,7 @@ import {
   FileCheck2,
   Filter
 } from 'lucide-react';
-import { CoffeeShop, Product, ShopOrder, OrderStatus } from '../types';
+import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole } from '../types';
 
 interface SubmittedOrdersModalProps {
   isOpen: boolean;
@@ -20,7 +20,7 @@ interface SubmittedOrdersModalProps {
   shops: CoffeeShop[];
   orders: Record<number, ShopOrder>;
   products: Product[];
-  currentRole: 'manager' | 'admin';
+  currentRole: UserRole;
   onUpdateOrderStatus: (shopId: number, status: OrderStatus) => void;
   onSendReminderSingle?: (shopId: number) => void;
 }

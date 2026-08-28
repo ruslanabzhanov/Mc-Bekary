@@ -2,21 +2,94 @@ import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { ManagerView } from './components/ManagerView';
 import { AdminView } from './components/AdminView';
+import { TerritorialManagerView } from './components/TerritorialManagerView';
 import { OrderPreviewModal } from './components/OrderPreviewModal';
 import { SubmittedOrdersModal } from './components/SubmittedOrdersModal';
-import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS } from './data/mockData';
-import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS } from './data/costingData';
-import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus } from './types';
+import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
+import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
+import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments } from './types';
+
+// A useState that also fires-and-forgets a POST to persist every update to the Express backend,
+// so the value survives a full page reload (not just re-opening a modal within the same session).
+function useSyncedState<T>(initial: T, endpoint: string, bodyKey: string) {
+  const [value, setValue] = useState<T>(initial);
+  const setSynced: React.Dispatch<React.SetStateAction<T>> = (update) => {
+    setValue((prev) => {
+      const next = typeof update === 'function' ? (update as (p: T) => T)(prev) : update;
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [bodyKey]: next }),
+      }).catch((e) => console.error(`Failed to sync ${bodyKey} to server:`, e));
+      return next;
+    });
+  };
+  return [value, setSynced] as const;
+}
+
+// Default checklist -> product assignment, seeded from each department's matching product category
+const DEPT_CATEGORY_MAP: Record<string, string> = {
+  bakery: 'croissants',
+  sandwiches: 'sandwiches',
+  desserts: 'desserts',
+  bar_prep: 'bar_prep',
+  kitchen_prep: 'kitchen_prep',
+  new_items: 'new_items',
+};
+const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
+  Object.entries(DEPT_CATEGORY_MAP).map(([deptKey, category]) => [
+    deptKey,
+    PRODUCTS.filter((p) => p.category === category).map((p) => p.id),
+  ])
+);
 
 export default function App() {
-  const [currentRole, setCurrentRole] = useState<'manager' | 'admin'>('manager');
+  const [currentRole, setCurrentRole] = useState<UserRole>('manager');
+  const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(null);
   const [selectedShopId, setSelectedShopId] = useState<number>(1);
-  const [shops, setShops] = useState<CoffeeShop[]>(COFFEE_SHOPS);
-  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [shops, setShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
+  const [products, setProducts] = useSyncedState<Product[]>(PRODUCTS, '/api/products', 'products');
   const [orders, setOrders] = useState<Record<number, ShopOrder>>(INITIAL_ORDERS);
   const [notifications, setNotifications] = useState<DisciplineNotification[]>([]);
-  const [semiFinishedList, setSemiFinishedList] = useState<SemiFinishedProduct[]>(INITIAL_SEMI_FINISHED);
-  const [dishCostings, setDishCostings] = useState<Record<string, DishCosting>>(INITIAL_DISH_COSTINGS);
+  const [semiFinishedList, setSemiFinishedList] = useSyncedState<SemiFinishedProduct[]>(
+    INITIAL_SEMI_FINISHED,
+    '/api/semi-finished',
+    'semiFinishedList'
+  );
+  const [dishCostings, setDishCostings] = useSyncedState<Record<string, DishCosting>>(
+    INITIAL_DISH_COSTINGS,
+    '/api/dish-costings',
+    'dishCostings'
+  );
+  const [rawMaterials, setRawMaterials] = useSyncedState<RawMaterial[]>(
+    INITIAL_RAW_MATERIALS,
+    '/api/raw-materials',
+    'rawMaterials'
+  );
+  const [rawCategoryDefs, setRawCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
+    [
+      { key: 'meat', label: 'Мясо и птица' },
+      { key: 'fish', label: 'Рыба и морепродукты' },
+      { key: 'veg', label: 'Овощи и зелень' },
+      { key: 'sauce', label: 'Соусы и бакалея' },
+      { key: 'bakery', label: 'Крупы и мука' },
+      { key: 'dairy', label: 'Молочные продукты и яйцо' },
+      { key: 'packaging', label: 'Упаковка и расходники' }
+    ],
+    '/api/raw-category-defs',
+    'rawCategoryDefs'
+  );
+  const [checklistAssignments, setChecklistAssignments] = useSyncedState<ChecklistAssignments>(
+    DEFAULT_CHECKLIST_ASSIGNMENTS,
+    '/api/checklist-assignments',
+    'checklistAssignments'
+  );
+  const [staff, setStaff] = useSyncedState<StaffMember[]>(INITIAL_STAFF, '/api/staff', 'staff');
+  const [registrationRequests, setRegistrationRequests] = useSyncedState<RegistrationRequest[]>(
+    INITIAL_REGISTRATION_REQUESTS,
+    '/api/registration-requests',
+    'registrationRequests'
+  );
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -31,6 +104,13 @@ export default function App() {
         if (data.products) setProducts(data.products);
         if (data.orders) setOrders(data.orders);
         if (data.notifications) setNotifications(data.notifications);
+        if (data.rawMaterials) setRawMaterials(data.rawMaterials);
+        if (data.rawCategoryDefs) setRawCategoryDefs(data.rawCategoryDefs);
+        if (data.semiFinishedList) setSemiFinishedList(data.semiFinishedList);
+        if (data.dishCostings) setDishCostings(data.dishCostings);
+        if (data.checklistAssignments) setChecklistAssignments(data.checklistAssignments);
+        if (data.staff) setStaff(data.staff);
+        if (data.registrationRequests) setRegistrationRequests(data.registrationRequests);
       })
       .catch((err) => {
         console.log('Using local fallback state:', err);
@@ -123,6 +203,125 @@ export default function App() {
     }
   };
 
+  // Admin: Update a single product's card fields (photo, category, price, etc.)
+  const handleUpdateProduct = (productId: string, updates: Partial<Product>) => {
+    setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, ...updates } : p)));
+  };
+
+  // Personnel: update an existing staff member's point/role
+  const handleUpdateStaffMember = (staffId: string, updates: Partial<StaffMember>) => {
+    setStaff((prev) => prev.map((s) => (s.id === staffId ? { ...s, ...updates } : s)));
+  };
+
+  // Personnel: anyone can submit a registration request specifying their point and desired role
+  const handleAddRegistrationRequest = (request: Omit<RegistrationRequest, 'id' | 'submittedAt'>) => {
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const newRequest: RegistrationRequest = {
+      ...request,
+      id: `reg-${Date.now()}`,
+      submittedAt: timeStr
+    };
+    setRegistrationRequests((prev) => [...prev, newRequest]);
+  };
+
+  // Personnel: edit a pending request's point/role before approving it
+  const handleUpdateRegistrationRequest = (requestId: string, updates: Partial<RegistrationRequest>) => {
+    setRegistrationRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, ...updates } : r)));
+  };
+
+  // Personnel: approve a pending request into the staff roster
+  const handleApproveRegistrationRequest = (requestId: string) => {
+    const request = registrationRequests.find((r) => r.id === requestId);
+    if (!request) return;
+    const newStaffMember: StaffMember = {
+      id: `staff-${Date.now()}`,
+      name: request.name,
+      role: request.requestedRole,
+      shopId: request.requestedShopId,
+      phone: request.phone
+    };
+    setStaff((prev) => [...prev, newStaffMember]);
+    setRegistrationRequests((prev) => prev.filter((r) => r.id !== requestId));
+  };
+
+  // Personnel: reject/dismiss a pending request
+  const handleRejectRegistrationRequest = (requestId: string) => {
+    setRegistrationRequests((prev) => prev.filter((r) => r.id !== requestId));
+  };
+
+  // Personnel: manually add a new staff member (e.g. a point manager, added directly from the shop card)
+  const handleAddStaffMember = (member: Omit<StaffMember, 'id'>) => {
+    const newMember: StaffMember = { ...member, id: `staff-${Date.now()}` };
+    setStaff((prev) => [...prev, newMember]);
+  };
+
+  // Personnel: remove a staff member entirely
+  const handleDeleteStaffMember = (staffId: string) => {
+    setStaff((prev) => prev.filter((s) => s.id !== staffId));
+  };
+
+  // Personnel: a point can only have one territorial manager — reassigning removes it from whoever had it before
+  const handleAssignTerritorialManager = (shopId: number, staffId: string) => {
+    setStaff((prev) =>
+      prev.map((s) => {
+        if (s.role !== 'territorial_manager') return s;
+        const withoutShop = (s.assignedShopIds || []).filter((id) => id !== shopId);
+        if (s.id === staffId) {
+          return { ...s, assignedShopIds: [...withoutShop, shopId] };
+        }
+        return { ...s, assignedShopIds: withoutShop };
+      })
+    );
+  };
+
+  // Sales Points: add a new point of sale
+  const handleAddShop = (data: { address: string; manager: string; district: string }) => {
+    const newId = Math.max(...shops.map((s) => s.id), 0) + 1;
+    const baseAvg: Record<string, number> = {};
+    products.forEach((p) => {
+      let base = 8;
+      if (p.category === 'croissants') base = 18;
+      if (p.category === 'sandwiches') base = 14;
+      if (p.category === 'desserts') base = 12;
+      if (p.category === 'bar_prep') base = 3;
+      if (p.category === 'kitchen_prep') base = 4;
+      if (p.category === 'new_items') base = 10;
+      baseAvg[p.id] = base;
+    });
+
+    const newShop: CoffeeShop = {
+      id: newId,
+      name: `Кофейня №${newId} — ${data.address}`,
+      address: data.address,
+      manager: data.manager,
+      phone: '',
+      district: data.district || 'Новая точка',
+      frequentItems: [],
+      historicalAvg: baseAvg
+    };
+
+    setShops((prev) => [...prev, newShop]);
+    setOrders((prev) => ({
+      ...prev,
+      [newId]: { shopId: newId, items: {}, status: 'draft', managerName: data.manager }
+    }));
+  };
+
+  // Sales Points: edit a point's name (district label) and/or address
+  const handleUpdateShop = (shopId: number, updates: Partial<Pick<CoffeeShop, 'district' | 'address'>>) => {
+    setShops((prev) =>
+      prev.map((s) => {
+        if (s.id !== shopId) return s;
+        const merged = { ...s, ...updates };
+        if (updates.address) {
+          merged.name = `Кофейня №${shopId} — ${updates.address}`;
+        }
+        return merged;
+      })
+    );
+  };
+
   // Admin: Accept all submitted orders
   const handleAcceptAllOrders = async () => {
     const now = new Date();
@@ -208,6 +407,17 @@ export default function App() {
   ).length;
 
   const selectedShop = shops.find((s) => s.id === selectedShopId) || shops[0];
+  const currentTerritorialManager = staff.find((s) => s.id === currentTerritorialManagerId) || null;
+
+  const handleRoleChange = (role: UserRole) => {
+    setCurrentRole(role);
+    if (role !== 'territorial') setCurrentTerritorialManagerId(null);
+  };
+
+  const handleLoginTerritorial = (staffId: string) => {
+    setCurrentTerritorialManagerId(staffId);
+    setCurrentRole('territorial');
+  };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
@@ -222,11 +432,16 @@ export default function App() {
         {/* Main Header */}
         <Header
           currentRole={currentRole}
-          onRoleChange={setCurrentRole}
+          onRoleChange={handleRoleChange}
           submittedCount={submittedCount}
           totalShops={27}
           selectedShopName={selectedShop?.name}
           onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
+          shops={shops}
+          staff={staff}
+          onSubmitRegistrationRequest={handleAddRegistrationRequest}
+          onLoginTerritorial={handleLoginTerritorial}
+          currentTerritorialManagerName={currentTerritorialManager?.name}
         />
 
         {/* Workspace Area */}
@@ -241,24 +456,46 @@ export default function App() {
               onUpdateOrder={handleUpdateOrder}
               onOpenPreview={() => setIsPreviewOpen(true)}
               notifications={notifications}
-              submittedCount={submittedCount}
-              onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
             />
-          ) : (
+          ) : currentRole === 'admin' ? (
             <AdminView
               shops={shops}
               products={products}
               orders={orders}
-              notifications={notifications}
               semiFinishedList={semiFinishedList}
               dishCostings={dishCostings}
               onUpdateSemiFinished={setSemiFinishedList}
               onUpdateDishCostings={setDishCostings}
+              onUpdateProduct={handleUpdateProduct}
+              rawMaterials={rawMaterials}
+              setRawMaterials={setRawMaterials}
+              rawCategoryDefs={rawCategoryDefs}
+              setRawCategoryDefs={setRawCategoryDefs}
+              checklistAssignments={checklistAssignments}
+              onUpdateChecklistAssignments={setChecklistAssignments}
+              staff={staff}
+              registrationRequests={registrationRequests}
+              onUpdateStaffMember={handleUpdateStaffMember}
+              onUpdateRegistrationRequest={handleUpdateRegistrationRequest}
+              onApproveRegistrationRequest={handleApproveRegistrationRequest}
+              onRejectRegistrationRequest={handleRejectRegistrationRequest}
+              onAddShop={handleAddShop}
+              onUpdateShop={handleUpdateShop}
+              onAddStaffMember={handleAddStaffMember}
+              onDeleteStaffMember={handleDeleteStaffMember}
+              onAssignTerritorialManager={handleAssignTerritorialManager}
               onAcceptAllOrders={handleAcceptAllOrders}
               onSendRemindersAll={handleSendRemindersAll}
-              onSendReminderSingle={handleSendReminderSingle}
               onSimulateAll={handleSimulateAll}
               onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
+            />
+          ) : (
+            <TerritorialManagerView
+              managerName={currentTerritorialManager?.name || 'Территориальный управляющий'}
+              shops={shops.filter((s) => currentTerritorialManager?.assignedShopIds?.includes(s.id))}
+              orders={orders}
+              products={products}
+              staff={staff}
             />
           )}
         </main>
@@ -295,7 +532,7 @@ export default function App() {
           </span>
           <span>Anomaly Detection: Scan complete</span>
         </div>
-        <div>© 2026 Master Coffee Supply System</div>
+        <div>© 2026 Master Bakery Supply System</div>
       </footer>
 
     </div>
