@@ -117,6 +117,16 @@ export default function App() {
       });
   }, []);
 
+  // When opened inside Telegram as a Mini App, expand to full height and signal readiness.
+  // No-op in a regular browser, where window.Telegram is undefined.
+  useEffect(() => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+  }, []);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
