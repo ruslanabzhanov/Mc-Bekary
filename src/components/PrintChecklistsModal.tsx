@@ -232,7 +232,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:text-black print:static print:h-auto">
-      <div className="bg-white border border-slate-200 rounded-xl w-full max-w-4xl overflow-hidden shadow-xl flex flex-col max-h-[92vh] print:max-h-none print:border-none print:shadow-none print:bg-white print:text-black">
+      <div className="bg-white border border-slate-200 rounded-xl w-full max-w-4xl overflow-hidden shadow-xl flex flex-col max-h-[92vh] print:max-w-none print:max-h-none print:border-none print:shadow-none print:bg-white print:text-black">
         
         {/* Modal Header (Hidden on Print) */}
         <div className="p-6 border-b border-slate-100 bg-white print:hidden space-y-4">

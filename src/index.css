@@ -27,6 +27,13 @@
   }
 }
 
+/* Production checklists are designed as a dense A3 poster (matches the reference layout) so
+   the three-column calculator/summary grid fits on one sheet instead of spilling to page 2 */
+@page {
+  size: A3 landscape;
+  margin: 10mm;
+}
+
 @keyframes pulse-glow {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(40, 121, 141, 0.45);

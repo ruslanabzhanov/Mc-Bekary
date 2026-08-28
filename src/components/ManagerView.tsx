@@ -369,8 +369,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               }`}
             >
               <div>
-                {/* COMPACT TILE PHOTO CONTAINER */}
-                <div className="relative h-24 sm:h-32 w-full overflow-hidden bg-slate-100 border-b border-slate-100">
+                {/* CLEAN SQUARE PHOTO */}
+                <div className="relative aspect-square w-full overflow-hidden bg-slate-100">
                   <img
                     src={product.imageUrl}
                     alt={product.name}
@@ -381,82 +381,41 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     }}
                   />
 
-                  {/* Top Badges Overlay */}
-                  <div className="absolute top-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1 z-10">
-                    <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-900/80 text-white backdrop-blur-md">
-                      <span>{product.imageEmoji}</span>
-                      <span className="hidden sm:inline">{product.categoryLabel}</span>
+                  {isFrequent && (
+                    <span className="absolute top-1.5 left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-600 text-white shadow z-10">
+                      <Sparkles className="w-2.5 h-2.5 text-amber-300" />
                     </span>
-
-                    <div className="flex items-center space-x-1">
-                      {isFrequent && (
-                        <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-black uppercase bg-indigo-600 text-white shadow">
-                          <Sparkles className="w-2.5 h-2.5 text-amber-300" />
-                          <span className="hidden sm:inline">ИИ</span>
-                        </span>
-                      )}
-                      {anomalyType && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[8px] font-black bg-rose-600 text-white animate-pulse">
-                          !
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Quantity Badge if > 0 */}
-                  {currentQty > 0 && (
-                    <div className="absolute bottom-1.5 right-1.5 bg-indigo-600 text-white font-black text-[10px] sm:text-xs px-2 py-0.5 rounded-full shadow border border-indigo-400">
-                      {currentQty} {product.unit}
-                    </div>
+                  )}
+                  {anomalyType && (
+                    <span className="absolute top-1.5 right-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-600 text-white font-black text-[10px] animate-pulse z-10">
+                      !
+                    </span>
                   )}
                 </div>
 
                 {/* Content Details */}
-                <div className="p-2.5 sm:p-3 space-y-1">
-                  <div className="flex items-center justify-between text-[10px] text-slate-500">
-                    <span className="font-medium text-slate-400">{product.unitWeight}</span>
-                    <span className="text-[9px] font-semibold text-slate-500">Срок: {product.shelfLife}</span>
-                  </div>
-
+                <div className="px-2 pt-1.5 pb-0.5 text-center">
                   <h3 className="text-xs sm:text-sm font-bold text-slate-900 leading-tight line-clamp-1 group-hover:text-indigo-600 transition-colors" title={product.name}>
                     {product.name}
                   </h3>
 
-                  <p className="text-[10px] sm:text-xs text-slate-500 line-clamp-1">
-                    {product.description}
-                  </p>
-
-                  {/* Price & AI Norm */}
-                  <div className="pt-1 flex items-center justify-between border-t border-slate-100 text-xs">
-                    <div>
-                      <span className="font-black text-slate-900 text-xs sm:text-sm">
-                        {product.price.toLocaleString('ru-RU')} ₸
-                      </span>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 inline-block">
-                        Норма: {avgQty}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* AI Quick Fill Button */}
-                  <div className="pt-1">
+                  <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                    <span className="font-black text-slate-900 text-xs sm:text-sm">
+                      {product.price.toLocaleString('ru-RU')} ₸
+                    </span>
                     <button
                       id={`btn-ai-fill-${product.id}`}
                       onClick={() => handleApplyAiRecommendation(product.id)}
-                      className="w-full text-center text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 hover:bg-indigo-100 py-1 rounded transition-colors border border-indigo-150 flex items-center justify-center space-x-1"
+                      className="text-[9px] font-bold text-slate-400 hover:text-indigo-700"
                       title="Вставить ИИ-расчетную норму"
                     >
-                      <TrendingUp className="w-3 h-3 text-indigo-600" />
-                      <span>+ ИИ-совет ({avgQty})</span>
+                      · {avgQty} шт
                     </button>
                   </div>
 
                   {/* Red Anomaly Alert Banner */}
                   {anomalyType && (
-                    <div className="p-1.5 rounded bg-rose-100 text-rose-950 text-[10px] font-bold border border-rose-300">
+                    <div className="mt-1 p-1.5 rounded bg-rose-100 text-rose-950 text-[10px] font-bold border border-rose-300 text-left">
                       <span>{anomalyText}</span>
                     </div>
                   )}
@@ -464,8 +423,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </div>
 
               {/* Quantity Input Controls */}
-              <div className="p-2.5 sm:p-3 pt-0">
-                <div className="pt-1.5 border-t border-slate-100">
+              <div className="px-2 pb-2 pt-1">
+                <div>
                   <div className="flex items-center justify-between space-x-1">
                     <button
                       id={`btn-dec-${product.id}`}
