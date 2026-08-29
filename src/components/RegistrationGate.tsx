@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { UserPlus, Clock, CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
 import { CoffeeShop, StaffRole, RegistrationRequest } from '../types';
+import { RoleShopFields } from './RoleShopFields';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
 
 const PENDING_ID_KEY = 'mc-bekary-pending-registration-id';
@@ -13,11 +14,11 @@ interface RegistrationGateProps {
   onRefresh: () => void;
 }
 
-const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
-  { value: 'shop_manager', label: 'Менеджер точки' },
-  { value: 'territorial_manager', label: 'Территориальный управляющий' },
-  { value: 'employee', label: 'Внутренний сотрудник' },
-];
+const ROLE_LABELS: Record<StaffRole, string> = {
+  shop_manager: 'Менеджер точки',
+  territorial_manager: 'Территориальный управляющий',
+  employee: 'Внутренний сотрудник',
+};
 
 export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   shops,
@@ -32,6 +33,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [shopId, setShopId] = useState<number>(shops[0]?.id || 1);
+  const [shopIds, setShopIds] = useState<number[]>([]);
   const [role, setRole] = useState<StaffRole>('shop_manager');
 
   const myRequest = pendingId ? registrationRequests.find((r) => r.id === pendingId) : null;
@@ -46,7 +48,14 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    const newId = onSubmit({ name: name.trim(), phone: phone.trim() || undefined, requestedShopId: shopId, requestedRole: role });
+    if (role === 'territorial_manager' && shopIds.length === 0) return;
+    const newId = onSubmit({
+      name: name.trim(),
+      phone: phone.trim() || undefined,
+      requestedShopId: shopId,
+      requestedShopIds: role === 'territorial_manager' ? shopIds : undefined,
+      requestedRole: role,
+    });
     window.localStorage.setItem(PENDING_ID_KEY, newId);
     setPendingId(newId);
   };
@@ -105,8 +114,13 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
         {myRequest && (
           <div className="w-full mt-4 bg-slate-50 border border-slate-200 rounded-xl p-3 text-left text-xs space-y-1">
             <div><span className="text-slate-400">ФИО:</span> <span className="font-bold text-slate-800">{myRequest.name}</span></div>
-            <div><span className="text-slate-400">Точка:</span> <span className="font-bold text-slate-800">№{myRequest.requestedShopId}</span></div>
-            <div><span className="text-slate-400">Должность:</span> <span className="font-bold text-slate-800">{ROLE_OPTIONS.find((r) => r.value === myRequest.requestedRole)?.label}</span></div>
+            <div><span className="text-slate-400">Должность:</span> <span className="font-bold text-slate-800">{ROLE_LABELS[myRequest.requestedRole]}</span></div>
+            <div>
+              <span className="text-slate-400">{myRequest.requestedShopIds ? 'Точки:' : 'Точка:'}</span>{' '}
+              <span className="font-bold text-slate-800">
+                {myRequest.requestedShopIds ? myRequest.requestedShopIds.map((id) => `№${id}`).join(', ') : `№${myRequest.requestedShopId}`}
+              </span>
+            </div>
           </div>
         )}
         <button
@@ -155,33 +169,15 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
           />
         </div>
 
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Точка</label>
-          <select
-            value={shopId}
-            onChange={(e) => setShopId(Number(e.target.value))}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
-          >
-            {shops.map((s) => (
-              <option key={s.id} value={s.id}>
-                Точка №{s.id} — {s.name.replace(`Кофейня №${s.id} — `, '')}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Должность</label>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as StaffRole)}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
-          >
-            {ROLE_OPTIONS.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
-        </div>
+        <RoleShopFields
+          shops={shops}
+          role={role}
+          onRoleChange={setRole}
+          shopId={shopId}
+          onShopIdChange={setShopId}
+          shopIds={shopIds}
+          onShopIdsChange={setShopIds}
+        />
 
         <button
           type="submit"

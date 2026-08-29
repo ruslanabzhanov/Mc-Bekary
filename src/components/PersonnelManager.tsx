@@ -157,20 +157,28 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
 
                 <div className="grid grid-cols-2 gap-2 sm:w-64 shrink-0">
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-                    <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Точка</span>
-                    <select
-                      value={req.requestedShopId}
-                      onChange={(e) =>
-                        onUpdateRegistrationRequest(req.id, { requestedShopId: Number(e.target.value) })
-                      }
-                      className="w-full bg-transparent font-bold text-indigo-900 text-[10px] leading-tight focus:outline-none cursor-pointer"
-                    >
-                      {shops.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          №{s.id}
-                        </option>
-                      ))}
-                    </select>
+                    <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">
+                      {req.requestedShopIds ? 'Точки' : 'Точка'}
+                    </span>
+                    {req.requestedShopIds ? (
+                      <span className="block font-bold text-indigo-900 text-[10px] leading-tight">
+                        {req.requestedShopIds.map((id) => `№${id}`).join(', ')}
+                      </span>
+                    ) : (
+                      <select
+                        value={req.requestedShopId}
+                        onChange={(e) =>
+                          onUpdateRegistrationRequest(req.id, { requestedShopId: Number(e.target.value) })
+                        }
+                        className="w-full bg-transparent font-bold text-indigo-900 text-[10px] leading-tight focus:outline-none cursor-pointer"
+                      >
+                        {shops.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            №{s.id}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
                     <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Должность</span>

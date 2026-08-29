@@ -345,11 +345,13 @@ export default function App() {
   const handleApproveRegistrationRequest = (requestId: string) => {
     const request = registrationRequests.find((r) => r.id === requestId);
     if (!request) return;
+    const isTerritorial = request.requestedRole === 'territorial_manager';
     const newStaffMember: StaffMember = {
       id: `staff-${Date.now()}`,
       name: request.name,
       role: request.requestedRole,
-      shopId: request.requestedShopId,
+      shopId: isTerritorial ? null : request.requestedShopId,
+      assignedShopIds: isTerritorial ? request.requestedShopIds : undefined,
       phone: request.phone
     };
     setStaff((prev) => [...prev, newStaffMember]);
