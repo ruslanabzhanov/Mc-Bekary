@@ -11,6 +11,7 @@ import {
   productToDb,
   orderFromDb,
   orderToDb,
+  orderHistoryFromDb,
   notificationFromDb,
   notificationToDb,
   rawMaterialFromDb,
@@ -416,10 +417,38 @@ export function createApiApp() {
       const { error: upsertError } = await supabase.from('orders').upsert(orderToDb(order));
       if (upsertError) throw upsertError;
 
+      // Log every actual submission (not draft saves) to the append-only history table
+      if (status === 'submitted') {
+        await supabase.from('order_history').insert({
+          shop_id: shopId,
+          items: order.items,
+          manager_name: order.managerName,
+        });
+      }
+
       res.json({ success: true, order });
     } catch (e) {
       console.error('Failed to save order:', e);
       res.status(500).json({ error: 'Failed to save order' });
+    }
+  });
+
+  // Past submitted orders for one shop, newest first — powers the manager's order history view
+  app.get('/api/orders/:shopId/history', async (req, res) => {
+    try {
+      const shopId = parseInt(req.params.shopId, 10);
+      const { data, error } = await supabase
+        .from('order_history')
+        .select('*')
+        .eq('shop_id', shopId)
+        .order('submitted_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+
+      res.json({ history: (data || []).map(orderHistoryFromDb) });
+    } catch (e) {
+      console.error('Failed to fetch order history:', e);
+      res.status(500).json({ error: 'Failed to fetch order history' });
     }
   });
 

@@ -12,8 +12,12 @@ import {
   Clock,
   Zap,
   TrendingUp,
-  Info
+  Info,
+  History,
+  Pencil,
+  X
 } from 'lucide-react';
+import { OrderHistoryModal } from './OrderHistoryModal';
 
 interface ManagerViewProps {
   coffeeShops: CoffeeShop[];
@@ -38,6 +42,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<Category | 'all'>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isShopPickerOpen, setIsShopPickerOpen] = useState(false);
 
   const selectedShop = useMemo(
     () => coffeeShops.find((s) => s.id === selectedShopId) || coffeeShops[0],
@@ -168,21 +174,37 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       {/* STEP 1: Tile Grid Dashboard (Информационные карточки плиткой) */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-          {/* Tile 1: Закрепленная точка */}
-          <div className="bg-indigo-50/80 p-3 rounded-xl border border-indigo-100 flex flex-col justify-between">
+          {/* Tile 1: Закрепленная точка — клик открывает историю прошлых заявок этой точки */}
+          <button
+            id="btn-open-order-history"
+            onClick={() => setIsHistoryOpen(true)}
+            className="bg-indigo-50/80 hover:bg-indigo-100 p-3 rounded-xl border border-indigo-100 hover:border-indigo-300 flex flex-col justify-between text-left transition-all cursor-pointer group"
+            title="Посмотреть историю заявок этой точки"
+          >
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px] font-black uppercase text-indigo-700 tracking-wider flex items-center gap-1">
                 <Building2 className="w-3 h-3" />
                 Точка №{selectedShop.id}
               </span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-200/80 text-indigo-900 font-bold">
-                🔒
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsShopPickerOpen(true);
+                }}
+                className="p-0.5 rounded hover:bg-indigo-200/80 text-indigo-700 hover:text-indigo-900"
+                title="Сменить точку на этом устройстве"
+              >
+                <Pencil className="w-3 h-3" />
               </span>
             </div>
             <span className="font-extrabold text-slate-900 text-xs block truncate" title={selectedShop.name}>
               {selectedShop.name.replace(`Кофейня №${selectedShop.id} — `, '')}
             </span>
-          </div>
+            <span className="text-[9px] font-bold text-indigo-500 flex items-center gap-1 mt-1">
+              <History className="w-2.5 h-2.5" />
+              История заявок
+            </span>
+          </button>
 
           {/* Tile 2: Менеджер */}
           <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between">
@@ -517,6 +539,60 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           </div>
         </div>
       </div>
+      )}
+
+      <OrderHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        shop={selectedShop}
+        products={products}
+      />
+
+      {/* Shop picker: stopgap until real per-user Telegram identity exists — lets this
+          device declare which point it represents, instead of everyone sharing shop #1 */}
+      {isShopPickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn"
+          onClick={() => setIsShopPickerOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setIsShopPickerOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 bg-indigo-100 text-indigo-700 rounded-2xl flex items-center justify-center mb-3 border border-indigo-200">
+                <Building2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-extrabold text-slate-900">Выберите свою точку</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Это устройство будет запоминать выбор и дальше открывать заказ именно этой точки
+              </p>
+
+              <select
+                value={selectedShopId}
+                onChange={(e) => {
+                  onSelectShop(Number(e.target.value));
+                  setIsShopPickerOpen(false);
+                }}
+                className="w-full mt-5 px-3 py-2.5 text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+                autoFocus
+              >
+                {coffeeShops.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    №{s.id} — {s.name.replace(`Кофейня №${s.id} — `, '')}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

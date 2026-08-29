@@ -46,7 +46,18 @@ const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
 export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>('manager');
   const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(null);
-  const [selectedShopId, setSelectedShopId] = useState<number>(1);
+  const SHOP_ID_STORAGE_KEY = 'mc-bekary-selected-shop-id';
+  const [selectedShopId, setSelectedShopIdRaw] = useState<number>(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem(SHOP_ID_STORAGE_KEY) : null;
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(parsed) ? parsed : 1;
+  });
+  // Persists which shop this device/manager represents, so it survives a reload —
+  // stopgap until real per-user Telegram identity exists (see CLAUDE.md known issues).
+  const setSelectedShopId = (shopId: number) => {
+    window.localStorage.setItem(SHOP_ID_STORAGE_KEY, String(shopId));
+    setSelectedShopIdRaw(shopId);
+  };
   const [shops, setShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
   const [products, setProducts] = useSyncedState<Product[]>(PRODUCTS, '/api/products', 'products');
   const [orders, setOrders] = useState<Record<number, ShopOrder>>(INITIAL_ORDERS);

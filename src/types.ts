@@ -45,6 +45,14 @@ export interface ShopOrder {
   anomalies?: Record<string, string>; // productId -> anomaly message
 }
 
+export interface OrderHistoryEntry {
+  id: number;
+  shopId: number;
+  items: Record<string, number>; // productId -> quantity
+  managerName?: string;
+  submittedAt: string; // ISO timestamp
+}
+
 export interface DisciplineNotification {
   id: string;
   shopId: number;

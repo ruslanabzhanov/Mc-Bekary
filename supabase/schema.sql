@@ -40,6 +40,18 @@ create table if not exists orders (
   anomalies jsonb
 );
 
+-- Append-only log of every order actually submitted (not drafts), so a shop's
+-- manager can look back at what was ordered before, by whom, and when.
+create table if not exists order_history (
+  id bigserial primary key,
+  shop_id integer not null references shops(id),
+  items jsonb not null default '{}',
+  manager_name text,
+  submitted_at timestamptz not null default now()
+);
+create index if not exists order_history_shop_id_idx on order_history(shop_id, submitted_at desc);
+alter table order_history enable row level security;
+
 create table if not exists notifications (
   id text primary key,
   shop_id integer not null,
