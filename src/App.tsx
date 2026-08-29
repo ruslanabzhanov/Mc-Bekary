@@ -7,7 +7,7 @@ import { OrderPreviewModal } from './components/OrderPreviewModal';
 import { SubmittedOrdersModal } from './components/SubmittedOrdersModal';
 import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
-import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments } from './types';
+import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
 
 // A useState that also fires-and-forgets a POST to persist every update to the Express backend,
 // so the value survives a full page reload (not just re-opening a modal within the same session).
@@ -46,7 +46,18 @@ const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
 export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>('manager');
   const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(null);
-  const [selectedShopId, setSelectedShopId] = useState<number>(1);
+  const SHOP_ID_STORAGE_KEY = 'mc-bekary-selected-shop-id';
+  const [selectedShopId, setSelectedShopIdRaw] = useState<number>(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem(SHOP_ID_STORAGE_KEY) : null;
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(parsed) ? parsed : 1;
+  });
+  // Persists which shop this device/manager represents, so it survives a reload —
+  // stopgap until real per-user Telegram identity exists (see CLAUDE.md known issues).
+  const setSelectedShopId = (shopId: number) => {
+    window.localStorage.setItem(SHOP_ID_STORAGE_KEY, String(shopId));
+    setSelectedShopIdRaw(shopId);
+  };
   const [shops, setShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
   const [products, setProducts] = useSyncedState<Product[]>(PRODUCTS, '/api/products', 'products');
   const [orders, setOrders] = useState<Record<number, ShopOrder>>(INITIAL_ORDERS);
@@ -94,6 +105,31 @@ export default function App() {
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Fixed behavior before the role-permissions feature existed — same defaults the
+  // server falls back to when a role has no saved row yet (see apiApp.ts).
+  const DEFAULT_ROLE_PERMISSIONS: RolePermissions = {
+    admin: {
+      accept_reject_orders: true,
+      send_reminders: true,
+      manage_checklists: true,
+      manage_costings: true,
+      manage_personnel: true,
+      manage_sales_points: true,
+    },
+    territorial: {
+      accept_reject_orders: false,
+      send_reminders: false,
+      manage_checklists: false,
+      manage_costings: false,
+      manage_personnel: false,
+      manage_sales_points: false,
+    },
+  };
+  const [rolePermissions, setRolePermissions] = useState<RolePermissions>(DEFAULT_ROLE_PERMISSIONS);
+  // Raw Telegram initData string, kept only to re-send with the one owner-only write
+  // (role permissions) so the server can verify it again — never trust a client flag.
+  const [telegramInitData, setTelegramInitData] = useState<string>('');
+  const [isOwnerVerified, setIsOwnerVerified] = useState(false);
 
   // Fetch initial state from server on startup
   useEffect(() => {
@@ -109,6 +145,7 @@ export default function App() {
         if (data.semiFinishedList) setSemiFinishedList(data.semiFinishedList);
         if (data.dishCostings) setDishCostings(data.dishCostings);
         if (data.checklistAssignments) setChecklistAssignments(data.checklistAssignments);
+        if (data.rolePermissions) setRolePermissions(data.rolePermissions);
         if (data.staff) setStaff(data.staff);
         if (data.registrationRequests) setRegistrationRequests(data.registrationRequests);
       })
@@ -124,8 +161,34 @@ export default function App() {
     if (tg) {
       tg.ready();
       tg.expand();
+      if (tg.initData) {
+        setTelegramInitData(tg.initData);
+        fetch('/api/auth/telegram-owner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData: tg.initData }),
+        })
+          .then((res) => res.json())
+          .then((data) => setIsOwnerVerified(!!data.isOwner))
+          .catch((e) => console.error('Failed to verify Telegram owner:', e));
+      }
     }
   }, []);
+
+  // Owner-only: change what each role is allowed to do. Sends the raw initData string
+  // again so the server can re-verify identity rather than trust this call's caller.
+  const handleUpdateRolePermissions = async (permissions: RolePermissions) => {
+    setRolePermissions(permissions);
+    try {
+      await fetch('/api/role-permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: telegramInitData, permissions }),
+      });
+    } catch (e) {
+      console.error('Failed to save role permissions:', e);
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -452,6 +515,7 @@ export default function App() {
           onSubmitRegistrationRequest={handleAddRegistrationRequest}
           onLoginTerritorial={handleLoginTerritorial}
           currentTerritorialManagerName={currentTerritorialManager?.name}
+          isOwnerVerified={isOwnerVerified}
         />
 
         {/* Workspace Area */}
@@ -467,8 +531,11 @@ export default function App() {
               onOpenPreview={() => setIsPreviewOpen(true)}
               notifications={notifications}
             />
-          ) : currentRole === 'admin' ? (
+          ) : currentRole === 'admin' || currentRole === 'owner' ? (
             <AdminView
+              isOwner={currentRole === 'owner'}
+              permissions={rolePermissions}
+              onUpdateRolePermissions={handleUpdateRolePermissions}
               shops={shops}
               products={products}
               orders={orders}
@@ -529,6 +596,7 @@ export default function App() {
         orders={orders}
         products={products}
         currentRole={currentRole}
+        permissions={rolePermissions}
         onUpdateOrderStatus={handleUpdateOrderStatus}
         onSendReminderSingle={handleSendReminderSingle}
       />

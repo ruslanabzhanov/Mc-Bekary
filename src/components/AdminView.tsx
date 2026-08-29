@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest, RawMaterial, ChecklistAssignments } from '../types';
+import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest, RawMaterial, ChecklistAssignments, RolePermissions } from '../types';
 import { AiProcurementModal } from './AiProcurementModal';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
 import { CostingsManager } from './CostingsManager';
 import { PersonnelManager } from './PersonnelManager';
 import { SalesPointsManager } from './SalesPointsManager';
+import { RolePermissionsModal } from './RolePermissionsModal';
 import {
   ShieldCheck,
   Send,
@@ -22,7 +23,8 @@ import {
   Users,
   Printer,
   Store,
-  X
+  X,
+  Crown
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -55,6 +57,9 @@ interface AdminViewProps {
   onSendRemindersAll: () => void;
   onSimulateAll: () => void;
   onOpenSubmittedOrdersModal?: () => void;
+  isOwner?: boolean;
+  permissions: RolePermissions;
+  onUpdateRolePermissions: (permissions: RolePermissions) => void;
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
@@ -87,6 +92,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onSendRemindersAll,
   onSimulateAll,
   onOpenSubmittedOrdersModal,
+  isOwner,
+  permissions,
+  onUpdateRolePermissions,
 }) => {
   const [selectedPrintDept, setSelectedPrintDept] = useState<'bakery' | 'desserts' | 'bar_prep' | 'kitchen_prep' | null>(null);
   const [isChecklistsMenuOpen, setIsChecklistsMenuOpen] = useState(false);
@@ -94,7 +102,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isSalesPointsModalOpen, setIsSalesPointsModalOpen] = useState(false);
   const [isCostingsModalOpen, setIsCostingsModalOpen] = useState(false);
   const [isAiProcurementOpen, setIsAiProcurementOpen] = useState(false);
+  const [isRolePermissionsOpen, setIsRolePermissionsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Owner always has every capability; admin is gated by the permission matrix
+  // the Owner configures (defaults to "everything on", matching pre-existing behavior).
+  const canDo = (key: keyof RolePermissions['admin']) => !!isOwner || permissions.admin[key];
 
   // Compute stats
   const allOrdersList = Object.values(orders) as ShopOrder[];
@@ -236,7 +249,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <button
               id="btn-send-reminders"
               onClick={handleSendReminders}
-              disabled={pendingCount === 0}
+              disabled={pendingCount === 0 || !canDo('send_reminders')}
+              title={!canDo('send_reminders') ? 'Отключено Владельцем' : undefined}
               className="flex items-center justify-center space-x-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs tracking-wider shadow-sm transition-all disabled:opacity-50 text-center cursor-pointer"
             >
               <Send className="w-4 h-4 shrink-0" />
@@ -246,7 +260,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <button
               id="btn-accept-all-orders"
               onClick={handleAcceptAll}
-              disabled={submittedCount === 0}
+              disabled={submittedCount === 0 || !canDo('accept_reject_orders')}
+              title={!canDo('accept_reject_orders') ? 'Отключено Владельцем' : undefined}
               className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs tracking-wider shadow-sm transition-all disabled:opacity-50 text-center cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -272,7 +287,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <button
             id="btn-toggle-checklists"
             onClick={() => setIsChecklistsMenuOpen((open) => !open)}
-            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+            disabled={!canDo('manage_checklists')}
+            title={!canDo('manage_checklists') ? 'Отключено Владельцем' : undefined}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
           >
             <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
               Чек-листы
@@ -286,7 +303,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <button
             id="btn-open-costings-modal"
             onClick={() => setIsCostingsModalOpen(true)}
-            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+            disabled={!canDo('manage_costings')}
+            title={!canDo('manage_costings') ? 'Отключено Владельцем' : undefined}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
           >
             <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
               Блюда и ТКК
@@ -297,7 +316,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <button
             id="btn-open-personnel-modal"
             onClick={() => setIsPersonnelModalOpen(true)}
-            className="relative bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+            disabled={!canDo('manage_personnel')}
+            title={!canDo('manage_personnel') ? 'Отключено Владельцем' : undefined}
+            className="relative bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
           >
             <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
               Сотрудники
@@ -313,13 +334,28 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <button
             id="btn-open-sales-points-modal"
             onClick={() => setIsSalesPointsModalOpen(true)}
-            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+            disabled={!canDo('manage_sales_points')}
+            title={!canDo('manage_sales_points') ? 'Отключено Владельцем' : undefined}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
           >
             <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
               Точки ({shops.length})
             </span>
             <Store className="w-6 h-6 text-slate-900 mt-1.5" />
           </button>
+
+          {isOwner && (
+            <button
+              id="btn-open-role-permissions"
+              onClick={() => setIsRolePermissionsOpen(true)}
+              className="bg-amber-50 hover:bg-amber-100 p-4 rounded-xl border border-amber-200 hover:border-amber-400 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+            >
+              <span className="text-[10px] font-black uppercase text-amber-700 tracking-widest group-hover:text-amber-900 transition-colors block">
+                Роли и права
+              </span>
+              <Crown className="w-6 h-6 text-amber-700 mt-1.5" />
+            </button>
+          )}
         </div>
 
         {isChecklistsMenuOpen && (
@@ -521,6 +557,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
         isOpen={isAiProcurementOpen}
         onClose={() => setIsAiProcurementOpen(false)}
       />
+
+      {isOwner && (
+        <RolePermissionsModal
+          isOpen={isRolePermissionsOpen}
+          onClose={() => setIsRolePermissionsOpen(false)}
+          permissions={permissions}
+          onSave={onUpdateRolePermissions}
+        />
+      )}
 
     </div>
   );

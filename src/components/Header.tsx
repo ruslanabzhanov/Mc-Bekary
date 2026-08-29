@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, UserCheck, Clock, Lock, LogOut, KeyRound, X, UserPlus, Compass } from 'lucide-react';
+import { ShieldCheck, UserCheck, Clock, Lock, LogOut, KeyRound, X, UserPlus, Compass, Crown } from 'lucide-react';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
 import { CoffeeShop, RegistrationRequest, StaffMember, UserRole } from '../types';
 import { RegistrationRequestModal } from './RegistrationRequestModal';
@@ -16,6 +16,7 @@ interface HeaderProps {
   onSubmitRegistrationRequest: (request: Omit<RegistrationRequest, 'id' | 'submittedAt'>) => void;
   onLoginTerritorial: (staffId: string) => void;
   currentTerritorialManagerName?: string;
+  isOwnerVerified?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,6 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSubmitRegistrationRequest,
   onLoginTerritorial,
   currentTerritorialManagerName,
+  isOwnerVerified,
 }) => {
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [pinCode, setPinCode] = useState('');
@@ -117,6 +119,16 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center space-x-2">
               {currentRole === 'manager' && (
                 <>
+                  {isOwnerVerified && (
+                    <button
+                      id="btn-owner-login"
+                      onClick={() => onRoleChange('owner')}
+                      className="p-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-900 transition-all shadow-2xs cursor-pointer"
+                      title="Вход для Владельца"
+                    >
+                      <Crown className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                     id="btn-admin-login"
                     onClick={() => setIsPinModalOpen(true)}
@@ -145,6 +157,22 @@ export const Header: React.FC<HeaderProps> = ({
                     onClick={() => onRoleChange('manager')}
                     className="p-1 text-rose-700 hover:text-rose-800 bg-white border border-rose-200 rounded-lg shadow-2xs hover:bg-rose-50 transition-colors cursor-pointer"
                     title="Выйти из режима Управляющего"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {currentRole === 'owner' && (
+                <div className="flex items-center space-x-1.5 bg-amber-50 border border-amber-200 p-1 rounded-xl shadow-2xs">
+                  <div className="px-1.5 text-amber-700 flex items-center gap-1" title="Владелец">
+                    <Crown className="w-4 h-4 shrink-0" />
+                    <span className="text-[10px] font-bold hidden sm:inline whitespace-nowrap">Владелец</span>
+                  </div>
+                  <button
+                    onClick={() => onRoleChange('manager')}
+                    className="p-1 text-rose-700 hover:text-rose-800 bg-white border border-rose-200 rounded-lg shadow-2xs hover:bg-rose-50 transition-colors cursor-pointer"
+                    title="Выйти из режима Владельца"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                   </button>

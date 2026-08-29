@@ -45,6 +45,14 @@ export interface ShopOrder {
   anomalies?: Record<string, string>; // productId -> anomaly message
 }
 
+export interface OrderHistoryEntry {
+  id: number;
+  shopId: number;
+  items: Record<string, number>; // productId -> quantity
+  managerName?: string;
+  submittedAt: string; // ISO timestamp
+}
+
 export interface DisciplineNotification {
   id: string;
   shopId: number;
@@ -101,7 +109,17 @@ export interface DishCosting {
   rawIngredients: DishRawItem[];
 }
 
-export type UserRole = 'manager' | 'admin' | 'territorial';
+export type UserRole = 'manager' | 'admin' | 'territorial' | 'owner';
+
+export type Permission =
+  | 'accept_reject_orders'
+  | 'send_reminders'
+  | 'manage_checklists'
+  | 'manage_costings'
+  | 'manage_personnel'
+  | 'manage_sales_points';
+
+export type RolePermissions = Record<'admin' | 'territorial', Record<Permission, boolean>>;
 
 export type StaffRole = 'employee' | 'territorial_manager' | 'shop_manager';
 

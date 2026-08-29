@@ -40,6 +40,27 @@ create table if not exists orders (
   anomalies jsonb
 );
 
+-- Append-only log of every order actually submitted (not drafts), so a shop's
+-- manager can look back at what was ordered before, by whom, and when.
+create table if not exists order_history (
+  id bigserial primary key,
+  shop_id integer not null references shops(id),
+  items jsonb not null default '{}',
+  manager_name text,
+  submitted_at timestamptz not null default now()
+);
+create index if not exists order_history_shop_id_idx on order_history(shop_id, submitted_at desc);
+alter table order_history enable row level security;
+
+-- What each role is allowed to do, editable only by the Owner (verified via Telegram
+-- identity, not by role). Missing rows fall back to today's fixed behavior in the app
+-- (admin = everything, territorial = nothing) — see apiApp.ts DEFAULT_ROLE_PERMISSIONS.
+create table if not exists role_permissions (
+  role text primary key,
+  permissions jsonb not null default '{}'
+);
+alter table role_permissions enable row level security;
+
 create table if not exists notifications (
   id text primary key,
   shop_id integer not null,

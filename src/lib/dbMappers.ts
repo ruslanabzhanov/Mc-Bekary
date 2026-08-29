@@ -72,6 +72,14 @@ export const orderToDb = (o: any) => ({
   anomalies: o.anomalies || null,
 });
 
+export const orderHistoryFromDb = (r: any) => ({
+  id: r.id,
+  shopId: r.shop_id,
+  items: r.items || {},
+  managerName: r.manager_name || undefined,
+  submittedAt: r.submitted_at,
+});
+
 export const notificationFromDb = (r: any) => ({
   id: r.id,
   shopId: r.shop_id,
