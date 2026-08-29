@@ -121,5 +121,6 @@ create table if not exists registration_requests (
   phone text,
   requested_shop_id integer not null,
   requested_role text not null,
-  submitted_at text not null
+  submitted_at text not null,
+  status text not null default 'pending'
 );

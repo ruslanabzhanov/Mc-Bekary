@@ -1003,7 +1003,8 @@ export const INITIAL_REGISTRATION_REQUESTS: RegistrationRequest[] = [
     phone: '+7 707 405 55',
     requestedShopId: 5,
     requestedRole: 'employee',
-    submittedAt: '08:12'
+    submittedAt: '08:12',
+    status: 'pending'
   },
   {
     id: 'reg-2',
@@ -1011,6 +1012,7 @@ export const INITIAL_REGISTRATION_REQUESTS: RegistrationRequest[] = [
     phone: '+7 707 406 56',
     requestedShopId: 12,
     requestedRole: 'shop_manager',
-    submittedAt: '08:47'
+    submittedAt: '08:47',
+    status: 'pending'
   }
 ];

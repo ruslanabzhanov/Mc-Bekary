@@ -168,6 +168,7 @@ export const registrationRequestFromDb = (r: any) => ({
   requestedShopId: r.requested_shop_id,
   requestedRole: r.requested_role,
   submittedAt: r.submitted_at,
+  status: r.status || 'pending',
 });
 export const registrationRequestToDb = (r: any) => ({
   id: r.id,
@@ -176,4 +177,5 @@ export const registrationRequestToDb = (r: any) => ({
   requested_shop_id: r.requestedShopId,
   requested_role: r.requestedRole,
   submitted_at: r.submittedAt,
+  status: r.status || 'pending',
 });

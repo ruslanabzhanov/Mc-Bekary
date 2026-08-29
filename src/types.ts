@@ -134,6 +134,8 @@ export interface StaffMember {
 
 export type ChecklistAssignments = Record<string, string[]>; // checklist dept key -> assigned product IDs
 
+export type RegistrationRequestStatus = 'pending' | 'approved' | 'rejected';
+
 export interface RegistrationRequest {
   id: string;
   name: string;
@@ -141,5 +143,6 @@ export interface RegistrationRequest {
   requestedShopId: number;
   requestedRole: StaffRole;
   submittedAt: string;
+  status: RegistrationRequestStatus;
 }
 

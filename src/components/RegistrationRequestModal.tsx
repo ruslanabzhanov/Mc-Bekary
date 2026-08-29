@@ -6,7 +6,7 @@ interface RegistrationRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
   shops: CoffeeShop[];
-  onSubmit: (request: Omit<RegistrationRequest, 'id' | 'submittedAt'>) => void;
+  onSubmit: (request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>) => void;
 }
 
 const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
