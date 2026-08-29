@@ -64,6 +64,27 @@ Which products appear on a given department's checklist is independent of `Produ
 
 `index.html` loads `telegram-web-app.js`; `App.tsx` calls `window.Telegram.WebApp.ready()/.expand()` on mount (no-ops outside Telegram). The bot (`@Master_Bekarybot`) has its menu button configured via the Bot API (`setChatMenuButton`) to open the deployed Vercel URL as a `web_app` — that configuration lives on Telegram's side, not in this repo, so re-run it via the Bot API if the production URL ever changes.
 
+Because the app is just a normal website that Telegram happens to open in a `web_app` button, it keeps working even if Telegram itself is down — the same production URL loads fine in a plain browser (the SDK calls above are no-ops there). Only the one-tap launch convenience depends on Telegram.
+
+### Shop selection (manager) — stopgap, not real identity
+
+`App.tsx`'s `selectedShopId` is persisted to `localStorage` (`mc-bekary-selected-shop-id`) rather than hardcoded, and `ManagerView.tsx` has a shop-picker (pencil icon on the "Точка №X" tile) that calls `onSelectShop`. This means each **device** remembers which shop it represents — it is still not tied to who is actually holding the device. Real per-manager identity (Telegram `initData` → shop lookup) is still not implemented; this is a stopgap, matching the "🔴 Blocking" item this section used to describe.
+
+### Order history
+
+Every order that transitions to `status: 'submitted'` (not draft saves) is also appended to `order_history` (shop_id, items, manager_name, submitted_at — a real Postgres timestamp, unlike `orders.submitted_at` which is just an `HH:MM` string). `GET /api/orders/:shopId/history` returns it newest-first. In `ManagerView.tsx`, clicking the "Точка №X" tile opens `OrderHistoryModal.tsx`, which fetches this endpoint and lets the manager drill into any past submission's full item breakdown. This is append-only and independent of the single current-order-per-shop row in `orders`.
+
+### Owner role and the permission matrix
+
+`UserRole` includes `'owner'` in addition to `manager | admin | territorial`. Unlike every other role (PIN, or picking a name from a dropdown — all client-side, unauthenticated), **Owner is the one real, server-verified identity** in the app:
+
+- `src/lib/telegramAuth.ts` — `verifyTelegramInitData(initData, botToken)` implements Telegram's official Mini App HMAC check (`crypto`, no new dependency). Never trust `window.Telegram.WebApp.initDataUnsafe` from the client for authorization — only this server-side check proves the request actually came from Telegram.
+- `OWNER_TELEGRAM_ID` (env var, both locally and in Vercel) is the one Telegram numeric user id allowed to become Owner. `POST /api/auth/telegram-owner` (called from `App.tsx`'s Telegram-detection `useEffect`, only when `tg.initData` is non-empty — i.e. only inside real Telegram) tells the client whether the current user is the Owner.
+- Owner can do everything Admin can, plus edit the **permission matrix**: which of Admin's six real capabilities (accept/reject orders, send reminders, manage checklists, costings, personnel, sales points) are actually enabled, stored in the `role_permissions` table (`GET`/`POST /api/role-permissions`). `POST /api/role-permissions` **re-verifies** the caller's `initData` server-side before writing — it never trusts a client-sent "I am the Owner" flag. This is the only endpoint in the app with real server-side authorization; every other endpoint is still unauthenticated by design (matches the rest of this app's current security posture — see "Known issues" below).
+- Missing rows in `role_permissions` default to today's fixed behavior (`admin` = everything on, `territorial` = everything off) via `DEFAULT_ROLE_PERMISSIONS` in `apiApp.ts` — adding this table was not a behavior change for existing admins.
+- `TerritorialManagerView.tsx` has no action buttons at all today, so the `territorial` column in the matrix is stored but has no effect yet — wiring it up is separate follow-up work, not done.
+- Testing Owner mode requires opening the app **inside real Telegram** — `initData` is empty in a plain browser (including a Vercel preview URL opened directly), so this can only be verified against a URL Telegram actually opens the Mini App from.
+
 ### Known dead files
 
 `src/components/PrintPrepChecklistModal.tsx`, `src/components/MatrixTable.tsx`, and `src/components/DisciplineTracker.tsx` are not imported anywhere — leftovers from an earlier iteration. Don't assume they're wired in; check import sites before touching them.
@@ -72,20 +93,23 @@ Which products appear on a given department's checklist is independent of `Produ
 
 Both `/api/ai/analyze-order` and `/api/ai/predictive-procurement` call Gemini (`@google/genai`) only if `GEMINI_API_KEY` is set to something other than the `MY_GEMINI_API_KEY` placeholder; otherwise they return an algorithmic fallback response with the same shape. Don't assume a Gemini key is configured in dev or prod.
 
-## Known issues — pre-launch audit (2026-08-29), not yet fixed
+## Known issues — pre-launch audit (2026-08-29)
 
-Found while checking readiness for real multi-shop concurrent ordering. Priority order:
+Found while checking readiness for real multi-shop concurrent ordering. Status as of the Owner-role work below.
 
-### 🔴 Blocking: shop switching doesn't exist
-`selectedShopId` in `App.tsx` is `useState<number>(1)` and never changes — the `onSelectShop` callback it passes down to `ManagerView` is accepted as a prop but **never called from anywhere in `ManagerView.tsx`**. Every manager session is permanently pinned to shop id `1`, regardless of who opens the app. Right now, if multiple shops opened the Mini App at once, they'd all be viewing/overwriting the same shop's order — the other 26 shops have no way to place an order at all. This must be fixed before real rollout: needs either a real per-shop identity mechanism (see next item) or, as a stopgap, a manual shop picker wired to `onSelectShop`.
+### ✅ Fixed: shop switching
+Was: every manager session was permanently pinned to shop id `1` (`onSelectShop` was accepted as a prop but never called). Fixed with a device-level shop picker + `localStorage` persistence — see "Shop selection (manager)" above. Still a stopgap, not real per-manager identity (next item).
 
-### 🟠 Important: no real per-user identity/access control
-Nothing in the app ties a Telegram user to a specific shop or role — everything is selection-based, not authorization-based:
+### 🟠 Important, partially addressed: no real per-user identity/access control
+Owner is now a real, server-verified identity (Telegram `initData` HMAC check — see "Owner role and the permission matrix" above). Admin and Territorial are still purely client-side/selection-based, same as before:
 - Admin: shared PIN, not tied to a person.
 - Territorial manager: picked from a dropdown of names (`Header.tsx`) — anyone can pick anyone.
-- Manager: no identity at all (see above).
+- Manager: device-level shop picker (see above), not tied to a specific person either.
 
-The correct fix is to read Telegram's signed `initData` (available via `window.Telegram.WebApp.initData`/`initDataUnsafe`, includes the opening user's Telegram `id`) and look up that `id` against a `telegram_user_id` column on `staff`/`shops` server-side, rather than trusting client-selected role/shop. Not implemented yet.
+Extending the same `verifyTelegramInitData` approach used for Owner to Admin/Territorial/Manager (looking up the verified Telegram id against a `telegram_user_id` column on `staff`) would close this gap fully. Not implemented yet — deliberately scoped out of the Owner-role work to keep that change reviewable.
+
+### 🟡 Also still true: nothing else in the API is server-authorized
+`POST /api/role-permissions` is the only endpoint that verifies the caller's identity server-side. Every other endpoint (accept-all, order status changes, catalog edits, etc.) has zero server-side auth — anyone who can reach the URL can call them directly, regardless of what the UI shows. This was already true before the Owner-role work and isn't a regression, but it means the permission matrix's enforcement (see above) is UI-level only for Admin/Territorial, not a real security boundary yet.
 
 ### 🟡 Secondary, not blocking
 - `GET /api/initial-data` fetches all 11 tables for every session regardless of role — a plain manager pulls raw materials, dish costings, staff, and registration requests it never uses. Wasteful under concurrent load, not broken (Supabase's PostgREST API scales via HTTP, not a per-request Postgres connection, so this doesn't risk connection exhaustion — just adds avoidable latency/payload).
