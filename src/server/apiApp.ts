@@ -25,10 +25,55 @@ import {
   registrationRequestFromDb,
   registrationRequestToDb,
 } from '../lib/dbMappers.js';
+import { verifyTelegramInitData } from '../lib/telegramAuth.js';
 
 function timeNow() {
   const now = new Date();
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+// Fallback when a role has no row yet in `role_permissions` — matches the app's fixed
+// behavior before this feature existed, so adding the table is not a behavior change.
+const DEFAULT_ROLE_PERMISSIONS = {
+  admin: {
+    accept_reject_orders: true,
+    send_reminders: true,
+    manage_checklists: true,
+    manage_costings: true,
+    manage_personnel: true,
+    manage_sales_points: true,
+  },
+  territorial: {
+    accept_reject_orders: false,
+    send_reminders: false,
+    manage_checklists: false,
+    manage_costings: false,
+    manage_personnel: false,
+    manage_sales_points: false,
+  },
+};
+
+function buildRolePermissions(rows: any[]) {
+  const result = {
+    admin: { ...DEFAULT_ROLE_PERMISSIONS.admin },
+    territorial: { ...DEFAULT_ROLE_PERMISSIONS.territorial },
+  };
+  (rows || []).forEach((row) => {
+    if (row.role === 'admin' || row.role === 'territorial') {
+      result[row.role] = { ...DEFAULT_ROLE_PERMISSIONS[row.role], ...(row.permissions || {}) };
+    }
+  });
+  return result;
+}
+
+// Verifies the caller is really the Owner via a signed Telegram initData string —
+// never trust a client-sent "I am the owner" flag for a sensitive write like this.
+function requireOwner(initData: string): boolean {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const ownerId = process.env.OWNER_TELEGRAM_ID;
+  if (!botToken || !ownerId) return false;
+  const { valid, userId } = verifyTelegramInitData(initData, botToken);
+  return valid && userId != null && String(userId) === String(ownerId);
 }
 
 // Upserts the given rows into `table`, then deletes any existing row whose id is no
@@ -85,6 +130,7 @@ export function createApiApp() {
         checklistAssignments,
         staff,
         registrationRequests,
+        rolePermissions,
       ] = await Promise.all([
         supabase.from('shops').select('*'),
         supabase.from('products').select('*'),
@@ -97,11 +143,13 @@ export function createApiApp() {
         supabase.from('checklist_assignments').select('*'),
         supabase.from('staff').select('*'),
         supabase.from('registration_requests').select('*'),
+        supabase.from('role_permissions').select('*'),
       ]);
 
       for (const r of [
         shops, products, orders, notifications, rawMaterials, rawCategoryDefs,
         semiFinished, dishCostings, checklistAssignments, staff, registrationRequests,
+        rolePermissions,
       ]) {
         if (r.error) throw r.error;
       }
@@ -135,10 +183,59 @@ export function createApiApp() {
         checklistAssignments: checklistAssignmentsRecord,
         staff: (staff.data || []).map(staffFromDb),
         registrationRequests: (registrationRequests.data || []).map(registrationRequestFromDb),
+        rolePermissions: buildRolePermissions(rolePermissions.data || []),
       });
     } catch (e) {
       console.error('Failed to load initial data:', e);
       res.status(500).json({ error: 'Failed to load initial data' });
+    }
+  });
+
+  // Read the current permission matrix (defaults fill in for roles with no saved row)
+  app.get('/api/role-permissions', async (req, res) => {
+    try {
+      const { data, error } = await supabase.from('role_permissions').select('*');
+      if (error) throw error;
+      res.json({ rolePermissions: buildRolePermissions(data || []) });
+    } catch (e) {
+      console.error('Failed to load role permissions:', e);
+      res.status(500).json({ error: 'Failed to load role permissions' });
+    }
+  });
+
+  // Owner-only: change what each role is allowed to do. Re-verifies the Telegram
+  // identity server-side rather than trusting a client-sent "I am the owner" flag.
+  app.post('/api/role-permissions', async (req, res) => {
+    try {
+      const { initData, permissions } = req.body;
+      if (!requireOwner(initData)) {
+        return res.status(403).json({ error: 'Only the Owner can change role permissions' });
+      }
+      const rows = (['admin', 'territorial'] as const)
+        .filter((role) => permissions && permissions[role])
+        .map((role) => ({ role, permissions: permissions[role] }));
+      if (rows.length > 0) {
+        const { error } = await supabase.from('role_permissions').upsert(rows);
+        if (error) throw error;
+      }
+      const { data, error: readError } = await supabase.from('role_permissions').select('*');
+      if (readError) throw readError;
+      res.json({ success: true, rolePermissions: buildRolePermissions(data || []) });
+    } catch (e) {
+      console.error('Failed to update role permissions:', e);
+      res.status(500).json({ error: 'Failed to update role permissions' });
+    }
+  });
+
+  // Tells the client whether the Telegram user who opened the Mini App is the Owner —
+  // verified server-side against a signed initData string, never the client's own claim.
+  app.post('/api/auth/telegram-owner', (req, res) => {
+    try {
+      const { initData } = req.body;
+      res.json({ isOwner: requireOwner(initData) });
+    } catch (e) {
+      console.error('Failed to verify Telegram owner:', e);
+      res.status(500).json({ isOwner: false });
     }
   });
 

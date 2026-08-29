@@ -12,7 +12,7 @@ import {
   FileCheck2,
   Filter
 } from 'lucide-react';
-import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole } from '../types';
+import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole, RolePermissions } from '../types';
 
 interface SubmittedOrdersModalProps {
   isOpen: boolean;
@@ -21,6 +21,7 @@ interface SubmittedOrdersModalProps {
   orders: Record<number, ShopOrder>;
   products: Product[];
   currentRole: UserRole;
+  permissions: RolePermissions;
   onUpdateOrderStatus: (shopId: number, status: OrderStatus) => void;
   onSendReminderSingle?: (shopId: number) => void;
 }
@@ -32,11 +33,15 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   orders,
   products,
   currentRole,
+  permissions,
   onUpdateOrderStatus,
   onSendReminderSingle,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'submitted' | 'accepted' | 'rejected' | 'draft'>('all');
+
+  // Owner always may act; admin only if the Owner has granted this permission.
+  const canManage = currentRole === 'owner' || (currentRole === 'admin' && permissions.admin.accept_reject_orders);
 
   if (!isOpen) return null;
 
@@ -122,19 +127,19 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
 
         {/* ROLE AUTHORITY NOTICE BAR */}
         <div className={`px-5 py-2.5 text-xs font-semibold flex items-center justify-between border-b ${
-          currentRole === 'admin' 
+          canManage 
             ? 'bg-emerald-50 text-emerald-950 border-emerald-200' 
             : 'bg-amber-50 text-amber-950 border-amber-200'
         }`}>
           <div className="flex items-center space-x-2">
-            {currentRole === 'admin' ? (
+            {canManage ? (
               <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
             ) : (
               <Lock className="w-4 h-4 text-amber-600 flex-shrink-0" />
             )}
             <span>
-              {currentRole === 'admin' ? (
-                <><strong>Режим Управляющего Производством:</strong> Вы можете принимать и отклонять заявки кофеен.</>
+              {canManage ? (
+                <><strong>У вас есть право принимать заявки:</strong> вы можете принимать и отклонять заявки кофеен.</>
               ) : (
                 <><strong>Режим просмотра (Менеджер):</strong> Статусы заявок видны всем, а принимать и отклонять заявки может только <strong>Управляющий Производством</strong>.</>
               )}
@@ -287,7 +292,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                 <span>Принятая</span>
                               </span>
-                              {currentRole === 'admin' && (
+                              {canManage && (
                                 <button
                                   onClick={() => onUpdateOrderStatus(shop.id, 'rejected')}
                                   className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 border border-rose-200 rounded-lg transition-colors cursor-pointer"
@@ -363,7 +368,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                       </div>
 
                       {/* MOBILE ACTIONS (Only for non-accepted orders) */}
-                      {currentRole === 'admin' && status !== 'accepted' && (
+                      {canManage && status !== 'accepted' && (
                         <div className="pt-1">
                           <div className="grid grid-cols-2 gap-2">
                             <button
@@ -390,7 +395,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                         </div>
                       )}
 
-                      {currentRole !== 'admin' && (
+                      {!canManage && (
                         <div className="text-center py-1 bg-slate-100 rounded-lg text-[11px] font-semibold text-slate-500 border border-slate-200">
                           🔒 Принимать / отклонять может только Управляющий
                         </div>
@@ -490,7 +495,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                   <span>Принятая</span>
                                 </span>
-                                {currentRole === 'admin' && (
+                                {canManage && (
                                   <button
                                     onClick={() => onUpdateOrderStatus(shop.id, 'rejected')}
                                     className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 border border-rose-200 rounded-lg transition-colors cursor-pointer"
@@ -526,7 +531,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
 
                           {/* Manager Actions */}
                           <td className="py-3 px-4 text-right">
-                            {currentRole === 'admin' ? (
+                            {canManage ? (
                               status === 'accepted' ? (
                                 <span className="text-emerald-700 font-extrabold text-xs">✓ Принята</span>
                               ) : (

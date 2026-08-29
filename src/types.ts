@@ -109,7 +109,17 @@ export interface DishCosting {
   rawIngredients: DishRawItem[];
 }
 
-export type UserRole = 'manager' | 'admin' | 'territorial';
+export type UserRole = 'manager' | 'admin' | 'territorial' | 'owner';
+
+export type Permission =
+  | 'accept_reject_orders'
+  | 'send_reminders'
+  | 'manage_checklists'
+  | 'manage_costings'
+  | 'manage_personnel'
+  | 'manage_sales_points';
+
+export type RolePermissions = Record<'admin' | 'territorial', Record<Permission, boolean>>;
 
 export type StaffRole = 'employee' | 'territorial_manager' | 'shop_manager';
 
