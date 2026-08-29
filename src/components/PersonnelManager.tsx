@@ -28,6 +28,7 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
   onRejectRegistrationRequest
 }) => {
   const [activeTab, setActiveTab] = useState<'staff' | 'requests'>('staff');
+  const pendingRequests = registrationRequests.filter((r) => r.status === 'pending');
 
   return (
     <div className="space-y-6">
@@ -64,7 +65,7 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
             }`}
           >
             <ClipboardList className="w-3.5 h-3.5" />
-            <span>Заявки на регистрацию ({registrationRequests.length})</span>
+            <span>Заявки на регистрацию ({pendingRequests.length})</span>
           </button>
         </div>
       </div>
@@ -136,12 +137,12 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
       {/* REGISTRATION REQUESTS TAB */}
       {activeTab === 'requests' && (
         <div className="space-y-3">
-          {registrationRequests.length === 0 ? (
+          {pendingRequests.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-400 italic text-sm">
               Новых заявок на регистрацию нет.
             </div>
           ) : (
-            registrationRequests.map((req) => (
+            pendingRequests.map((req) => (
               <div
                 key={req.id}
                 className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3"
@@ -156,20 +157,28 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
 
                 <div className="grid grid-cols-2 gap-2 sm:w-64 shrink-0">
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-                    <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Точка</span>
-                    <select
-                      value={req.requestedShopId}
-                      onChange={(e) =>
-                        onUpdateRegistrationRequest(req.id, { requestedShopId: Number(e.target.value) })
-                      }
-                      className="w-full bg-transparent font-bold text-indigo-900 text-[10px] leading-tight focus:outline-none cursor-pointer"
-                    >
-                      {shops.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          №{s.id}
-                        </option>
-                      ))}
-                    </select>
+                    <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">
+                      {req.requestedShopIds ? 'Точки' : 'Точка'}
+                    </span>
+                    {req.requestedShopIds ? (
+                      <span className="block font-bold text-indigo-900 text-[10px] leading-tight">
+                        {req.requestedShopIds.map((id) => `№${id}`).join(', ')}
+                      </span>
+                    ) : (
+                      <select
+                        value={req.requestedShopId}
+                        onChange={(e) =>
+                          onUpdateRegistrationRequest(req.id, { requestedShopId: Number(e.target.value) })
+                        }
+                        className="w-full bg-transparent font-bold text-indigo-900 text-[10px] leading-tight focus:outline-none cursor-pointer"
+                      >
+                        {shops.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            №{s.id}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
                     <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Должность</span>

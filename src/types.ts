@@ -134,12 +134,18 @@ export interface StaffMember {
 
 export type ChecklistAssignments = Record<string, string[]>; // checklist dept key -> assigned product IDs
 
+export type RegistrationRequestStatus = 'pending' | 'approved' | 'rejected';
+
 export interface RegistrationRequest {
   id: string;
   name: string;
   phone?: string;
-  requestedShopId: number;
+  requestedShopId: number; // used for 'shop_manager'/'employee' (single point)
+  requestedShopIds?: number[]; // used for 'territorial_manager' (up to 8 points)
   requestedRole: StaffRole;
   submittedAt: string;
+  status: RegistrationRequestStatus;
 }
+
+export const MAX_TERRITORIAL_SHOPS = 8;
 

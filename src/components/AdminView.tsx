@@ -108,6 +108,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Owner always has every capability; admin is gated by the permission matrix
   // the Owner configures (defaults to "everything on", matching pre-existing behavior).
   const canDo = (key: keyof RolePermissions['admin']) => !!isOwner || permissions.admin[key];
+  const pendingRequestsCount = registrationRequests.filter((r) => r.status === 'pending').length;
 
   // Compute stats
   const allOrdersList = Object.values(orders) as ShopOrder[];
@@ -324,9 +325,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
               Сотрудники
             </span>
             <Users className="w-6 h-6 text-slate-900 mt-1.5" />
-            {registrationRequests.length > 0 && (
+            {pendingRequestsCount > 0 && (
               <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-sm">
-                {registrationRequests.length}
+                {pendingRequestsCount}
               </span>
             )}
           </button>

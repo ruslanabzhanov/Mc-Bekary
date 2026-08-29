@@ -1,19 +1,14 @@
 import React, { useState } from 'react';
 import { CoffeeShop, StaffRole, RegistrationRequest } from '../types';
 import { UserPlus, X, CheckCircle2 } from 'lucide-react';
+import { RoleShopFields } from './RoleShopFields';
 
 interface RegistrationRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
   shops: CoffeeShop[];
-  onSubmit: (request: Omit<RegistrationRequest, 'id' | 'submittedAt'>) => void;
+  onSubmit: (request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>) => void;
 }
-
-const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
-  { value: 'employee', label: 'Внутренний сотрудник' },
-  { value: 'territorial_manager', label: 'Территориальный управляющий' },
-  { value: 'shop_manager', label: 'Менеджер точки' }
-];
 
 export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> = ({
   isOpen,
@@ -24,6 +19,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [shopId, setShopId] = useState<number>(shops[0]?.id || 1);
+  const [shopIds, setShopIds] = useState<number[]>([]);
   const [role, setRole] = useState<StaffRole>('employee');
   const [isSubmitted, setIsSubmitted] = useState(false);
 
@@ -35,6 +31,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
       setName('');
       setPhone('');
       setRole('employee');
+      setShopIds([]);
       setIsSubmitted(false);
     }, 200);
   };
@@ -42,7 +39,14 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onSubmit({ name: name.trim(), phone: phone.trim() || undefined, requestedShopId: shopId, requestedRole: role });
+    if (role === 'territorial_manager' && shopIds.length === 0) return;
+    onSubmit({
+      name: name.trim(),
+      phone: phone.trim() || undefined,
+      requestedShopId: shopId,
+      requestedShopIds: role === 'territorial_manager' ? shopIds : undefined,
+      requestedRole: role,
+    });
     setIsSubmitted(true);
   };
 
@@ -111,39 +115,15 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Точка
-                </label>
-                <select
-                  value={shopId}
-                  onChange={(e) => setShopId(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
-                >
-                  {shops.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      Точка №{s.id} — {s.name.replace(`Кофейня №${s.id} — `, '')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Должность
-                </label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as StaffRole)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
-                >
-                  {ROLE_OPTIONS.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <RoleShopFields
+                shops={shops}
+                role={role}
+                onRoleChange={setRole}
+                shopId={shopId}
+                onShopIdChange={setShopId}
+                shopIds={shopIds}
+                onShopIdsChange={setShopIds}
+              />
 
               <button
                 type="submit"

@@ -5,6 +5,7 @@ import { AdminView } from './components/AdminView';
 import { TerritorialManagerView } from './components/TerritorialManagerView';
 import { OrderPreviewModal } from './components/OrderPreviewModal';
 import { SubmittedOrdersModal } from './components/SubmittedOrdersModal';
+import { RegistrationGate } from './components/RegistrationGate';
 import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
 import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
@@ -57,6 +58,29 @@ export default function App() {
   const setSelectedShopId = (shopId: number) => {
     window.localStorage.setItem(SHOP_ID_STORAGE_KEY, String(shopId));
     setSelectedShopIdRaw(shopId);
+  };
+
+  // Whether this device has ever established access — either by picking a shop, or by
+  // having a registration request approved with no shop attached (territorial/employee).
+  // A device with neither is "new" and must register first — see the RegistrationGate
+  // render below. Existing devices (already had a shop picked before this feature shipped)
+  // are grandfathered in automatically, since SHOP_ID_STORAGE_KEY was already set for them.
+  const REGISTERED_STORAGE_KEY = 'mc-bekary-registered';
+  const [hasAccess, setHasAccess] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return (
+      !!window.localStorage.getItem(SHOP_ID_STORAGE_KEY) ||
+      !!window.localStorage.getItem(REGISTERED_STORAGE_KEY)
+    );
+  });
+  const grantAccess = (approvedShopId?: number) => {
+    if (approvedShopId != null) {
+      setSelectedShopId(approvedShopId);
+    } else {
+      window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
+    }
+    setHasAccess(true);
+    showToast('✅ Заявка одобрена! Добро пожаловать.');
   };
   const [shops, setShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
   const [products, setProducts] = useSyncedState<Product[]>(PRODUCTS, '/api/products', 'products');
@@ -131,8 +155,10 @@ export default function App() {
   const [telegramInitData, setTelegramInitData] = useState<string>('');
   const [isOwnerVerified, setIsOwnerVerified] = useState(false);
 
-  // Fetch initial state from server on startup
-  useEffect(() => {
+// Fetches the full server state and hydrates every top-level state slice. Extracted so
+  // the mandatory registration gate can re-run it on demand ("Проверить статус" button)
+  // instead of only ever loading once on mount.
+  const refreshInitialData = () => {
     fetch('/api/initial-data')
       .then((res) => res.json())
       .then((data) => {
@@ -152,6 +178,11 @@ export default function App() {
       .catch((err) => {
         console.log('Using local fallback state:', err);
       });
+  };
+
+  // Fetch initial state from server on startup
+  useEffect(() => {
+    refreshInitialData();
   }, []);
 
   // When opened inside Telegram as a Mini App, expand to full height and signal readiness.
@@ -286,16 +317,21 @@ export default function App() {
     setStaff((prev) => prev.map((s) => (s.id === staffId ? { ...s, ...updates } : s)));
   };
 
-  // Personnel: anyone can submit a registration request specifying their point and desired role
-  const handleAddRegistrationRequest = (request: Omit<RegistrationRequest, 'id' | 'submittedAt'>) => {
+  // Personnel: anyone can submit a registration request specifying their point and desired role.
+  // Returns the new request's id so a caller (the mandatory registration gate) can track its status.
+  const handleAddRegistrationRequest = (
+    request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>
+  ) => {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const newRequest: RegistrationRequest = {
       ...request,
       id: `reg-${Date.now()}`,
-      submittedAt: timeStr
+      submittedAt: timeStr,
+      status: 'pending',
     };
     setRegistrationRequests((prev) => [...prev, newRequest]);
+    return newRequest.id;
   };
 
   // Personnel: edit a pending request's point/role before approving it
@@ -303,24 +339,32 @@ export default function App() {
     setRegistrationRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, ...updates } : r)));
   };
 
-  // Personnel: approve a pending request into the staff roster
+  // Personnel: approve a pending request into the staff roster. Keeps the request around
+  // (status flips to 'approved' rather than deleting it) so the device that submitted it
+  // can poll for the outcome — see the mandatory registration gate in App.tsx's render.
   const handleApproveRegistrationRequest = (requestId: string) => {
     const request = registrationRequests.find((r) => r.id === requestId);
     if (!request) return;
+    const isTerritorial = request.requestedRole === 'territorial_manager';
     const newStaffMember: StaffMember = {
       id: `staff-${Date.now()}`,
       name: request.name,
       role: request.requestedRole,
-      shopId: request.requestedShopId,
+      shopId: isTerritorial ? null : request.requestedShopId,
+      assignedShopIds: isTerritorial ? request.requestedShopIds : undefined,
       phone: request.phone
     };
     setStaff((prev) => [...prev, newStaffMember]);
-    setRegistrationRequests((prev) => prev.filter((r) => r.id !== requestId));
+    setRegistrationRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r))
+    );
   };
 
-  // Personnel: reject/dismiss a pending request
+  // Personnel: reject a pending request (kept, not deleted — see approve above)
   const handleRejectRegistrationRequest = (requestId: string) => {
-    setRegistrationRequests((prev) => prev.filter((r) => r.id !== requestId));
+    setRegistrationRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r))
+    );
   };
 
   // Personnel: manually add a new staff member (e.g. a point manager, added directly from the shop card)
@@ -520,7 +564,15 @@ export default function App() {
 
         {/* Workspace Area */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {currentRole === 'manager' ? (
+          {currentRole === 'manager' && !hasAccess ? (
+            <RegistrationGate
+              shops={shops}
+              registrationRequests={registrationRequests}
+              onSubmit={handleAddRegistrationRequest}
+              onApproved={grantAccess}
+              onRefresh={refreshInitialData}
+            />
+          ) : currentRole === 'manager' ? (
             <ManagerView
               coffeeShops={shops}
               products={products}

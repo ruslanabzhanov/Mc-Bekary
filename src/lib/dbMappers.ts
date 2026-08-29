@@ -166,14 +166,18 @@ export const registrationRequestFromDb = (r: any) => ({
   name: r.name,
   phone: r.phone || undefined,
   requestedShopId: r.requested_shop_id,
+  requestedShopIds: r.requested_shop_ids || undefined,
   requestedRole: r.requested_role,
   submittedAt: r.submitted_at,
+  status: r.status || 'pending',
 });
 export const registrationRequestToDb = (r: any) => ({
   id: r.id,
   name: r.name,
   phone: r.phone || null,
   requested_shop_id: r.requestedShopId,
+  requested_shop_ids: r.requestedShopIds || null,
   requested_role: r.requestedRole,
   submitted_at: r.submittedAt,
+  status: r.status || 'pending',
 });

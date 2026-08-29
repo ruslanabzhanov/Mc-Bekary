@@ -13,7 +13,7 @@ interface HeaderProps {
   onOpenSubmittedOrdersModal?: () => void;
   shops: CoffeeShop[];
   staff: StaffMember[];
-  onSubmitRegistrationRequest: (request: Omit<RegistrationRequest, 'id' | 'submittedAt'>) => void;
+  onSubmitRegistrationRequest: (request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>) => void;
   onLoginTerritorial: (staffId: string) => void;
   currentTerritorialManagerName?: string;
   isOwnerVerified?: boolean;
