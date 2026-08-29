@@ -26,6 +26,7 @@ import {
   registrationRequestToDb,
 } from '../lib/dbMappers.js';
 import { verifyTelegramInitData } from '../lib/telegramAuth.js';
+import { sendTelegramMessage } from '../lib/telegramNotify.js';
 
 function timeNow() {
   const now = new Date();
@@ -74,6 +75,48 @@ function requireOwner(initData: string): boolean {
   if (!botToken || !ownerId) return false;
   const { valid, userId } = verifyTelegramInitData(initData, botToken);
   return valid && userId != null && String(userId) === String(ownerId);
+}
+
+const REGISTRATION_ROLE_LABELS: Record<string, string> = {
+  shop_manager: 'Менеджер точки',
+  territorial_manager: 'Территориальный управляющий',
+  employee: 'Внутренний сотрудник',
+};
+
+// Pings the Owner (and, once assigned, any production managers listed in
+// ADMIN_NOTIFY_TELEGRAM_IDS) the moment a new registration request comes in, so approval
+// doesn't have to wait for someone to happen to open the "Персонал" tab.
+async function notifyNewRegistrationRequests(requests: any[]) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) return;
+
+  const recipientIds = new Set<string>();
+  if (process.env.OWNER_TELEGRAM_ID) recipientIds.add(process.env.OWNER_TELEGRAM_ID);
+  (process.env.ADMIN_NOTIFY_TELEGRAM_IDS || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .forEach((id) => recipientIds.add(id));
+  if (recipientIds.size === 0) return;
+
+  const webAppUrl = 'https://mc-bekary.vercel.app';
+
+  for (const request of requests) {
+    const points = request.requestedShopIds?.length
+      ? request.requestedShopIds.map((id: number) => `№${id}`).join(', ')
+      : `№${request.requestedShopId}`;
+    const text =
+      `🆕 <b>Новая заявка на регистрацию</b>\n\n` +
+      `👤 ${request.name}\n` +
+      `📞 ${request.phone || '—'}\n` +
+      `💼 ${REGISTRATION_ROLE_LABELS[request.requestedRole] || request.requestedRole}\n` +
+      `🏪 Точки: ${points}\n\n` +
+      `Одобрить или отклонить — в разделе «Персонал» → «Заявки на регистрацию».`;
+
+    for (const chatId of recipientIds) {
+      await sendTelegramMessage(botToken, chatId, text, webAppUrl);
+    }
+  }
 }
 
 // Upserts the given rows into `table`, then deletes any existing row whose id is no
@@ -376,8 +419,19 @@ export function createApiApp() {
   // Persist pending registration requests
   app.post('/api/registration-requests', async (req, res) => {
     try {
-      if (Array.isArray(req.body?.registrationRequests)) {
-        await replaceTable('registration_requests', 'id', req.body.registrationRequests.map(registrationRequestToDb));
+      const incoming = Array.isArray(req.body?.registrationRequests) ? req.body.registrationRequests : null;
+      if (incoming) {
+        const { data: existingRows } = await supabase.from('registration_requests').select('id');
+        const existingIds = new Set((existingRows || []).map((r) => r.id));
+        const newlyAdded = incoming.filter((r) => !existingIds.has(r.id));
+
+        await replaceTable('registration_requests', 'id', incoming.map(registrationRequestToDb));
+
+        if (newlyAdded.length > 0) {
+          notifyNewRegistrationRequests(newlyAdded).catch((e) =>
+            console.error('Failed to send registration notifications:', e)
+          );
+        }
       }
       const { data, error } = await supabase.from('registration_requests').select('*');
       if (error) throw error;
