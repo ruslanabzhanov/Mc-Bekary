@@ -157,7 +157,11 @@ function getGeminiClient() {
 
 export function createApiApp() {
   const app = express();
-  app.use(express.json());
+  // Default express.json() limit is 100kb — too small for a product photo saved as a
+  // base64 data URL (see handleDishPhotoSelected in CostingsManager.tsx). Raised to 8mb;
+  // the client also compresses photos before upload, so this is a safety margin, not the
+  // primary defense (Vercel's own serverless request limit is a hard ~4.5mb regardless).
+  app.use(express.json({ limit: '8mb' }));
 
   app.get('/api/initial-data', async (req, res) => {
     try {

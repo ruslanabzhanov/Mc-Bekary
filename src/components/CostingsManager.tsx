@@ -9,6 +9,7 @@ import {
   RawMaterial
 } from '../types';
 import { calculateSemiCost, calculateDishPrimeCost } from '../data/costingData';
+import { compressImage } from '../utils/compressImage';
 import {
   Utensils,
   ChefHat,
@@ -153,11 +154,10 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   const handleDishPhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedProduct) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      onUpdateProduct(selectedProduct.id, { imageUrl: reader.result as string });
-    };
-    reader.readAsDataURL(file);
+    const productId = selectedProduct.id;
+    compressImage(file)
+      .then((dataUrl) => onUpdateProduct(productId, { imageUrl: dataUrl }))
+      .catch((err) => console.error('Failed to process product photo:', err));
     e.target.value = '';
   };
 
