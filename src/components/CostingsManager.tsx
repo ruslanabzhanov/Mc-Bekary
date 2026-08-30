@@ -422,6 +422,13 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     setRawMaterials((prev) => prev.filter((r) => r.id !== id));
   };
 
+  const handleDeleteSemiProduct = (id: string) => {
+    if (!window.confirm('Удалить этот полуфабрикат целиком? Это действие нельзя отменить.')) return;
+    onUpdateSemiFinished(semiFinishedList.filter((s) => s.id !== id));
+    setIsSemiCardOpen(false);
+    setSelectedSemiId(null);
+  };
+
   const handleCreateNewRawMaterial = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRawItem.name.trim()) return;
@@ -949,9 +956,17 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
       {/* SEMI-FINISHED CARD MODAL: opens with the full recipe/ingredients editor for the selected item */}
       {isSemiCardOpen && selectedSemi && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xl space-y-4 w-full max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xl space-y-4 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
 
-            <div className="flex justify-end -mb-2">
+            <div className="flex justify-between items-center -mb-2">
+              <button
+                onClick={() => handleDeleteSemiProduct(selectedSemi.id)}
+                className="flex items-center space-x-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded-lg text-xs font-bold"
+                title="Удалить полуфабрикат"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Удалить</span>
+              </button>
               <button
                 onClick={() => setIsSemiCardOpen(false)}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
@@ -1089,8 +1104,8 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                     )}
                   </div>
 
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-xs text-left">
+                  <div className="border border-slate-200 rounded-lg overflow-x-auto">
+                    <table className="w-full text-xs text-left min-w-[480px]">
                       <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
                         <tr>
                           <th className="py-2 px-3">Наименование сырья</th>
