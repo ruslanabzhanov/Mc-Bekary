@@ -959,22 +959,22 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             </div>
 
             {isSemiTechOpen && (
-              <>
-                {/* Technology Prep Instructions */}
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-                  <span className="font-bold text-slate-700 block mb-1">
-                    📋 Технологическая инструкция заготовки:
-                  </span>
-                  <textarea
-                    rows={2}
-                    value={selectedSemi.prepInstructions}
-                    onChange={(e) => handleUpdateSemiInstructions(selectedSemi.id, e.target.value)}
-                    className="w-full text-xs text-slate-700 bg-white border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
+              /* Technology Prep Instructions */
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
+                <span className="font-bold text-slate-700 block mb-1">
+                  📋 Технологическая инструкция заготовки:
+                </span>
+                <textarea
+                  rows={2}
+                  value={selectedSemi.prepInstructions}
+                  onChange={(e) => handleUpdateSemiInstructions(selectedSemi.id, e.target.value)}
+                  className="w-full text-xs text-slate-700 bg-white border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+            )}
 
-                {/* Ingredients Table (raw quantities actually used) */}
-                <div className="space-y-2">
+            {/* Ingredients Table (raw quantities actually used) — always visible, not behind Технология */}
+            <div className="space-y-2">
                   <div className="relative flex items-center justify-between text-xs font-bold text-slate-700 uppercase flex-wrap gap-2">
                     <span>Закладка сырья (сколько взяли):</span>
 
@@ -1121,8 +1121,6 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                 </table>
               </div>
             </div>
-              </>
-            )}
 
           </div>
         </div>
