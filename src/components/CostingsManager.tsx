@@ -62,6 +62,18 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   const [isIngredientSearchOpen, setIsIngredientSearchOpen] = useState(false);
   const [ingredientSearch, setIngredientSearch] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
+  const [isAddSemiModalOpen, setIsAddSemiModalOpen] = useState(false);
+  const [newSemiItem, setNewSemiItem] = useState<{
+    name: string;
+    category: string;
+    categoryLabel: string;
+    unit: string;
+  }>({
+    name: '',
+    category: 'prep_veg',
+    categoryLabel: 'Нарезка и овощи',
+    unit: 'кг'
+  });
 
   // Master Raw Materials filters/UI (the catalog data itself is lifted to App so it survives closing this window)
   const [rawSearchQuery, setRawSearchQuery] = useState('');
@@ -338,20 +350,23 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     onUpdateSemiFinished(updated);
   };
 
-  const handleAddCustomSemi = () => {
+  const handleCreateNewSemi = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSemiItem.name.trim()) return;
+
     const newSemi: SemiFinishedProduct = {
       id: `semi-${Date.now()}`,
-      name: 'Новый полуфабрикат / Нарезка',
-      unit: 'кг',
-      unitCost: 1500,
-      category: 'prep_veg',
-      categoryLabel: 'Нарезка и овощи',
-      prepInstructions: 'Описание технологии и инструкции подготовки...',
-      ingredients: [
-        { id: `ing-${Date.now()}`, rawMaterialName: 'Основное сырье', quantity: 1.05, unit: 'кг', unitPrice: 1400 }
-      ]
+      name: newSemiItem.name.trim(),
+      unit: newSemiItem.unit,
+      unitCost: 0,
+      category: newSemiItem.category as SemiFinishedProduct['category'],
+      categoryLabel: newSemiItem.categoryLabel,
+      prepInstructions: '',
+      ingredients: []
     };
     onUpdateSemiFinished([...semiFinishedList, newSemi]);
+    setNewSemiItem({ name: '', category: newSemiItem.category, categoryLabel: newSemiItem.categoryLabel, unit: newSemiItem.unit });
+    setIsAddSemiModalOpen(false);
   };
 
   // Master Catalog Handlers
@@ -801,7 +816,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             </div>
 
             <button
-              onClick={handleAddCustomSemi}
+              onClick={() => setIsAddSemiModalOpen(true)}
               className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded text-xs uppercase tracking-wider transition-all shadow-sm"
             >
               <Plus className="w-4 h-4 text-white" />
@@ -1160,6 +1175,109 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
       )}
 
       {/* MODAL: Add New Raw Material */}
+      {isAddSemiModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in duration-200">
+
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <ChefHat className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-900 text-base">
+                  Создать новый полуфабрикат
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsAddSemiModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewSemi} className="space-y-4 text-xs">
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                  Название полуфабриката:
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Например: Куриное филе запеченное"
+                  value={newSemiItem.name}
+                  onChange={(e) => setNewSemiItem({ ...newSemiItem, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                    Категория:
+                  </label>
+                  <select
+                    value={newSemiItem.category}
+                    onChange={(e) => {
+                      const label = semiCategories.find((c) => c.key === e.target.value)?.label || newSemiItem.categoryLabel;
+                      setNewSemiItem({ ...newSemiItem, category: e.target.value, categoryLabel: label });
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+                  >
+                    {semiCategories.filter((c) => c.key !== 'all').length > 0 ? (
+                      semiCategories
+                        .filter((c) => c.key !== 'all')
+                        .map((cat) => (
+                          <option key={cat.key} value={cat.key}>
+                            {cat.label}
+                          </option>
+                        ))
+                    ) : (
+                      <option value="prep_veg">Нарезка и овощи</option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                    Ед. измерения:
+                  </label>
+                  <select
+                    value={newSemiItem.unit}
+                    onChange={(e) => setNewSemiItem({ ...newSemiItem, unit: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+                  >
+                    <option value="кг">кг</option>
+                    <option value="л">л</option>
+                    <option value="шт">шт</option>
+                  </select>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                Ингредиенты и технологию приготовления можно будет добавить сразу после создания, на карточке полуфабриката.
+              </p>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddSemiModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm transition-all"
+                >
+                  Создать
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {isAddRawModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in duration-200">
