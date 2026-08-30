@@ -40,6 +40,8 @@ interface CostingsManagerProps {
   setRawMaterials: React.Dispatch<React.SetStateAction<RawMaterial[]>>;
   rawCategoryDefs: { key: string; label: string }[];
   setRawCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
+  semiCategoryDefs: { key: string; label: string }[];
+  setSemiCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
 }
 
 export const CostingsManager: React.FC<CostingsManagerProps> = ({
@@ -52,7 +54,9 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   rawMaterials,
   setRawMaterials,
   rawCategoryDefs,
-  setRawCategoryDefs
+  setRawCategoryDefs,
+  semiCategoryDefs,
+  setSemiCategoryDefs
 }) => {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<'dishes' | 'semis' | 'raw_catalog'>('dishes');
@@ -69,6 +73,8 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   const [ingredientSearch, setIngredientSearch] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
   const [isAddSemiModalOpen, setIsAddSemiModalOpen] = useState(false);
+  const [isAddSemiCategoryOpen, setIsAddSemiCategoryOpen] = useState(false);
+  const [newSemiCategoryName, setNewSemiCategoryName] = useState('');
   const [newSemiItem, setNewSemiItem] = useState<{
     name: string;
     category: string;
@@ -117,6 +123,17 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     setIsAddCategoryOpen(false);
   };
 
+  const handleAddSemiCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    const label = newSemiCategoryName.trim();
+    if (!label) return;
+    const baseKey = label.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '_').replace(/^_+|_+$/g, '');
+    const key = baseKey && !semiCategoryDefs.some((c) => c.key === baseKey) ? baseKey : `cat-${Date.now()}`;
+    setSemiCategoryDefs((prev) => [...prev, { key, label }]);
+    setNewSemiCategoryName('');
+    setIsAddSemiCategoryOpen(false);
+  };
+
   const handleUpdateRawMaterialCategory = (id: string, categoryKey: string) => {
     setRawMaterials((prev) =>
       prev.map((r) => (r.id === id ? { ...r, category: categoryKey, categoryLabel: getCategoryLabel(categoryKey) } : r))
@@ -139,9 +156,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   // Semi-finished categories derived from the semi-finished catalog
   const semiCategories: { key: string; label: string }[] = [
     { key: 'all', label: 'Все категории' },
-    ...Array.from(new Map<string, string>(semiFinishedList.map((s) => [s.category, s.categoryLabel])).entries()).map(
-      ([key, label]) => ({ key, label })
-    )
+    ...semiCategoryDefs
   ];
   const filteredSemiFinishedList =
     semiCategoryFilter === 'all'
@@ -385,7 +400,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
       name: newSemiItem.name.trim(),
       unit: newSemiItem.unit,
       unitCost: 0,
-      category: newSemiItem.category as SemiFinishedProduct['category'],
+      category: newSemiItem.category,
       categoryLabel: newSemiItem.categoryLabel,
       prepInstructions: '',
       ingredients: [],
@@ -851,18 +866,50 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             </button>
           </div>
 
-          {/* Category Filter */}
-          <select
-            value={semiCategoryFilter}
-            onChange={(e) => setSemiCategoryFilter(e.target.value)}
-            className="px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white cursor-pointer"
-          >
-            {semiCategories.map((cat) => (
-              <option key={cat.key} value={cat.key}>
-                {cat.label}
-              </option>
-            ))}
-          </select>
+          {/* Category Filter + add-category */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={semiCategoryFilter}
+              onChange={(e) => setSemiCategoryFilter(e.target.value)}
+              className="px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white cursor-pointer"
+            >
+              {semiCategories.map((cat) => (
+                <option key={cat.key} value={cat.key}>
+                  {cat.label}
+                </option>
+              ))}
+            </select>
+
+            {isAddSemiCategoryOpen ? (
+              <form onSubmit={handleAddSemiCategory} className="flex items-center gap-1">
+                <input
+                  type="text"
+                  autoFocus
+                  value={newSemiCategoryName}
+                  onChange={(e) => setNewSemiCategoryName(e.target.value)}
+                  onBlur={() => {
+                    if (!newSemiCategoryName.trim()) setIsAddSemiCategoryOpen(false);
+                  }}
+                  placeholder="Название категории"
+                  className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900"
+                />
+                <button
+                  type="submit"
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all"
+                >
+                  +
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={() => setIsAddSemiCategoryOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Категория</span>
+              </button>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {filteredSemiFinishedList.map((semi) => {

@@ -114,6 +114,17 @@ export default function App() {
     '/api/raw-category-defs',
     'rawCategoryDefs'
   );
+  const [semiCategoryDefs, setSemiCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
+    [
+      { key: 'prep_veg', label: 'Нарезка и овощи' },
+      { key: 'prep_meat', label: 'Мясо и птица' },
+      { key: 'prep_sauce', label: 'Соусы и заправки' },
+      { key: 'prep_bakery', label: 'Тесто и коржи' },
+      { key: 'prep_grain', label: 'Крупы и заготовки' }
+    ],
+    '/api/semi-category-defs',
+    'semiCategoryDefs'
+  );
   const [checklistAssignments, setChecklistAssignments] = useSyncedState<ChecklistAssignments>(
     DEFAULT_CHECKLIST_ASSIGNMENTS,
     '/api/checklist-assignments',
@@ -168,6 +179,7 @@ export default function App() {
         if (data.notifications) setNotifications(data.notifications);
         if (data.rawMaterials) setRawMaterials(data.rawMaterials);
         if (data.rawCategoryDefs) setRawCategoryDefs(data.rawCategoryDefs);
+        if (data.semiCategoryDefs) setSemiCategoryDefs(data.semiCategoryDefs);
         if (data.semiFinishedList) setSemiFinishedList(data.semiFinishedList);
         if (data.dishCostings) setDishCostings(data.dishCostings);
         if (data.checklistAssignments) setChecklistAssignments(data.checklistAssignments);
@@ -600,6 +612,8 @@ export default function App() {
               setRawMaterials={setRawMaterials}
               rawCategoryDefs={rawCategoryDefs}
               setRawCategoryDefs={setRawCategoryDefs}
+              semiCategoryDefs={semiCategoryDefs}
+              setSemiCategoryDefs={setSemiCategoryDefs}
               checklistAssignments={checklistAssignments}
               onUpdateChecklistAssignments={setChecklistAssignments}
               staff={staff}

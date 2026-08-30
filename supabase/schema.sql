@@ -84,6 +84,11 @@ create table if not exists raw_category_defs (
   label text not null
 );
 
+create table if not exists semi_category_defs (
+  key text primary key,
+  label text not null
+);
+
 create table if not exists semi_finished (
   id text primary key,
   name text not null,

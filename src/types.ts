@@ -83,7 +83,7 @@ export interface SemiFinishedProduct {
   name: string;
   unit: string; // kg, l, pcs
   unitCost: number; // computed or set cost in KZT per unit
-  category: 'prep_veg' | 'prep_meat' | 'prep_sauce' | 'prep_bakery' | 'prep_grain';
+  category: string; // key into the semi-finished category registry (see semiCategoryDefs in App.tsx)
   categoryLabel: string;
   prepInstructions: string;
   ingredients: SemiIngredient[];

@@ -168,6 +168,7 @@ export function createApiApp() {
         rawMaterials,
         rawCategoryDefs,
         semiFinished,
+        semiCategoryDefs,
         dishCostings,
         checklistAssignments,
         staff,
@@ -181,6 +182,7 @@ export function createApiApp() {
         supabase.from('raw_materials').select('*'),
         supabase.from('raw_category_defs').select('*'),
         supabase.from('semi_finished').select('*'),
+        supabase.from('semi_category_defs').select('*'),
         supabase.from('dish_costings').select('*'),
         supabase.from('checklist_assignments').select('*'),
         supabase.from('staff').select('*'),
@@ -190,7 +192,7 @@ export function createApiApp() {
 
       for (const r of [
         shops, products, orders, notifications, rawMaterials, rawCategoryDefs,
-        semiFinished, dishCostings, checklistAssignments, staff, registrationRequests,
+        semiFinished, semiCategoryDefs, dishCostings, checklistAssignments, staff, registrationRequests,
         rolePermissions,
       ]) {
         if (r.error) throw r.error;
@@ -221,6 +223,7 @@ export function createApiApp() {
         rawMaterials: (rawMaterials.data || []).map(rawMaterialFromDb),
         rawCategoryDefs: (rawCategoryDefs.data || []).map((r: any) => ({ key: r.key, label: r.label })),
         semiFinishedList: (semiFinished.data || []).map(semiFinishedFromDb),
+        semiCategoryDefs: (semiCategoryDefs.data || []).map((r: any) => ({ key: r.key, label: r.label })),
         dishCostings: dishCostingsRecord,
         checklistAssignments: checklistAssignmentsRecord,
         staff: (staff.data || []).map(staffFromDb),
@@ -308,6 +311,22 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to save raw category defs:', e);
       res.status(500).json({ error: 'Failed to save raw category defs' });
+    }
+  });
+
+  // Persist the semi-finished category registry (lets the Owner/Admin add new categories,
+  // not just filter by whatever categories happen to already be in use)
+  app.post('/api/semi-category-defs', async (req, res) => {
+    try {
+      if (Array.isArray(req.body?.semiCategoryDefs)) {
+        await replaceTable('semi_category_defs', 'key', req.body.semiCategoryDefs);
+      }
+      const { data, error } = await supabase.from('semi_category_defs').select('*');
+      if (error) throw error;
+      res.json({ success: true, semiCategoryDefs: data || [] });
+    } catch (e) {
+      console.error('Failed to save semi category defs:', e);
+      res.status(500).json({ error: 'Failed to save semi category defs' });
     }
   });
 

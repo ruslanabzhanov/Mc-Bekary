@@ -40,6 +40,8 @@ interface AdminViewProps {
   setRawMaterials: React.Dispatch<React.SetStateAction<RawMaterial[]>>;
   rawCategoryDefs: { key: string; label: string }[];
   setRawCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
+  semiCategoryDefs: { key: string; label: string }[];
+  setSemiCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
   checklistAssignments: ChecklistAssignments;
   onUpdateChecklistAssignments: (next: ChecklistAssignments) => void;
   staff: StaffMember[];
@@ -75,6 +77,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   setRawMaterials,
   rawCategoryDefs,
   setRawCategoryDefs,
+  semiCategoryDefs,
+  setSemiCategoryDefs,
   checklistAssignments,
   onUpdateChecklistAssignments,
   staff,
@@ -472,6 +476,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
               setRawMaterials={setRawMaterials}
               rawCategoryDefs={rawCategoryDefs}
               setRawCategoryDefs={setRawCategoryDefs}
+              semiCategoryDefs={semiCategoryDefs}
+              setSemiCategoryDefs={setSemiCategoryDefs}
             />
           </div>
         </div>
