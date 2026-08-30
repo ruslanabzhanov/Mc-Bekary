@@ -333,6 +333,23 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     onUpdateSemiFinished(updated);
   };
 
+  const handleAddSemiIngredientManual = (semiId: string) => {
+    const updated = semiFinishedList.map((semi) => {
+      if (semi.id !== semiId) return semi;
+      const newIng: SemiIngredient = {
+        id: `ing-${Date.now()}`,
+        rawMaterialName: 'Новое сырье',
+        quantity: 0.1,
+        unit: 'кг',
+        unitPrice: 1000
+      };
+      const updatedIngs = [...semi.ingredients, newIng];
+      const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost / (semi.yieldQuantity || 1)) };
+    });
+    onUpdateSemiFinished(updated);
+  };
+
   const handleDeleteSemiIngredient = (semiId: string, ingId: string) => {
     const updated = semiFinishedList.map((semi) => {
       if (semi.id !== semiId) return semi;
@@ -899,9 +916,6 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             {/* Card Header: name on top, category/cost/technology together below it */}
             <div className="space-y-2.5 border-b border-slate-100 pb-3">
               <h4 className="font-bold text-slate-900 text-base leading-snug">{selectedSemi.name}</h4>
-              <p className="text-xs text-slate-500 -mt-1.5">
-                Выход: <strong>{selectedSemi.yieldQuantity} {selectedSemi.unit}</strong>
-              </p>
 
               <div className="flex items-stretch gap-2 flex-wrap">
                 <span className="text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 px-2.5 py-1.5 rounded-lg border border-indigo-200 flex items-center">
@@ -913,6 +927,21 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   <span className="text-sm font-black text-indigo-900 leading-none">
                     {calculateSemiCost(selectedSemi).toLocaleString('ru-RU')} ₸
                   </span>
+                </div>
+
+                <div className="bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+                  <span className="text-[9px] font-black uppercase text-slate-400 block leading-none mb-0.5">Выход</span>
+                  <div className="flex items-baseline gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={selectedSemi.yieldQuantity}
+                      onChange={(e) => handleUpdateSemiYield(selectedSemi.id, parseFloat(e.target.value) || 0)}
+                      className="w-12 bg-transparent font-black text-indigo-900 text-sm leading-none focus:outline-none"
+                    />
+                    <span className="text-slate-500 font-bold text-[10px] leading-none">{selectedSemi.unit}</span>
+                  </div>
                 </div>
 
                 <button
@@ -944,38 +973,30 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   />
                 </div>
 
-                {/* Yield: actual output after cooking, since it's usually less than the sum of raw ingredients */}
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <span className="font-bold text-slate-700 block">⚖️ Выход полуфабриката:</span>
-                    <span className="text-slate-500">Итоговый вес/объём после готовки — может быть меньше суммы сырья (усушка, потери при термообработке).</span>
-                  </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={selectedSemi.yieldQuantity}
-                      onChange={(e) => handleUpdateSemiYield(selectedSemi.id, parseFloat(e.target.value) || 0)}
-                      className="w-20 px-2 py-1.5 text-center border border-slate-300 rounded font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                    <span className="text-slate-600 font-bold">{selectedSemi.unit}</span>
-                  </div>
-                </div>
-
                 {/* Ingredients Table (raw quantities actually used) */}
                 <div className="space-y-2">
                   <div className="relative flex items-center justify-between text-xs font-bold text-slate-700 uppercase flex-wrap gap-2">
                     <span>Закладка сырья (сколько взяли):</span>
 
-                    <button
-                      type="button"
-                      onClick={() => setIsSemiIngredientSearchOpen((v) => !v)}
-                      className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded text-xs uppercase tracking-wider transition-all shadow-sm"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Добавить</span>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsSemiIngredientSearchOpen((v) => !v)}
+                        className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded text-xs uppercase tracking-wider transition-all shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Добавить</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleAddSemiIngredientManual(selectedSemi.id)}
+                        className="text-slate-600 hover:text-slate-900 text-[11px] font-bold flex items-center space-x-1 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded transition-all"
+                      >
+                        <Plus className="w-3 h-3 text-indigo-600" />
+                        <span>Ввод вручную</span>
+                      </button>
+                    </div>
 
                     {isSemiIngredientSearchOpen && (
                       <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-xl z-20 p-2">

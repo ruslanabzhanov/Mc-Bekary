@@ -282,7 +282,7 @@ export function calculateSemiCost(semi: SemiFinishedProduct): number {
     return acc + (ing.quantity * ing.unitPrice);
   }, 0);
   const yieldQty = semi.yieldQuantity || 1;
-  return totalIngredientCost / yieldQty;
+  return Math.round(totalIngredientCost / yieldQty);
 }
 
 // Helper: Compute prime cost of a finished dish
