@@ -2,7 +2,7 @@
 // serverless function (api/index.ts). Contains no static file serving or
 // app.listen() — those differ between the two environments.
 import express from 'express';
-import { GoogleGenAI } from '@google/genai';
+import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '../lib/supabaseServer.js';
 import {
   shopFromDb,
@@ -139,20 +139,15 @@ async function replaceTable(table: string, idColumn: string, rows: Record<string
   }
 }
 
-// Initialize Gemini SDK lazily if GEMINI_API_KEY is provided
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+// Initialize the Claude client lazily if ANTHROPIC_API_KEY is provided — both AI
+// endpoints below fall back to an algorithmic report when it isn't, so this stays
+// optional rather than throwing (unlike supabaseServer.ts, which is a hard requirement).
+function getClaudeClient() {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
     return null;
   }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+  return new Anthropic({ apiKey });
 }
 
 export function createApiApp() {
@@ -738,7 +733,7 @@ export function createApiApp() {
         }
       });
 
-      const ai = getGeminiClient();
+      const ai = getClaudeClient();
       if (ai) {
         try {
           const prompt = `
@@ -757,19 +752,21 @@ ${orderDetails.join('\n')}
 Отвечай четко, емко, без рекламы.
           `;
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
-            contents: prompt,
+          const response = await ai.messages.create({
+            model: 'claude-opus-5',
+            max_tokens: 1024,
+            messages: [{ role: 'user', content: prompt }],
           });
+          const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
 
-          const analysisText = response.text || 'Анализ завершен успешно.';
+          const analysisText = textBlock?.text || 'Анализ завершен успешно.';
           return res.json({ success: true, analysisText, totalPcs, totalCost });
         } catch (err: any) {
-          console.error('Gemini API error:', err);
+          console.error('Claude API error:', err);
         }
       }
 
-      // Smart algorithmic fallback if GEMINI_API_KEY is not configured
+      // Smart algorithmic fallback if ANTHROPIC_API_KEY is not configured
       const analysisText = `
 📊 **Экспресс-анализ заказа витрины для ${shop.name}:**
 
@@ -826,7 +823,7 @@ ${orderDetails.join('\n')}
         }
       });
 
-      const ai = getGeminiClient();
+      const ai = getClaudeClient();
       if (ai) {
         try {
           const prompt = `
@@ -851,21 +848,23 @@ ${products.map((p) => `- ${p.name}: ${productTotals[p.id] || 0} ${p.unit}`).join
 3. Советы по минимизации брака при логистике.
           `;
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
-            contents: prompt,
+          const response = await ai.messages.create({
+            model: 'claude-opus-5',
+            max_tokens: 1024,
+            messages: [{ role: 'user', content: prompt }],
           });
+          const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
 
           return res.json({
             success: true,
-            report: response.text,
+            report: textBlock?.text,
             categoryTotals,
             grandTotalPcs,
             grandTotalCost,
             submittedShopsCount,
           });
         } catch (e) {
-          console.error(e);
+          console.error('Claude API error:', e);
         }
       }
 

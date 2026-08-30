@@ -115,7 +115,7 @@ export const AiProcurementModal: React.FC<AiProcurementModalProps> = ({ isOpen, 
           <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-3">
             <div className="flex items-center space-x-2 text-xs font-bold text-indigo-700 uppercase tracking-wider">
               <Sparkles className="w-4 h-4 text-indigo-600" />
-              <span>Генеративный ИИ-Отчет Gemini:</span>
+              <span>Генеративный ИИ-Отчет Claude:</span>
             </div>
 
             {loading ? (
