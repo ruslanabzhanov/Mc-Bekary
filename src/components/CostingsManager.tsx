@@ -25,7 +25,8 @@ import {
   Tag,
   X,
   Sparkles,
-  Camera
+  Camera,
+  ChevronDown
 } from 'lucide-react';
 
 interface CostingsManagerProps {
@@ -61,6 +62,9 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   const [semiCategoryFilter, setSemiCategoryFilter] = useState<string>('all');
   const [selectedSemiId, setSelectedSemiId] = useState<string | null>(null);
   const [isSemiCardOpen, setIsSemiCardOpen] = useState(false);
+  const [isSemiTechOpen, setIsSemiTechOpen] = useState(false);
+  const [isSemiIngredientSearchOpen, setIsSemiIngredientSearchOpen] = useState(false);
+  const [semiIngredientSearch, setSemiIngredientSearch] = useState('');
   const [isIngredientSearchOpen, setIsIngredientSearchOpen] = useState(false);
   const [ingredientSearch, setIngredientSearch] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
@@ -158,6 +162,14 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
 
   // Selected semi-finished item (for the semi card modal)
   const selectedSemi = semiFinishedList.find((s) => s.id === selectedSemiId) || null;
+
+  // Raw-material-only search for adding an ingredient to a semi-finished item
+  // (a semi's ingredients are always raw materials, never other semi-finished items)
+  const semiIngredientSearchResults = semiIngredientSearch.trim()
+    ? rawMaterials
+        .filter((r) => r.name.toLowerCase().includes(semiIngredientSearch.trim().toLowerCase()))
+        .slice(0, 8)
+    : [];
 
   // Selected dish costing
   const selectedProduct = products.find((p) => p.id === selectedProductId) || products[0];
@@ -313,23 +325,6 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
         quantity: raw.unit === 'шт' ? 1 : 0.1,
         unit: raw.unit,
         unitPrice: raw.defaultUnitPrice
-      };
-      const updatedIngs = [...semi.ingredients, newIng];
-      const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
-      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost) };
-    });
-    onUpdateSemiFinished(updated);
-  };
-
-  const handleAddSemiIngredientManual = (semiId: string) => {
-    const updated = semiFinishedList.map((semi) => {
-      if (semi.id !== semiId) return semi;
-      const newIng: SemiIngredient = {
-        id: `ing-${Date.now()}`,
-        rawMaterialName: 'Новое сырье',
-        quantity: 0.1,
-        unit: 'кг',
-        unitPrice: 1000
       };
       const updatedIngs = [...semi.ingredients, newIng];
       const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
@@ -852,6 +847,9 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   onClick={() => {
                     setSelectedSemiId(semi.id);
                     setIsSemiCardOpen(true);
+                    setIsSemiTechOpen(false);
+                    setIsSemiIngredientSearchOpen(false);
+                    setSemiIngredientSearch('');
                   }}
                   className="w-full p-3 rounded-lg border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/40 text-left transition-all group shadow-sm space-y-1"
                 >
@@ -888,87 +886,125 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
               </button>
             </div>
 
-            {/* Card Header */}
-            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
-                    {selectedSemi.categoryLabel}
-                  </span>
-                  <h4 className="font-bold text-slate-900 text-base">{selectedSemi.name}</h4>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Единица выпуска: <strong>1 {selectedSemi.unit}</strong>
-                </p>
-              </div>
+            {/* Card Header: name on top, category/cost/technology together below it */}
+            <div className="space-y-2.5 border-b border-slate-100 pb-3">
+              <h4 className="font-bold text-slate-900 text-base leading-snug">{selectedSemi.name}</h4>
+              <p className="text-xs text-slate-500 -mt-1.5">
+                Единица выпуска: <strong>1 {selectedSemi.unit}</strong>
+              </p>
 
-              <div className="text-right bg-slate-50 p-2.5 rounded-lg border border-slate-200 min-w-[120px]">
-                <span className="text-[9px] font-black uppercase text-slate-400 block">Себестоимость 1 {selectedSemi.unit}</span>
-                <span className="text-base font-black text-indigo-900">
-                  {calculateSemiCost(selectedSemi).toLocaleString('ru-RU')} ₸
+              <div className="flex items-stretch gap-2 flex-wrap">
+                <span className="text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 px-2.5 py-1.5 rounded-lg border border-indigo-200 flex items-center">
+                  {selectedSemi.categoryLabel}
                 </span>
-              </div>
-            </div>
 
-            {/* Technology Prep Instructions */}
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-              <span className="font-bold text-slate-700 block mb-1">
-                📋 Технологическая инструкция заготовки:
-              </span>
-              <textarea
-                rows={2}
-                value={selectedSemi.prepInstructions}
-                onChange={(e) => handleUpdateSemiInstructions(selectedSemi.id, e.target.value)}
-                className="w-full text-xs text-slate-700 bg-white border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
-
-            {/* Ingredients Table for 1 kg/l */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase flex-wrap gap-2">
-                <span>Закладка сырья на 1 {selectedSemi.unit} полуфабриката:</span>
-
-                <div className="flex items-center space-x-2">
-                  {/* Select from Raw Catalog */}
-                  <select
-                    id={`select-semi-raw-catalog-${selectedSemi.id}`}
-                    onChange={(e) => {
-                      handleAddSemiIngredientFromCatalog(selectedSemi.id, e.target.value);
-                      e.target.value = '';
-                    }}
-                    className="text-[11px] border border-indigo-200 rounded px-2 py-1 bg-indigo-50 text-indigo-900 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="">+ Из Справочника Сырья...</option>
-                    {rawMaterials.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} ({r.defaultUnitPrice} ₸/{r.unit})
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    onClick={() => handleAddSemiIngredientManual(selectedSemi.id)}
-                    className="text-slate-600 hover:text-slate-900 text-[11px] font-bold flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded"
-                  >
-                    <Plus className="w-3 h-3 text-indigo-600" />
-                    <span>Ввод вручную</span>
-                  </button>
+                <div className="bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+                  <span className="text-[9px] font-black uppercase text-slate-400 block leading-none mb-0.5">Себестоимость 1 {selectedSemi.unit}</span>
+                  <span className="text-sm font-black text-indigo-900 leading-none">
+                    {calculateSemiCost(selectedSemi).toLocaleString('ru-RU')} ₸
+                  </span>
                 </div>
-              </div>
 
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                    <tr>
-                      <th className="py-2 px-3">Наименование сырья</th>
-                      <th className="py-2 px-3 text-center">Расход на 1 {selectedSemi.unit}</th>
-                      <th className="py-2 px-3 text-right">Цена сырья (₸)</th>
-                      <th className="py-2 px-3 text-right">Сумма</th>
-                      <th className="py-2 px-3 text-center w-8"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {selectedSemi.ingredients.map((ing) => {
+                <button
+                  onClick={() => setIsSemiTechOpen((v) => !v)}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wide transition-all ${
+                    isSemiTechOpen
+                      ? 'bg-indigo-600 border-indigo-600 text-white'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-indigo-50 hover:border-indigo-300'
+                  }`}
+                >
+                  <span>📋 Технология</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isSemiTechOpen ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {isSemiTechOpen && (
+              <>
+                {/* Technology Prep Instructions */}
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
+                  <span className="font-bold text-slate-700 block mb-1">
+                    📋 Технологическая инструкция заготовки:
+                  </span>
+                  <textarea
+                    rows={2}
+                    value={selectedSemi.prepInstructions}
+                    onChange={(e) => handleUpdateSemiInstructions(selectedSemi.id, e.target.value)}
+                    className="w-full text-xs text-slate-700 bg-white border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* Ingredients Table for 1 kg/l */}
+                <div className="space-y-2">
+                  <div className="relative flex items-center justify-between text-xs font-bold text-slate-700 uppercase flex-wrap gap-2">
+                    <span>Закладка сырья на 1 {selectedSemi.unit} полуфабриката:</span>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsSemiIngredientSearchOpen((v) => !v)}
+                      className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded text-xs uppercase tracking-wider transition-all shadow-sm"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Добавить</span>
+                    </button>
+
+                    {isSemiIngredientSearchOpen && (
+                      <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-xl z-20 p-2">
+                        <div className="relative mb-2">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                          <input
+                            type="text"
+                            value={semiIngredientSearch}
+                            onChange={(e) => setSemiIngredientSearch(e.target.value)}
+                            placeholder="Поиск сырья..."
+                            className="w-full pl-8 pr-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="max-h-56 overflow-y-auto space-y-0.5">
+                          {semiIngredientSearchResults.length === 0 ? (
+                            <p className="text-[11px] text-slate-400 italic text-center py-3">
+                              {semiIngredientSearch.trim() ? 'Ничего не найдено' : 'Начните вводить название...'}
+                            </p>
+                          ) : (
+                            semiIngredientSearchResults.map((r) => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => {
+                                  handleAddSemiIngredientFromCatalog(selectedSemi.id, r.id);
+                                  setSemiIngredientSearch('');
+                                  setIsSemiIngredientSearchOpen(false);
+                                }}
+                                className="w-full text-left px-2.5 py-1.5 rounded hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs group"
+                              >
+                                <span className="font-medium text-slate-800 group-hover:text-indigo-900 truncate">
+                                  {r.name}
+                                </span>
+                                <span className="text-[10px] text-slate-400 shrink-0">
+                                  {r.defaultUnitPrice} ₸/{r.unit}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="py-2 px-3">Наименование сырья</th>
+                          <th className="py-2 px-3 text-center">Расход на 1 {selectedSemi.unit}</th>
+                          <th className="py-2 px-3 text-right">Цена сырья (₸)</th>
+                          <th className="py-2 px-3 text-right">Сумма</th>
+                          <th className="py-2 px-3 text-center w-8"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedSemi.ingredients.map((ing) => {
                       const sum = Math.round(ing.quantity * ing.unitPrice);
 
                       return (
@@ -1035,6 +1071,8 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                 </table>
               </div>
             </div>
+              </>
+            )}
 
           </div>
         </div>
