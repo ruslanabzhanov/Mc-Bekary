@@ -306,7 +306,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
         return { ...ing, [field]: value };
       });
       const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
-      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost) };
+      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost / (semi.yieldQuantity || 1)) };
     });
     onUpdateSemiFinished(updated);
   };
@@ -328,7 +328,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
       };
       const updatedIngs = [...semi.ingredients, newIng];
       const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
-      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost) };
+      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost / (semi.yieldQuantity || 1)) };
     });
     onUpdateSemiFinished(updated);
   };
@@ -338,7 +338,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
       if (semi.id !== semiId) return semi;
       const updatedIngs = semi.ingredients.filter((i) => i.id !== ingId);
       const newCost = updatedIngs.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
-      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost) };
+      return { ...semi, ingredients: updatedIngs, unitCost: Math.round(newCost / (semi.yieldQuantity || 1)) };
     });
     onUpdateSemiFinished(updated);
   };
@@ -347,6 +347,15 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     const updated = semiFinishedList.map((semi) =>
       semi.id === semiId ? { ...semi, prepInstructions: instructions } : semi
     );
+    onUpdateSemiFinished(updated);
+  };
+
+  const handleUpdateSemiYield = (semiId: string, yieldQuantity: number) => {
+    const updated = semiFinishedList.map((semi) => {
+      if (semi.id !== semiId) return semi;
+      const totalCost = semi.ingredients.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+      return { ...semi, yieldQuantity, unitCost: Math.round(totalCost / (yieldQuantity || 1)) };
+    });
     onUpdateSemiFinished(updated);
   };
 
@@ -362,7 +371,8 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
       category: newSemiItem.category as SemiFinishedProduct['category'],
       categoryLabel: newSemiItem.categoryLabel,
       prepInstructions: '',
-      ingredients: []
+      ingredients: [],
+      yieldQuantity: 1
     };
     onUpdateSemiFinished([...semiFinishedList, newSemi]);
     setNewSemiItem({ name: '', category: newSemiItem.category, categoryLabel: newSemiItem.categoryLabel, unit: newSemiItem.unit });
@@ -864,7 +874,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                       {currentCost.toLocaleString('ru-RU')} ₸
                     </div>
                   </div>
-                  <div className="text-[11px] text-slate-500">Выпуск: 1 {semi.unit}</div>
+                  <div className="text-[11px] text-slate-500">Выход: {semi.yieldQuantity} {semi.unit}</div>
                 </button>
               );
             })}
@@ -890,7 +900,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             <div className="space-y-2.5 border-b border-slate-100 pb-3">
               <h4 className="font-bold text-slate-900 text-base leading-snug">{selectedSemi.name}</h4>
               <p className="text-xs text-slate-500 -mt-1.5">
-                Единица выпуска: <strong>1 {selectedSemi.unit}</strong>
+                Выход: <strong>{selectedSemi.yieldQuantity} {selectedSemi.unit}</strong>
               </p>
 
               <div className="flex items-stretch gap-2 flex-wrap">
@@ -934,10 +944,29 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   />
                 </div>
 
-                {/* Ingredients Table for 1 kg/l */}
+                {/* Yield: actual output after cooking, since it's usually less than the sum of raw ingredients */}
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <span className="font-bold text-slate-700 block">⚖️ Выход полуфабриката:</span>
+                    <span className="text-slate-500">Итоговый вес/объём после готовки — может быть меньше суммы сырья (усушка, потери при термообработке).</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={selectedSemi.yieldQuantity}
+                      onChange={(e) => handleUpdateSemiYield(selectedSemi.id, parseFloat(e.target.value) || 0)}
+                      className="w-20 px-2 py-1.5 text-center border border-slate-300 rounded font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <span className="text-slate-600 font-bold">{selectedSemi.unit}</span>
+                  </div>
+                </div>
+
+                {/* Ingredients Table (raw quantities actually used) */}
                 <div className="space-y-2">
                   <div className="relative flex items-center justify-between text-xs font-bold text-slate-700 uppercase flex-wrap gap-2">
-                    <span>Закладка сырья на 1 {selectedSemi.unit} полуфабриката:</span>
+                    <span>Закладка сырья (сколько взяли):</span>
 
                     <button
                       type="button"
@@ -997,7 +1026,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                       <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
                         <tr>
                           <th className="py-2 px-3">Наименование сырья</th>
-                          <th className="py-2 px-3 text-center">Расход на 1 {selectedSemi.unit}</th>
+                          <th className="py-2 px-3 text-center">Количество</th>
                           <th className="py-2 px-3 text-right">Цена сырья (₸)</th>
                           <th className="py-2 px-3 text-right">Сумма</th>
                           <th className="py-2 px-3 text-center w-8"></th>

@@ -63,6 +63,7 @@ export const INITIAL_SEMI_FINISHED: SemiFinishedProduct[] = [
     name: 'Запеченное куриное филе со специями',
     unit: 'кг',
     unitCost: 2160,
+    yieldQuantity: 1,
     category: 'prep_meat',
     categoryLabel: 'Мясо и птица',
     prepInstructions: 'Натереть филе специями и маслом, запекать в пароконвектомате при 180°C 35 минут. Остудить, нарезать соломкой/кубиком.',
@@ -77,6 +78,7 @@ export const INITIAL_SEMI_FINISHED: SemiFinishedProduct[] = [
     name: 'Нарезанный свежий огурец',
     unit: 'кг',
     unitCost: 890,
+    yieldQuantity: 1,
     category: 'prep_veg',
     categoryLabel: 'Нарезка и овощи',
     prepInstructions: 'Промыть огурцы, срезать хвостики, нарезать слайсами или соломкой 4х4 мм на слайсере.',
@@ -89,6 +91,7 @@ export const INITIAL_SEMI_FINISHED: SemiFinishedProduct[] = [
     name: 'Нарезанные томаты черри',
     unit: 'кг',
     unitCost: 1650,
+    yieldQuantity: 1,
     category: 'prep_veg',
     categoryLabel: 'Нарезка и овощи',
     prepInstructions: 'Промыть томаты черри, обсушить полотенцем, разрезать вдоль на 2 половины.',
@@ -101,6 +104,7 @@ export const INITIAL_SEMI_FINISHED: SemiFinishedProduct[] = [
     name: 'Соус Терияки фирменный',
     unit: 'л',
     unitCost: 970,
+    yieldQuantity: 1,
     category: 'prep_sauce',
     categoryLabel: 'Соусы и заправки',
     prepInstructions: 'Смешать соевый соус, сахар, имбирь и крахмал. Уваривать на медленном огне 15 минут до загустения.',
@@ -116,6 +120,7 @@ export const INITIAL_SEMI_FINISHED: SemiFinishedProduct[] = [
     name: 'Сваренный рис / киноа для боулов',
     unit: 'кг',
     unitCost: 615,
+    yieldQuantity: 1,
     category: 'prep_grain',
     categoryLabel: 'Крупы и заготовки',
     prepInstructions: 'Промыть рис/киноа до прозрачной воды. Отваривать 1:2 в рисоварке 20 минут. Заправить рисовым уксусом.',
@@ -129,6 +134,7 @@ export const INITIAL_SEMI_FINISHED: SemiFinishedProduct[] = [
     name: 'Семга слабосоленая (слайсы)',
     unit: 'кг',
     unitCost: 8265,
+    yieldQuantity: 1,
     category: 'prep_meat',
     categoryLabel: 'Рыба и морепродукты',
     prepInstructions: 'Засолить филе семги морской солью и сахаром с укропом. Выдержать 12 часов при +4°C, нарезать тонким слайсом.',
@@ -142,6 +148,7 @@ export const INITIAL_SEMI_FINISHED: SemiFinishedProduct[] = [
     name: 'Коржи выпеченные (Медовик/Наполеон)',
     unit: 'кг',
     unitCost: 1650,
+    yieldQuantity: 1,
     category: 'prep_bakery',
     categoryLabel: 'Тесто и коржи',
     prepInstructions: 'Замесить медовое/слоеное тесто, раскатать тонкие пласты, выпекать при 200°C 8 минут до золотистой корочки.',
@@ -156,6 +163,7 @@ export const INITIAL_SEMI_FINISHED: SemiFinishedProduct[] = [
     name: 'Крем сметанно-заварной',
     unit: 'кг',
     unitCost: 1260,
+    yieldQuantity: 1,
     category: 'prep_sauce',
     categoryLabel: 'Соусы и заправки',
     prepInstructions: 'Взбить охлажденную сметану 30% с сахарной пудрой и натуральной ванилью в планетарном миксере 7 минут.',
@@ -270,9 +278,11 @@ export const INITIAL_DISH_COSTINGS: Record<string, DishCosting> = {
 
 // Helper: Compute cost of 1 unit of semi-finished product
 export function calculateSemiCost(semi: SemiFinishedProduct): number {
-  return semi.ingredients.reduce((acc, ing) => {
+  const totalIngredientCost = semi.ingredients.reduce((acc, ing) => {
     return acc + (ing.quantity * ing.unitPrice);
   }, 0);
+  const yieldQty = semi.yieldQuantity || 1;
+  return totalIngredientCost / yieldQty;
 }
 
 // Helper: Compute prime cost of a finished dish

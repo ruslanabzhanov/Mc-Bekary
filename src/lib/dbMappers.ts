@@ -121,6 +121,7 @@ export const semiFinishedFromDb = (r: any) => ({
   categoryLabel: r.category_label,
   prepInstructions: r.prep_instructions,
   ingredients: r.ingredients || [],
+  yieldQuantity: r.yield_quantity || 1,
 });
 export const semiFinishedToDb = (s: any) => ({
   id: s.id,
@@ -131,6 +132,7 @@ export const semiFinishedToDb = (s: any) => ({
   category_label: s.categoryLabel,
   prep_instructions: s.prepInstructions,
   ingredients: s.ingredients || [],
+  yield_quantity: s.yieldQuantity || 1,
 });
 
 export const dishCostingFromDb = (r: any) => ({

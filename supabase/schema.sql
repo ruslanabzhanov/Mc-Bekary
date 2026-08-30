@@ -92,7 +92,8 @@ create table if not exists semi_finished (
   category text not null,
   category_label text not null,
   prep_instructions text,
-  ingredients jsonb not null default '[]'
+  ingredients jsonb not null default '[]',
+  yield_quantity numeric not null default 1
 );
 
 create table if not exists dish_costings (

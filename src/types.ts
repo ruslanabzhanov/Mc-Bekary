@@ -87,6 +87,10 @@ export interface SemiFinishedProduct {
   categoryLabel: string;
   prepInstructions: string;
   ingredients: SemiIngredient[];
+  // Actual output weight/volume after cooking (in `unit`) — usually less than the sum of
+  // ingredient quantities, since heat treatment loses moisture. Cost per `unit` is the
+  // total ingredient cost divided by this, not by 1 — see calculateSemiCost.
+  yieldQuantity: number;
 }
 
 export interface DishSemiItem {
