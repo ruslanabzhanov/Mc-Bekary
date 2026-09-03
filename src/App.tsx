@@ -366,6 +366,16 @@ export default function App() {
     }));
   };
 
+  // Admin: Delete a dish (Product) entirely, along with its recipe/costing record.
+  const handleDeleteProduct = (productId: string) => {
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
+    setDishCostings((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+  };
+
   // Personnel: update an existing staff member's point/role
   const handleUpdateStaffMember = (staffId: string, updates: Partial<StaffMember>) => {
     setStaff((prev) => prev.map((s) => (s.id === staffId ? { ...s, ...updates } : s)));
@@ -651,6 +661,7 @@ export default function App() {
               onUpdateDishCostings={setDishCostings}
               onUpdateProduct={handleUpdateProduct}
               onAddProduct={handleAddProduct}
+              onDeleteProduct={handleDeleteProduct}
               rawMaterials={rawMaterials}
               setRawMaterials={setRawMaterials}
               rawCategoryDefs={rawCategoryDefs}

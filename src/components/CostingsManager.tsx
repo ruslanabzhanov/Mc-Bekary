@@ -47,6 +47,7 @@ interface CostingsManagerProps {
   onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
   onUpdateProduct: (productId: string, updates: Partial<Product>) => void;
   onAddProduct: (product: Product) => void;
+  onDeleteProduct: (productId: string) => void;
   rawMaterials: RawMaterial[];
   setRawMaterials: React.Dispatch<React.SetStateAction<RawMaterial[]>>;
   rawCategoryDefs: { key: string; label: string }[];
@@ -63,6 +64,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   onUpdateDishCostings,
   onUpdateProduct,
   onAddProduct,
+  onDeleteProduct,
   rawMaterials,
   setRawMaterials,
   rawCategoryDefs,
@@ -503,6 +505,12 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     setSelectedSemiId(null);
   };
 
+  const handleDeleteDish = (productId: string) => {
+    if (!window.confirm('Удалить это блюдо целиком? Это действие нельзя отменить.')) return;
+    onDeleteProduct(productId);
+    setIsDishCardOpen(false);
+  };
+
   const handleCreateNewRawMaterial = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRawItem.name.trim()) return;
@@ -672,8 +680,16 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xl space-y-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
 
-            {/* Close Button */}
-            <div className="flex justify-end -mb-2">
+            {/* Close & Delete Buttons */}
+            <div className="flex justify-between items-center -mb-2">
+              <button
+                onClick={() => handleDeleteDish(selectedProduct.id)}
+                className="flex items-center space-x-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded-lg text-xs font-bold"
+                title="Удалить блюдо"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Удалить</span>
+              </button>
               <button
                 onClick={() => setIsDishCardOpen(false)}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
