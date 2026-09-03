@@ -44,8 +44,18 @@ const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
   ])
 );
 
+// Remembers that this browser/device was last sitting in the Owner cabinet, so a page
+// reload doesn't bounce the Owner back to the Manager view. Safe to persist client-side:
+// Owner identity is re-verified against real Telegram initData on every load (see the
+// telegram-owner effect below), which reverts this if verification doesn't confirm Owner.
+const OWNER_VIEW_STORAGE_KEY = 'mc-bekary-owner-view';
+
 export default function App() {
-  const [currentRole, setCurrentRole] = useState<UserRole>('manager');
+  const [currentRole, setCurrentRole] = useState<UserRole>(() =>
+    typeof window !== 'undefined' && window.localStorage.getItem(OWNER_VIEW_STORAGE_KEY) === '1'
+      ? 'owner'
+      : 'manager'
+  );
   const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(null);
   const SHOP_ID_STORAGE_KEY = 'mc-bekary-selected-shop-id';
   const [selectedShopId, setSelectedShopIdRaw] = useState<number>(() => {
@@ -197,6 +207,17 @@ export default function App() {
     refreshInitialData();
   }, []);
 
+  // Persist which cabinet the Owner is sitting in, so a reload restores it (see
+  // OWNER_VIEW_STORAGE_KEY above). Only ever remembers 'owner' — every other role still
+  // starts back at the Manager view on reload, same as before.
+  useEffect(() => {
+    if (currentRole === 'owner') {
+      window.localStorage.setItem(OWNER_VIEW_STORAGE_KEY, '1');
+    } else {
+      window.localStorage.removeItem(OWNER_VIEW_STORAGE_KEY);
+    }
+  }, [currentRole]);
+
   // When opened inside Telegram as a Mini App, expand to full height and signal readiness.
   // No-op in a regular browser, where window.Telegram is undefined.
   useEffect(() => {
@@ -212,10 +233,22 @@ export default function App() {
           body: JSON.stringify({ initData: tg.initData }),
         })
           .then((res) => res.json())
-          .then((data) => setIsOwnerVerified(!!data.isOwner))
+          .then((data) => {
+            const confirmedOwner = !!data.isOwner;
+            setIsOwnerVerified(confirmedOwner);
+            // The optimistic 'owner' restore above could be wrong (different person opened
+            // the same device/bot) — fall back to Manager once real verification disagrees.
+            if (!confirmedOwner) {
+              setCurrentRole((role) => (role === 'owner' ? 'manager' : role));
+            }
+          })
           .catch((e) => console.error('Failed to verify Telegram owner:', e));
+        return;
       }
     }
+    // No Telegram context at all (or no initData) means ownership can never be verified
+    // here — never trust a persisted 'owner' cabinet in that case.
+    setCurrentRole((role) => (role === 'owner' ? 'manager' : role));
   }, []);
 
   // Owner-only: change what each role is allowed to do. Sends the raw initData string
