@@ -29,6 +29,16 @@ import {
   ChevronDown
 } from 'lucide-react';
 
+// Product.department mirrors Product.category except croissants/bakery — see DEPT_CATEGORY_MAP in App.tsx.
+const CATEGORY_TO_DEPARTMENT: Record<string, Product['department']> = {
+  croissants: 'bakery',
+  sandwiches: 'sandwiches',
+  desserts: 'desserts',
+  bar_prep: 'bar_prep',
+  kitchen_prep: 'kitchen_prep',
+  new_items: 'new_items'
+};
+
 interface CostingsManagerProps {
   products: Product[];
   semiFinishedList: SemiFinishedProduct[];
@@ -36,6 +46,7 @@ interface CostingsManagerProps {
   onUpdateSemiFinished: (list: SemiFinishedProduct[]) => void;
   onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
   onUpdateProduct: (productId: string, updates: Partial<Product>) => void;
+  onAddProduct: (product: Product) => void;
   rawMaterials: RawMaterial[];
   setRawMaterials: React.Dispatch<React.SetStateAction<RawMaterial[]>>;
   rawCategoryDefs: { key: string; label: string }[];
@@ -51,6 +62,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   onUpdateSemiFinished,
   onUpdateDishCostings,
   onUpdateProduct,
+  onAddProduct,
   rawMaterials,
   setRawMaterials,
   rawCategoryDefs,
@@ -63,6 +75,28 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || 'chicken-croissant');
   const [dishCategoryFilter, setDishCategoryFilter] = useState<string>('all');
   const [isDishCardOpen, setIsDishCardOpen] = useState(false);
+  const [isAddDishModalOpen, setIsAddDishModalOpen] = useState(false);
+  const [newDishItem, setNewDishItem] = useState<{
+    name: string;
+    category: string;
+    categoryLabel: string;
+    price: number;
+    unit: string;
+    unitWeight: string;
+    shelfLife: string;
+    imageEmoji: string;
+    description: string;
+  }>({
+    name: '',
+    category: 'croissants',
+    categoryLabel: 'Выпечка',
+    price: 0,
+    unit: 'шт',
+    unitWeight: '',
+    shelfLife: '',
+    imageEmoji: '🍽️',
+    description: ''
+  });
   const [semiCategoryFilter, setSemiCategoryFilter] = useState<string>('all');
   const [selectedSemiId, setSelectedSemiId] = useState<string | null>(null);
   const [isSemiCardOpen, setIsSemiCardOpen] = useState(false);
@@ -411,6 +445,29 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     setIsAddSemiModalOpen(false);
   };
 
+  const handleCreateNewDish = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDishItem.name.trim()) return;
+
+    const newProduct: Product = {
+      id: `dish-${Date.now()}`,
+      name: newDishItem.name.trim(),
+      category: newDishItem.category as Product['category'],
+      categoryLabel: newDishItem.categoryLabel,
+      unit: newDishItem.unit,
+      price: newDishItem.price,
+      unitWeight: newDishItem.unitWeight,
+      shelfLife: newDishItem.shelfLife,
+      department: CATEGORY_TO_DEPARTMENT[newDishItem.category] || 'new_items',
+      imageEmoji: newDishItem.imageEmoji || '🍽️',
+      imageUrl: '',
+      description: newDishItem.description
+    };
+    onAddProduct(newProduct);
+    setNewDishItem({ ...newDishItem, name: '', price: 0, unitWeight: '', shelfLife: '', description: '' });
+    setIsAddDishModalOpen(false);
+  };
+
   // Master Catalog Handlers
   const handleUpdateRawMaterial = (id: string, field: keyof RawMaterial, value: string | number) => {
     setRawMaterials((prev) =>
@@ -520,9 +577,19 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
       {/* DISH COSTINGS TAB */}
       {activeTab === 'dishes' && (
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-2">
-            Выберите блюдо витрины (нажмите, чтобы открыть карточку):
-          </h4>
+          <div className="flex items-center justify-between px-2 flex-wrap gap-2">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Выберите блюдо витрины (нажмите, чтобы открыть карточку):
+            </h4>
+
+            <button
+              onClick={() => setIsAddDishModalOpen(true)}
+              className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded text-xs uppercase tracking-wider transition-all shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Добавить блюдо</span>
+            </button>
+          </div>
 
           {/* Category Filter */}
           <div className="px-2">
@@ -1450,6 +1517,130 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddSemiModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm transition-all"
+                >
+                  Создать
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Add New Dish */}
+      {isAddDishModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
+
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Utensils className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-900 text-base">Добавить новое блюдо</h3>
+              </div>
+              <button
+                onClick={() => setIsAddDishModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewDish} className="space-y-4 text-xs">
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                  Название блюда:
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Например: Круассан с миндалем"
+                  value={newDishItem.name}
+                  onChange={(e) => setNewDishItem({ ...newDishItem, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                    Категория:
+                  </label>
+                  <select
+                    value={newDishItem.category}
+                    onChange={(e) => {
+                      const label = dishCategories.find((c) => c.key === e.target.value)?.label || newDishItem.categoryLabel;
+                      setNewDishItem({ ...newDishItem, category: e.target.value, categoryLabel: label });
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+                  >
+                    {dishCategories
+                      .filter((c) => c.key !== 'all')
+                      .map((cat) => (
+                        <option key={cat.key} value={cat.key}>
+                          {cat.label}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                    Цена продажи (₸):
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={newDishItem.price}
+                    onChange={(e) => setNewDishItem({ ...newDishItem, price: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                    Вес/объём (например 120г):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="120г"
+                    value={newDishItem.unitWeight}
+                    onChange={(e) => setNewDishItem({ ...newDishItem, unitWeight: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 uppercase tracking-wider text-[10px]">
+                    Срок годности:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="24 часа"
+                    value={newDishItem.shelfLife}
+                    onChange={(e) => setNewDishItem({ ...newDishItem, shelfLife: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                  />
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                Себестоимость и состав (полуфабрикаты и сырьё) можно будет заполнить сразу после создания, на карточке блюда.
+              </p>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddDishModalOpen(false)}
                   className="px-4 py-2 border border-slate-300 rounded-lg text-slate-600 font-bold hover:bg-slate-50 transition-all"
                 >
                   Отмена

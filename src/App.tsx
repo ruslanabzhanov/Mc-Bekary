@@ -357,6 +357,15 @@ export default function App() {
     setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, ...updates } : p)));
   };
 
+  // Admin: Create a brand-new dish (Product), with an empty costing record ready to fill in.
+  const handleAddProduct = (newProduct: Product) => {
+    setProducts((prev) => [...prev, newProduct]);
+    setDishCostings((prev) => ({
+      ...prev,
+      [newProduct.id]: { productId: newProduct.id, semiFinishedItems: [], rawIngredients: [] }
+    }));
+  };
+
   // Personnel: update an existing staff member's point/role
   const handleUpdateStaffMember = (staffId: string, updates: Partial<StaffMember>) => {
     setStaff((prev) => prev.map((s) => (s.id === staffId ? { ...s, ...updates } : s)));
@@ -641,6 +650,7 @@ export default function App() {
               onUpdateSemiFinished={setSemiFinishedList}
               onUpdateDishCostings={setDishCostings}
               onUpdateProduct={handleUpdateProduct}
+              onAddProduct={handleAddProduct}
               rawMaterials={rawMaterials}
               setRawMaterials={setRawMaterials}
               rawCategoryDefs={rawCategoryDefs}

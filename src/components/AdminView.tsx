@@ -36,6 +36,7 @@ interface AdminViewProps {
   onUpdateSemiFinished: (list: SemiFinishedProduct[]) => void;
   onUpdateDishCostings: (costings: Record<string, DishCosting>) => void;
   onUpdateProduct: (productId: string, updates: Partial<Product>) => void;
+  onAddProduct: (product: Product) => void;
   rawMaterials: RawMaterial[];
   setRawMaterials: React.Dispatch<React.SetStateAction<RawMaterial[]>>;
   rawCategoryDefs: { key: string; label: string }[];
@@ -73,6 +74,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onUpdateSemiFinished,
   onUpdateDishCostings,
   onUpdateProduct,
+  onAddProduct,
   rawMaterials,
   setRawMaterials,
   rawCategoryDefs,
@@ -472,6 +474,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               onUpdateSemiFinished={onUpdateSemiFinished}
               onUpdateDishCostings={onUpdateDishCostings}
               onUpdateProduct={onUpdateProduct}
+              onAddProduct={onAddProduct}
               rawMaterials={rawMaterials}
               setRawMaterials={setRawMaterials}
               rawCategoryDefs={rawCategoryDefs}
