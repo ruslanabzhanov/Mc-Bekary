@@ -697,7 +697,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
 
             {/* Состав блюда: полуфабрикаты + сырьё через единый поиск */}
             <div className="space-y-3">
-              <div className="relative flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center space-x-2">
                   <ChefHat className="w-4 h-4 text-indigo-600" />
                   <span>Состав блюда (полуфабрикаты и сырьё):</span>
@@ -711,49 +711,50 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   <Plus className="w-3.5 h-3.5" />
                   <span>Добавить</span>
                 </button>
-
-                {isIngredientSearchOpen && (
-                  <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-xl z-20 p-2">
-                    <div className="relative mb-2">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                      <input
-                        type="text"
-                        value={ingredientSearch}
-                        onChange={(e) => setIngredientSearch(e.target.value)}
-                        placeholder="Поиск полуфабриката или сырья..."
-                        className="w-full pl-8 pr-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <div className="max-h-56 overflow-y-auto space-y-0.5">
-                      {ingredientSearchResults.length === 0 ? (
-                        <p className="text-[11px] text-slate-400 italic text-center py-3">
-                          {ingredientSearch.trim() ? 'Ничего не найдено' : 'Начните вводить название...'}
-                        </p>
-                      ) : (
-                        ingredientSearchResults.map((r) => (
-                          <button
-                            key={`${r.type}-${r.id}`}
-                            type="button"
-                            onClick={() => handleSelectIngredientFromSearch(r.type, r.id)}
-                            className="w-full text-left px-2.5 py-1.5 rounded hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs group"
-                          >
-                            <span className="font-medium text-slate-800 group-hover:text-indigo-900 truncate">
-                              {r.name}
-                            </span>
-                            <span
-                              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${
-                                r.type === 'semi' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {r.type === 'semi' ? 'п/ф' : 'сырьё'}
-                            </span>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
+
+              {isIngredientSearchOpen && (
+                <div className="w-full bg-white border border-slate-200 rounded-lg shadow-sm z-20 p-2">
+                  <div className="relative mb-2">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                    <input
+                      type="text"
+                      value={ingredientSearch}
+                      onChange={(e) => setIngredientSearch(e.target.value)}
+                      placeholder="Поиск полуфабриката или сырья..."
+                      className="w-full pl-8 pr-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="max-h-56 overflow-y-auto space-y-0.5">
+                    {ingredientSearchResults.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic text-center py-3">
+                        {ingredientSearch.trim() ? 'Ничего не найдено' : 'Начните вводить название...'}
+                      </p>
+                    ) : (
+                      ingredientSearchResults.map((r) => (
+                        <button
+                          key={`${r.type}-${r.id}`}
+                          type="button"
+                          onClick={() => handleSelectIngredientFromSearch(r.type, r.id)}
+                          className="w-full text-left px-2.5 py-1.5 rounded hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs group"
+                        >
+                          <span className="font-medium text-slate-800 group-hover:text-indigo-900 truncate">
+                            {r.name}
+                          </span>
+                          <span
+                            className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${
+                              r.type === 'semi' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {r.type === 'semi' ? 'п/ф' : 'сырьё'}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 <table className="w-full text-xs text-left">
@@ -1037,7 +1038,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
 
             {/* Ingredients Table (raw quantities actually used) — always visible, not behind Технология */}
             <div className="space-y-2">
-                  <div className="relative flex items-center justify-between text-xs font-bold text-slate-700 uppercase flex-wrap gap-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase flex-wrap gap-2">
                     <span>Закладка сырья (сколько взяли):</span>
 
                     <div className="flex items-center space-x-2">
@@ -1059,50 +1060,50 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                         <span>Ввод вручную</span>
                       </button>
                     </div>
-
-                    {isSemiIngredientSearchOpen && (
-                      <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-xl z-20 p-2">
-                        <div className="relative mb-2">
-                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                          <input
-                            type="text"
-                            value={semiIngredientSearch}
-                            onChange={(e) => setSemiIngredientSearch(e.target.value)}
-                            placeholder="Поиск сырья..."
-                            className="w-full pl-8 pr-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                            autoFocus
-                          />
-                        </div>
-                        <div className="max-h-56 overflow-y-auto space-y-0.5">
-                          {semiIngredientSearchResults.length === 0 ? (
-                            <p className="text-[11px] text-slate-400 italic text-center py-3">
-                              {semiIngredientSearch.trim() ? 'Ничего не найдено' : 'Начните вводить название...'}
-                            </p>
-                          ) : (
-                            semiIngredientSearchResults.map((r) => (
-                              <button
-                                key={r.id}
-                                type="button"
-                                onClick={() => {
-                                  handleAddSemiIngredientFromCatalog(selectedSemi.id, r.id);
-                                  setSemiIngredientSearch('');
-                                  setIsSemiIngredientSearchOpen(false);
-                                }}
-                                className="w-full text-left px-2.5 py-1.5 rounded hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs group"
-                              >
-                                <span className="font-medium text-slate-800 group-hover:text-indigo-900 truncate">
-                                  {r.name}
-                                </span>
-                                <span className="text-[10px] text-slate-400 shrink-0">
-                                  {r.defaultUnitPrice} ₸/{r.unit}
-                                </span>
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    )}
                   </div>
+
+                  {isSemiIngredientSearchOpen && (
+                    <div className="w-full bg-white border border-slate-200 rounded-lg shadow-sm z-20 p-2">
+                      <div className="relative mb-2">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                        <input
+                          type="text"
+                          value={semiIngredientSearch}
+                          onChange={(e) => setSemiIngredientSearch(e.target.value)}
+                          placeholder="Поиск сырья..."
+                          className="w-full pl-8 pr-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="max-h-56 overflow-y-auto space-y-0.5">
+                        {semiIngredientSearchResults.length === 0 ? (
+                          <p className="text-[11px] text-slate-400 italic text-center py-3">
+                            {semiIngredientSearch.trim() ? 'Ничего не найдено' : 'Начните вводить название...'}
+                          </p>
+                        ) : (
+                          semiIngredientSearchResults.map((r) => (
+                            <button
+                              key={r.id}
+                              type="button"
+                              onClick={() => {
+                                handleAddSemiIngredientFromCatalog(selectedSemi.id, r.id);
+                                setSemiIngredientSearch('');
+                                setIsSemiIngredientSearchOpen(false);
+                              }}
+                              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs group"
+                            >
+                              <span className="font-medium text-slate-800 group-hover:text-indigo-900 truncate">
+                                {r.name}
+                              </span>
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                {r.defaultUnitPrice} ₸/{r.unit}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="border border-slate-200 rounded-lg overflow-x-auto">
                     <table className="w-full text-xs text-left min-w-[480px]">
