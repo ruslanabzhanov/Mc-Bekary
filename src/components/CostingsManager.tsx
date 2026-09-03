@@ -879,7 +879,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                                     }
                                     className="w-20 px-2 py-1 text-center border border-slate-300 rounded font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                   />
-                                  <span className="text-slate-500 font-medium">{item.unit}</span>
+                                  <span className="text-slate-500 font-medium">{semi.unit}</span>
                                 </div>
                               </td>
                               <td className="py-2.5 px-3 text-center">

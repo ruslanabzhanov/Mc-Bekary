@@ -154,7 +154,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
         name: semi?.name || 'Неизвестный п/ф',
         perUnit: item.quantity,
         amount: item.quantity * orderedQty,
-        unit: item.unit,
+        unit: semi?.unit || item.unit,
         groupLabel: 'Полуфабрикаты',
       };
     });
