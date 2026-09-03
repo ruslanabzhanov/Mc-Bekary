@@ -425,6 +425,23 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     onUpdateSemiFinished(updated);
   };
 
+  const handleUpdateSemiName = (semiId: string, name: string) => {
+    onUpdateSemiFinished(semiFinishedList.map((semi) => (semi.id === semiId ? { ...semi, name } : semi)));
+  };
+
+  const handleUpdateSemiCategory = (semiId: string, categoryKey: string) => {
+    const label = semiCategoryDefs.find((c) => c.key === categoryKey)?.label || categoryKey;
+    onUpdateSemiFinished(
+      semiFinishedList.map((semi) =>
+        semi.id === semiId ? { ...semi, category: categoryKey, categoryLabel: label } : semi
+      )
+    );
+  };
+
+  const handleUpdateSemiUnit = (semiId: string, unit: string) => {
+    onUpdateSemiFinished(semiFinishedList.map((semi) => (semi.id === semiId ? { ...semi, unit } : semi)));
+  };
+
   const handleCreateNewSemi = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSemiItem.name.trim()) return;
@@ -1045,12 +1062,25 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
 
             {/* Card Header: name on top, category/cost/technology together below it */}
             <div className="space-y-2.5 border-b border-slate-100 pb-3">
-              <h4 className="font-bold text-slate-900 text-base leading-snug">{selectedSemi.name}</h4>
+              <input
+                type="text"
+                value={selectedSemi.name}
+                onChange={(e) => handleUpdateSemiName(selectedSemi.id, e.target.value)}
+                className="w-full font-bold text-slate-900 text-base leading-snug bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-500 focus:outline-none"
+              />
 
               <div className="flex items-stretch gap-2 flex-wrap">
-                <span className="text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 px-2.5 py-1.5 rounded-lg border border-indigo-200 flex items-center">
-                  {selectedSemi.categoryLabel}
-                </span>
+                <select
+                  value={selectedSemi.category}
+                  onChange={(e) => handleUpdateSemiCategory(selectedSemi.id, e.target.value)}
+                  className="text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 px-2.5 py-1.5 rounded-lg border border-indigo-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                >
+                  {semiCategoryDefs.map((cat) => (
+                    <option key={cat.key} value={cat.key}>
+                      {cat.label}
+                    </option>
+                  ))}
+                </select>
 
                 <div className="bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
                   <span className="text-[9px] font-black uppercase text-slate-400 block leading-none mb-0.5">Себестоимость 1 {selectedSemi.unit}</span>
@@ -1070,7 +1100,15 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                       onChange={(e) => handleUpdateSemiYield(selectedSemi.id, parseFloat(e.target.value) || 0)}
                       className="w-12 bg-transparent font-black text-indigo-900 text-sm leading-none focus:outline-none"
                     />
-                    <span className="text-slate-500 font-bold text-[10px] leading-none">{selectedSemi.unit}</span>
+                    <select
+                      value={selectedSemi.unit}
+                      onChange={(e) => handleUpdateSemiUnit(selectedSemi.id, e.target.value)}
+                      className="bg-transparent text-slate-500 font-bold text-[10px] leading-none focus:outline-none cursor-pointer"
+                    >
+                      <option value="кг">кг</option>
+                      <option value="л">л</option>
+                      <option value="шт">шт</option>
+                    </select>
                   </div>
                 </div>
 
