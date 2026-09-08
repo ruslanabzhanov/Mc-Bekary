@@ -116,12 +116,20 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   if (!isOpen || !departmentKey) return null;
 
   const dept = DEPARTMENT_CONFIG[departmentKey];
+  const semiMap = new Map<string, SemiFinishedProduct>(semiFinishedList.map((s) => [s.id, s]));
+  const rawCategoryByName = new Map<string, string>(rawMaterials.map((r) => [r.name, r.categoryLabel]));
 
-  // Products manually assigned to this checklist via the settings panel
+  // Entries manually assigned to this checklist via the settings panel — dishes are stored as a
+  // bare product id, semi-finished products as `semi:<id>` (same array/column, no schema change).
   const assignedIds = checklistAssignments[departmentKey] || [];
-  const assignedProducts = assignedIds
+  const assignedDishIds = assignedIds.filter((id) => !id.startsWith('semi:'));
+  const assignedSemiIds = assignedIds.filter((id) => id.startsWith('semi:')).map((id) => id.slice(5));
+  const assignedProducts = assignedDishIds
     .map((id) => products.find((p) => p.id === id))
     .filter((p): p is Product => Boolean(p));
+  const assignedSemis = assignedSemiIds
+    .map((id) => semiMap.get(id))
+    .filter((s): s is SemiFinishedProduct => Boolean(s));
 
   // Orders submitted/accepted today, per shop (this app tracks only the current live order per shop)
   const shopItems = shops.map((shop) => {
@@ -142,10 +150,30 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
 
   const grandDeptTotal = activeShops.reduce((sum, s) => sum + s.deptTotal, 0);
 
+  // Total ordered quantity per dish across every shop today, regardless of department — a
+  // directly-tracked semi-finished product's daily requirement is driven by every dish that
+  // uses it (possibly across several checklists), not just this department's assigned dishes.
+  const dailyQtyByProductId = new Map<string, number>();
+  shopItems.forEach(({ items }) => {
+    Object.entries(items).forEach(([pid, qty]) => {
+      const n = Number(qty) || 0;
+      if (n > 0) dailyQtyByProductId.set(pid, (dailyQtyByProductId.get(pid) || 0) + n);
+    });
+  });
+  const semiDailyNeed = (semiId: string): number => {
+    let total = 0;
+    (Object.values(dishCostings) as DishCosting[]).forEach((costing) => {
+      const orderedQty = dailyQtyByProductId.get(costing.productId) || 0;
+      if (orderedQty <= 0) return;
+      (costing.semiFinishedItems || []).forEach((item) => {
+        if (item.semiFinishedId === semiId) total += item.quantity * orderedQty;
+      });
+    });
+    return total;
+  };
+
   // Per-dish ingredient requirements for the production (shop-floor) checklist
-  const semiMap = new Map<string, SemiFinishedProduct>(semiFinishedList.map((s) => [s.id, s]));
-  const rawCategoryByName = new Map<string, string>(rawMaterials.map((r) => [r.name, r.categoryLabel]));
-  const productionRows = deptProducts.map((p) => {
+  const dishCalcTiles = deptProducts.map((p) => {
     const orderedQty = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
     const costing = dishCostings[p.id];
     const semiNeeds = (costing?.semiFinishedItems || []).map((item) => {
@@ -165,18 +193,51 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
       unit: item.unit,
       groupLabel: rawCategoryByName.get(item.name) || 'Прочее сырьё',
     }));
-    return { product: p, orderedQty, semiNeeds, rawNeeds, allNeeds: [...semiNeeds, ...rawNeeds] };
+    return {
+      id: p.id,
+      title: p.name,
+      badge: undefined as string | undefined,
+      planLabel: `План: ${orderedQty} ${p.unit}`,
+      allNeeds: [...semiNeeds, ...rawNeeds],
+    };
   });
 
-  // Split dish list into two columns for the print layout
-  const productionHalf = Math.ceil(productionRows.length / 2);
-  const productionCol1 = productionRows.slice(0, productionHalf);
-  const productionCol2 = productionRows.slice(productionHalf);
+  // Directly-assigned semi-finished products: how much of it is needed today (across every dish
+  // that uses it), and — since it has its own recipe — what raw materials to pull to make that
+  // much of it. Hidden when nothing ordered today actually needs it.
+  const semiCalcTiles = assignedSemis
+    .map((semi) => {
+      const neededQty = semiDailyNeed(semi.id);
+      if (neededQty <= 0) return null;
+      const scale = neededQty / (semi.yieldQuantity || 1);
+      const allNeeds = semi.ingredients.map((ing) => ({
+        name: ing.rawMaterialName,
+        perUnit: ing.quantity,
+        amount: ing.quantity * scale,
+        unit: ing.unit,
+        groupLabel: rawCategoryByName.get(ing.rawMaterialName) || 'Прочее сырьё',
+      }));
+      return {
+        id: `semi:${semi.id}`,
+        title: semi.name,
+        badge: 'П/Ф' as string | undefined,
+        planLabel: `Нужно: ${formatAmount(neededQty, semi.unit)}`,
+        allNeeds,
+      };
+    })
+    .filter((t): t is NonNullable<typeof t> => Boolean(t));
 
-  // Consolidated ingredient totals across all dishes in this checklist, grouped by category
+  const calcTiles = [...dishCalcTiles, ...semiCalcTiles];
+
+  // Split the calculator tiles (dishes + tracked semi-finished products) into two columns for print
+  const productionHalf = Math.ceil(calcTiles.length / 2);
+  const productionCol1 = calcTiles.slice(0, productionHalf);
+  const productionCol2 = calcTiles.slice(productionHalf);
+
+  // Consolidated ingredient totals across every tile in this checklist, grouped by category
   const aggregatedNeeds = new Map<string, { name: string; unit: string; amount: number; groupLabel: string }>();
-  for (const row of productionRows) {
-    for (const need of row.allNeeds) {
+  for (const tile of calcTiles) {
+    for (const need of tile.allNeeds) {
       const key = `${need.groupLabel}|${need.name}|${need.unit}`;
       const existing = aggregatedNeeds.get(key);
       if (existing) existing.amount += need.amount;
@@ -198,30 +259,35 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
     window.print();
   };
 
-  const handleAddProductToChecklist = (productId: string) => {
+  const handleAddToChecklist = (entryId: string) => {
     onUpdateChecklistAssignments({
       ...checklistAssignments,
-      [departmentKey]: [...assignedIds, productId],
+      [departmentKey]: [...assignedIds, entryId],
     });
     setProductSearchQuery('');
   };
 
-  const handleRemoveProductFromChecklist = (productId: string) => {
+  const handleRemoveFromChecklist = (entryId: string) => {
     onUpdateChecklistAssignments({
       ...checklistAssignments,
-      [departmentKey]: assignedIds.filter((id) => id !== productId),
+      [departmentKey]: assignedIds.filter((id) => id !== entryId),
     });
   };
 
-  const productSearchResults = productSearchQuery.trim()
+  const searchQueryLower = productSearchQuery.trim().toLowerCase();
+  const dishSearchResults = searchQueryLower
     ? products
-        .filter(
-          (p) =>
-            !assignedIds.includes(p.id) &&
-            p.name.toLowerCase().includes(productSearchQuery.trim().toLowerCase())
-        )
-        .slice(0, 8)
+        .filter((p) => !assignedDishIds.includes(p.id) && p.name.toLowerCase().includes(searchQueryLower))
+        .slice(0, 6)
+        .map((p) => ({ kind: 'dish' as const, entryId: p.id, name: p.name, categoryLabel: p.categoryLabel }))
     : [];
+  const semiSearchResults = searchQueryLower
+    ? semiFinishedList
+        .filter((s) => !assignedSemiIds.includes(s.id) && s.name.toLowerCase().includes(searchQueryLower))
+        .slice(0, 6)
+        .map((s) => ({ kind: 'semi' as const, entryId: `semi:${s.id}`, name: s.name, categoryLabel: s.categoryLabel }))
+    : [];
+  const combinedSearchResults = [...dishSearchResults, ...semiSearchResults].slice(0, 8);
 
   const todayStr = new Date().toLocaleDateString('ru-RU', {
     weekday: 'long',
@@ -269,29 +335,48 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
             <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Блюда, относящиеся к этому чек-листу
+                  Блюда и полуфабрикаты, относящиеся к этому чек-листу
                 </h3>
-                <span className="text-[10px] text-slate-400 font-bold">{assignedProducts.length} назначено</span>
+                <span className="text-[10px] text-slate-400 font-bold">
+                  {assignedProducts.length + assignedSemis.length} назначено
+                </span>
               </div>
 
               <div className="flex flex-wrap gap-1.5">
-                {assignedProducts.length === 0 ? (
-                  <span className="text-[11px] text-slate-400 italic">Нет назначенных блюд</span>
+                {assignedProducts.length === 0 && assignedSemis.length === 0 ? (
+                  <span className="text-[11px] text-slate-400 italic">Нет назначенных позиций</span>
                 ) : (
-                  assignedProducts.map((p) => (
-                    <span
-                      key={p.id}
-                      className="flex items-center gap-1 bg-indigo-100 text-indigo-800 text-[11px] font-bold pl-2.5 pr-1.5 py-1 rounded-full"
-                    >
-                      {p.name}
-                      <button
-                        onClick={() => handleRemoveProductFromChecklist(p.id)}
-                        className="w-4 h-4 rounded-full hover:bg-indigo-200 flex items-center justify-center"
+                  <>
+                    {assignedProducts.map((p) => (
+                      <span
+                        key={p.id}
+                        className="flex items-center gap-1 bg-indigo-100 text-indigo-800 text-[11px] font-bold pl-2.5 pr-1.5 py-1 rounded-full"
                       >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))
+                        {p.name}
+                        <button
+                          onClick={() => handleRemoveFromChecklist(p.id)}
+                          className="w-4 h-4 rounded-full hover:bg-indigo-200 flex items-center justify-center"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    {assignedSemis.map((s) => (
+                      <span
+                        key={s.id}
+                        className="flex items-center gap-1 bg-violet-100 text-violet-800 text-[11px] font-bold pl-2.5 pr-1.5 py-1 rounded-full"
+                      >
+                        <span className="text-[8px] font-black opacity-70">П/Ф</span>
+                        {s.name}
+                        <button
+                          onClick={() => handleRemoveFromChecklist(`semi:${s.id}`)}
+                          className="w-4 h-4 rounded-full hover:bg-violet-200 flex items-center justify-center"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </>
                 )}
               </div>
 
@@ -301,26 +386,31 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                   type="text"
                   value={productSearchQuery}
                   onChange={(e) => setProductSearchQuery(e.target.value)}
-                  placeholder="Поиск блюда для добавления в чек-лист..."
+                  placeholder="Поиск блюда или полуфабриката для добавления..."
                   className="w-full pl-8 pr-2 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
 
               {productSearchQuery.trim() && (
                 <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100">
-                  {productSearchResults.length === 0 ? (
+                  {combinedSearchResults.length === 0 ? (
                     <p className="text-[11px] text-slate-400 italic text-center py-2.5">Ничего не найдено</p>
                   ) : (
-                    productSearchResults.map((p) => (
+                    combinedSearchResults.map((r) => (
                       <button
-                        key={p.id}
+                        key={r.entryId}
                         type="button"
-                        onClick={() => handleAddProductToChecklist(p.id)}
+                        onClick={() => handleAddToChecklist(r.entryId)}
                         className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 flex items-center justify-between gap-2"
                       >
-                        <span className="font-medium text-slate-800 truncate">{p.name}</span>
+                        <span className="font-medium text-slate-800 truncate flex items-center gap-1.5">
+                          {r.kind === 'semi' && (
+                            <span className="text-[8px] font-black text-violet-700 shrink-0">П/Ф</span>
+                          )}
+                          {r.name}
+                        </span>
                         <span className="flex items-center gap-1 text-[9px] text-slate-400 shrink-0">
-                          {p.categoryLabel}
+                          {r.categoryLabel}
                           <Plus className="w-3 h-3 text-indigo-600" />
                         </span>
                       </button>
@@ -413,27 +503,38 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
             </div>
           </div>
 
-          {deptProducts.length === 0 ? (
+          {calcTiles.length === 0 ? (
             <div className="border border-dashed border-slate-300 print:border-black rounded-lg py-10 text-center text-slate-400 print:text-black">
-              Сегодня по этому цеху ещё нет поданных блюд.
+              Сегодня по этому цеху ещё нет поданных блюд и не требуется заготовка полуфабрикатов.
             </div>
           ) : activeView === 'production' ? (
             <div className="space-y-4">
               <div className="grid grid-cols-1 lg:grid-cols-3 print:grid-cols-3 gap-4 items-start">
-                {/* Dish ingredient calculator, split across two columns */}
+                {/* Dish + tracked semi-finished product calculator, split across two columns */}
                 {[productionCol1, productionCol2].map((col, colIdx) => (
                   <div key={colIdx} className="space-y-3">
                     <h3 className="text-[10px] font-bold text-slate-500 print:text-black uppercase tracking-wider">
-                      Калькулятор блюд {colIdx === 0 ? '(часть 1)' : '(часть 2)'}
+                      Калькулятор {colIdx === 0 ? '(часть 1)' : '(часть 2)'}
                     </h3>
-                    {col.map(({ product, orderedQty, allNeeds }) => (
+                    {col.map(({ id, title, badge, planLabel, allNeeds }) => (
                       <div
-                        key={product.id}
+                        key={id}
                         className="border border-slate-300 print:border-black rounded-lg overflow-hidden break-inside-avoid"
                       >
-                        <div className="bg-indigo-900 print:bg-gray-800 text-white px-3 py-1.5 flex items-center justify-between gap-2">
-                          <h4 className="font-black uppercase text-[11px] tracking-tight truncate">{product.name}</h4>
-                          <span className="text-[11px] font-bold whitespace-nowrap">План: {orderedQty} {product.unit}</span>
+                        <div
+                          className={`${
+                            badge ? 'bg-violet-800' : 'bg-indigo-900'
+                          } print:bg-gray-800 text-white px-3 py-1.5 flex items-center justify-between gap-2`}
+                        >
+                          <h4 className="font-black uppercase text-[11px] tracking-tight truncate flex items-center gap-1.5">
+                            {badge && (
+                              <span className="text-[8px] font-black bg-white/20 px-1 py-0.5 rounded shrink-0">
+                                {badge}
+                              </span>
+                            )}
+                            {title}
+                          </h4>
+                          <span className="text-[11px] font-bold whitespace-nowrap">{planLabel}</span>
                         </div>
                         {allNeeds.length === 0 ? (
                           <p className="text-[11px] text-slate-400 italic px-3 py-2">
