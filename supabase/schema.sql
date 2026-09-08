@@ -89,6 +89,14 @@ create table if not exists semi_category_defs (
   label text not null
 );
 
+-- Dish (Product) category registry, mirroring raw/semi — lets the Owner/Admin add and remove
+-- categories instead of being limited to whatever's baked into ManagerView's fixed tabs.
+-- Seeded once with the app's original 6 fixed categories so existing dishes keep working.
+create table if not exists dish_category_defs (
+  key text primary key,
+  label text not null
+);
+
 create table if not exists semi_finished (
   id text primary key,
   name text not null,

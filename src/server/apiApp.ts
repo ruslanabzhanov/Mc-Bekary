@@ -170,6 +170,7 @@ export function createApiApp() {
         semiFinished,
         semiCategoryDefs,
         dishCostings,
+        dishCategoryDefs,
         checklistAssignments,
         staff,
         registrationRequests,
@@ -184,6 +185,7 @@ export function createApiApp() {
         supabase.from('semi_finished').select('*'),
         supabase.from('semi_category_defs').select('*'),
         supabase.from('dish_costings').select('*'),
+        supabase.from('dish_category_defs').select('*'),
         supabase.from('checklist_assignments').select('*'),
         supabase.from('staff').select('*'),
         supabase.from('registration_requests').select('*'),
@@ -192,8 +194,8 @@ export function createApiApp() {
 
       for (const r of [
         shops, products, orders, notifications, rawMaterials, rawCategoryDefs,
-        semiFinished, semiCategoryDefs, dishCostings, checklistAssignments, staff, registrationRequests,
-        rolePermissions,
+        semiFinished, semiCategoryDefs, dishCostings, dishCategoryDefs, checklistAssignments, staff,
+        registrationRequests, rolePermissions,
       ]) {
         if (r.error) throw r.error;
       }
@@ -225,6 +227,7 @@ export function createApiApp() {
         semiFinishedList: (semiFinished.data || []).map(semiFinishedFromDb),
         semiCategoryDefs: (semiCategoryDefs.data || []).map((r: any) => ({ key: r.key, label: r.label })),
         dishCostings: dishCostingsRecord,
+        dishCategoryDefs: (dishCategoryDefs.data || []).map((r: any) => ({ key: r.key, label: r.label })),
         checklistAssignments: checklistAssignmentsRecord,
         staff: (staff.data || []).map(staffFromDb),
         registrationRequests: (registrationRequests.data || []).map(registrationRequestFromDb),
@@ -327,6 +330,21 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to save semi category defs:', e);
       res.status(500).json({ error: 'Failed to save semi category defs' });
+    }
+  });
+
+  // Persist the dish (Product) category registry
+  app.post('/api/dish-category-defs', async (req, res) => {
+    try {
+      if (Array.isArray(req.body?.dishCategoryDefs)) {
+        await replaceTable('dish_category_defs', 'key', req.body.dishCategoryDefs);
+      }
+      const { data, error } = await supabase.from('dish_category_defs').select('*');
+      if (error) throw error;
+      res.json({ success: true, dishCategoryDefs: data || [] });
+    } catch (e) {
+      console.error('Failed to save dish category defs:', e);
+      res.status(500).json({ error: 'Failed to save dish category defs' });
     }
   });
 

@@ -85,6 +85,18 @@ Every order that transitions to `status: 'submitted'` (not draft saves) is also 
 - `TerritorialManagerView.tsx` has no action buttons at all today, so the `territorial` column in the matrix is stored but has no effect yet — wiring it up is separate follow-up work, not done.
 - Testing Owner mode requires opening the app **inside real Telegram** — `initData` is empty in a plain browser (including a Vercel preview URL opened directly), so this can only be verified against a URL Telegram actually opens the Mini App from.
 
+### Category registries (raw materials / semi-finished / dishes)
+
+All three catalogs in `CostingsManager.tsx` — raw materials, semi-finished products, and dishes
+(`Product.category`) — are backed by an editable key/label registry table (`raw_category_defs`,
+`semi_category_defs`, `dish_category_defs`), each with its own add-category control and a delete
+button (with a confirm prompt) next to the category filter. `Product.category`/`Product.department`
+were widened from fixed unions to plain `string` for this — the `Category` union type still exists
+and is used by `ManagerView.tsx`'s **hardcoded** 6 order-screen tabs (🥐/🥪/🍰/etc.), which are
+independent of these registries. A brand-new custom dish category (beyond the original 6) has no
+tab of its own there — dishes in it are only reachable via the "Все товары" tab — extending
+ManagerView's tabs to be registry-driven is a separate, not-yet-done change.
+
 ### Known dead files
 
 `src/components/PrintPrepChecklistModal.tsx`, `src/components/MatrixTable.tsx`, and `src/components/DisciplineTracker.tsx` are not imported anywhere — leftovers from an earlier iteration. Don't assume they're wired in; check import sites before touching them.

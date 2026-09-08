@@ -54,6 +54,8 @@ interface CostingsManagerProps {
   setRawCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
   semiCategoryDefs: { key: string; label: string }[];
   setSemiCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
+  dishCategoryDefs: { key: string; label: string }[];
+  setDishCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
 }
 
 export const CostingsManager: React.FC<CostingsManagerProps> = ({
@@ -70,7 +72,9 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   rawCategoryDefs,
   setRawCategoryDefs,
   semiCategoryDefs,
-  setSemiCategoryDefs
+  setSemiCategoryDefs,
+  dishCategoryDefs,
+  setDishCategoryDefs
 }) => {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<'dishes' | 'semis' | 'raw_catalog'>('dishes');
@@ -91,7 +95,7 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   }>({
     name: '',
     category: 'croissants',
-    categoryLabel: 'Выпечка',
+    categoryLabel: 'Круассаны и слойки',
     price: 0,
     unit: 'шт',
     unitWeight: '',
@@ -145,15 +149,24 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
+  const [isAddDishCategoryOpen, setIsAddDishCategoryOpen] = useState(false);
+  const [newDishCategoryName, setNewDishCategoryName] = useState('');
+
   // Category Label helper
   const getCategoryLabel = (cat: string) => rawCategoryDefs.find((c) => c.key === cat)?.label || cat;
+
+  // Shared by all three category registries (raw materials, semi-finished, dishes): turns a
+  // typed label into a stable key, falling back to a timestamp if it collides or is empty.
+  const slugifyCategoryLabel = (label: string, existing: { key: string }[]) => {
+    const baseKey = label.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '_').replace(/^_+|_+$/g, '');
+    return baseKey && !existing.some((c) => c.key === baseKey) ? baseKey : `cat-${Date.now()}`;
+  };
 
   const handleAddCategory = (e: React.FormEvent) => {
     e.preventDefault();
     const label = newCategoryName.trim();
     if (!label) return;
-    const baseKey = label.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '_').replace(/^_+|_+$/g, '');
-    const key = baseKey && !rawCategoryDefs.some((c) => c.key === baseKey) ? baseKey : `cat-${Date.now()}`;
+    const key = slugifyCategoryLabel(label, rawCategoryDefs);
     setRawCategoryDefs((prev) => [...prev, { key, label }]);
     setNewCategoryName('');
     setIsAddCategoryOpen(false);
@@ -163,11 +176,41 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     e.preventDefault();
     const label = newSemiCategoryName.trim();
     if (!label) return;
-    const baseKey = label.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '_').replace(/^_+|_+$/g, '');
-    const key = baseKey && !semiCategoryDefs.some((c) => c.key === baseKey) ? baseKey : `cat-${Date.now()}`;
+    const key = slugifyCategoryLabel(label, semiCategoryDefs);
     setSemiCategoryDefs((prev) => [...prev, { key, label }]);
     setNewSemiCategoryName('');
     setIsAddSemiCategoryOpen(false);
+  };
+
+  const handleAddDishCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    const label = newDishCategoryName.trim();
+    if (!label) return;
+    const key = slugifyCategoryLabel(label, dishCategoryDefs);
+    setDishCategoryDefs((prev) => [...prev, { key, label }]);
+    setNewDishCategoryName('');
+    setIsAddDishCategoryOpen(false);
+  };
+
+  const handleDeleteCategory = (key: string) => {
+    const cat = rawCategoryDefs.find((c) => c.key === key);
+    if (!cat || !window.confirm(`Удалить категорию «${cat.label}»? Это действие нельзя отменить.`)) return;
+    setRawCategoryDefs((prev) => prev.filter((c) => c.key !== key));
+    if (rawCategoryFilter === key) setRawCategoryFilter('all');
+  };
+
+  const handleDeleteSemiCategory = (key: string) => {
+    const cat = semiCategoryDefs.find((c) => c.key === key);
+    if (!cat || !window.confirm(`Удалить категорию «${cat.label}»? Это действие нельзя отменить.`)) return;
+    setSemiCategoryDefs((prev) => prev.filter((c) => c.key !== key));
+    if (semiCategoryFilter === key) setSemiCategoryFilter('all');
+  };
+
+  const handleDeleteDishCategory = (key: string) => {
+    const cat = dishCategoryDefs.find((c) => c.key === key);
+    if (!cat || !window.confirm(`Удалить категорию «${cat.label}»? Это действие нельзя отменить.`)) return;
+    setDishCategoryDefs((prev) => prev.filter((c) => c.key !== key));
+    if (dishCategoryFilter === key) setDishCategoryFilter('all');
   };
 
   const handleUpdateRawMaterialCategory = (id: string, categoryKey: string) => {
@@ -179,12 +222,11 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   // Quick lookup map for Semis
   const semiMap = new Map<string, SemiFinishedProduct>(semiFinishedList.map((s) => [s.id, s]));
 
-  // Dish categories derived from the product catalog
+  // Dish categories: an editable registry (like raw materials/semi-finished), not just
+  // whatever's already in use, so a category can be created before any dish uses it.
   const dishCategories: { key: string; label: string }[] = [
     { key: 'all', label: 'Все категории' },
-    ...Array.from(new Map<string, string>(products.map((p) => [p.category, p.categoryLabel])).entries()).map(
-      ([key, label]) => ({ key, label })
-    )
+    ...dishCategoryDefs
   ];
   const filteredDishProducts =
     dishCategoryFilter === 'all' ? products : products.filter((p) => p.category === dishCategoryFilter);
@@ -616,8 +658,8 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             </button>
           </div>
 
-          {/* Category Filter */}
-          <div className="px-2">
+          {/* Category Filter + add/delete category */}
+          <div className="px-2 flex items-center gap-2 flex-wrap">
             <select
               value={dishCategoryFilter}
               onChange={(e) => setDishCategoryFilter(e.target.value)}
@@ -629,6 +671,46 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                 </option>
               ))}
             </select>
+
+            {dishCategoryFilter !== 'all' && (
+              <button
+                onClick={() => handleDeleteDishCategory(dishCategoryFilter)}
+                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors"
+                title="Удалить эту категорию"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {isAddDishCategoryOpen ? (
+              <form onSubmit={handleAddDishCategory} className="flex items-center gap-1">
+                <input
+                  type="text"
+                  autoFocus
+                  value={newDishCategoryName}
+                  onChange={(e) => setNewDishCategoryName(e.target.value)}
+                  onBlur={() => {
+                    if (!newDishCategoryName.trim()) setIsAddDishCategoryOpen(false);
+                  }}
+                  placeholder="Название категории"
+                  className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900"
+                />
+                <button
+                  type="submit"
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all"
+                >
+                  +
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={() => setIsAddDishCategoryOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Категория</span>
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
@@ -987,6 +1069,16 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                 </option>
               ))}
             </select>
+
+            {semiCategoryFilter !== 'all' && (
+              <button
+                onClick={() => handleDeleteSemiCategory(semiCategoryFilter)}
+                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors"
+                title="Удалить эту категорию"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
 
             {isAddSemiCategoryOpen ? (
               <form onSubmit={handleAddSemiCategory} className="flex items-center gap-1">
@@ -1351,19 +1443,43 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
 
             {/* Category Filter Pills */}
             <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto overflow-x-auto pb-1">
-              {rawCategories.map((cat) => (
-                <button
-                  key={cat.key}
-                  onClick={() => setRawCategoryFilter(cat.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    rawCategoryFilter === cat.key
-                      ? 'bg-indigo-900 text-white shadow-sm'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  {cat.label}
-                </button>
-              ))}
+              {rawCategories.map((cat) =>
+                cat.key === 'all' ? (
+                  <button
+                    key={cat.key}
+                    onClick={() => setRawCategoryFilter(cat.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      rawCategoryFilter === cat.key
+                        ? 'bg-indigo-900 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ) : (
+                  <div
+                    key={cat.key}
+                    className={`flex items-center rounded-lg text-xs font-bold transition-all ${
+                      rawCategoryFilter === cat.key
+                        ? 'bg-indigo-900 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <button onClick={() => setRawCategoryFilter(cat.key)} className="pl-3 pr-1.5 py-1.5">
+                      {cat.label}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCategory(cat.key)}
+                      className={`pr-2 pl-1 py-1.5 ${
+                        rawCategoryFilter === cat.key ? 'text-indigo-200 hover:text-white' : 'text-slate-400 hover:text-rose-600'
+                      }`}
+                      title="Удалить эту категорию"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )
+              )}
 
               {isAddCategoryOpen ? (
                 <form onSubmit={handleAddCategory} className="flex items-center gap-1">

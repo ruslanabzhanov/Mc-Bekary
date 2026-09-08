@@ -9,13 +9,13 @@ export type Category =
 export interface Product {
   id: string;
   name: string;
-  category: Category;
+  category: string; // key into the dish category registry (see dishCategoryDefs in App.tsx) — was the fixed Category union
   categoryLabel: string;
   unit: string;
   price: number; // in KZT
   unitWeight: string;
   shelfLife: string;
-  department: 'bakery' | 'sandwiches' | 'desserts' | 'bar_prep' | 'kitchen_prep' | 'new_items';
+  department: string;
   imageEmoji: string;
   imageUrl: string;
   description: string;
