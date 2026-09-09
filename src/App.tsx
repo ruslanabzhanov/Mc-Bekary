@@ -783,6 +783,7 @@ export default function App() {
               orders={orders}
               products={products}
               staff={staff}
+              onUpdateOrder={handleUpdateOrder}
             />
           )}
         </main>

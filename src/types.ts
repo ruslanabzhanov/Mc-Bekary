@@ -152,5 +152,5 @@ export interface RegistrationRequest {
   status: RegistrationRequestStatus;
 }
 
-export const MAX_TERRITORIAL_SHOPS = 8;
+export const MAX_TERRITORIAL_SHOPS = 5;
 

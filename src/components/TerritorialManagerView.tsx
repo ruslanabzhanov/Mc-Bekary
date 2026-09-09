@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { CoffeeShop, ShopOrder, Product, StaffMember } from '../types';
 import { ShopOrderHistoryTable } from './ShopOrderHistoryTable';
-import { X, MapPin, User, ShieldCheck, Clock, Compass } from 'lucide-react';
+import { ManagerView } from './ManagerView';
+import { OrderPreviewModal } from './OrderPreviewModal';
+import { X, MapPin, User, ShieldCheck, Clock, Compass, Send } from 'lucide-react';
 
 interface TerritorialManagerViewProps {
   managerName: string;
@@ -9,17 +11,27 @@ interface TerritorialManagerViewProps {
   orders: Record<number, ShopOrder>;
   products: Product[];
   staff: StaffMember[];
+  onUpdateOrder: (shopId: number, items: Record<string, number>, status?: 'draft' | 'submitted') => void;
 }
+
+const emptyDraftOrder = (shopId: number): ShopOrder => ({ shopId, items: {}, status: 'draft' });
 
 export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   managerName,
   shops,
   orders,
   products,
-  staff
+  staff,
+  onUpdateOrder
 }) => {
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   const selectedShop = shops.find((s) => s.id === selectedShopId) || null;
+
+  // Which shop's order this territorial manager is currently filling in on that shop's behalf
+  const [orderingShopId, setOrderingShopId] = useState<number | null>(null);
+  const [isOrderPreviewOpen, setIsOrderPreviewOpen] = useState(false);
+  const orderingShop = shops.find((s) => s.id === orderingShopId) || null;
+  const orderingOrder = orderingShopId != null ? orders[orderingShopId] || emptyDraftOrder(orderingShopId) : null;
 
   const getShopManagers = (shop: CoffeeShop) =>
     staff.filter((s) => s.role === 'shop_manager' && s.shopId === shop.id);
@@ -84,7 +96,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
         )}
       </div>
 
-      {/* SHOP DETAIL MODAL (read-only) */}
+      {/* SHOP DETAIL MODAL (read-only info + сan submit an order on the shop's behalf) */}
       {selectedShop && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xl space-y-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -133,6 +145,21 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
               </div>
             </div>
 
+            <button
+              onClick={() => {
+                setOrderingShopId(selectedShop.id);
+                setSelectedShopId(null);
+              }}
+              className="w-full flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs uppercase tracking-wider shadow-sm transition-all"
+            >
+              <Send className="w-4 h-4" />
+              <span>
+                {orders[selectedShop.id]?.status === 'draft' || !orders[selectedShop.id]
+                  ? 'Подать заявку за точку'
+                  : 'Изменить заявку этой точки'}
+              </span>
+            </button>
+
             <div className="space-y-2">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center space-x-2">
                 <Clock className="w-4 h-4 text-indigo-600" />
@@ -143,6 +170,50 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ORDER-ON-BEHALF OVERLAY: reuses the same order-entry screen a shop manager sees,
+          scoped to whichever point this territorial manager picked above */}
+      {orderingShop && orderingOrder && (
+        <div className="fixed inset-0 z-[60] bg-slate-50 overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <Send className="w-4 h-4 text-indigo-600" />
+              <span>Заявка за точку: {orderingShop.district}</span>
+            </h2>
+            <button
+              onClick={() => setOrderingShopId(null)}
+              className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+            <ManagerView
+              coffeeShops={shops}
+              products={products}
+              selectedShopId={orderingShop.id}
+              currentOrder={orderingOrder}
+              onUpdateOrder={onUpdateOrder}
+              onOpenPreview={() => setIsOrderPreviewOpen(true)}
+              notifications={[]}
+            />
+          </div>
+
+          <OrderPreviewModal
+            isOpen={isOrderPreviewOpen}
+            onClose={() => setIsOrderPreviewOpen(false)}
+            shop={orderingShop}
+            products={products}
+            order={orderingOrder}
+            onSubmit={() => {
+              onUpdateOrder(orderingShop.id, orderingOrder.items, 'submitted');
+              setIsOrderPreviewOpen(false);
+              setOrderingShopId(null);
+            }}
+          />
         </div>
       )}
     </div>

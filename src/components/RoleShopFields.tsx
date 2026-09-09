@@ -17,7 +17,9 @@ interface RoleShopFieldsProps {
   onShopIdsChange: (ids: number[]) => void;
 }
 
-const shopLabel = (s: CoffeeShop) => `№${s.id} — ${s.name.replace(`Кофейня №${s.id} — `, '')}`;
+// The point's own name (set in "Точки продаж"), not the internal number — matches what's
+// actually printed at the point and what managers/territorial staff recognize it by.
+const shopLabel = (s: CoffeeShop) => s.district.trim() || s.address;
 
 // Должность/точка picker shared between the mandatory registration gate, the opt-in
 // "+" registration modal, and the admin's pending-request editor — a shop manager or
