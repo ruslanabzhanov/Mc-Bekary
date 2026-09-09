@@ -52,7 +52,12 @@ create table if not exists order_history (
   shop_id integer not null references shops(id),
   items jsonb not null default '{}',
   manager_name text,
-  submitted_at timestamptz not null default now()
+  submitted_at timestamptz not null default now(),
+  -- Kept in sync with the eventual accept/reject decision on this submission (see
+  -- PATCH /api/orders/:shopId/status), so a past date's history shows the real outcome, not
+  -- just that something was submitted. 'submitted' until decided.
+  status text not null default 'submitted',
+  decided_at timestamptz
 );
 create index if not exists order_history_shop_id_idx on order_history(shop_id, submitted_at desc);
 alter table order_history enable row level security;

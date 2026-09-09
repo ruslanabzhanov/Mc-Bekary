@@ -80,6 +80,8 @@ export const orderHistoryFromDb = (r: any) => ({
   items: r.items || {},
   managerName: r.manager_name || undefined,
   submittedAt: r.submitted_at,
+  status: r.status || 'submitted',
+  decidedAt: r.decided_at || undefined,
 });
 
 export const notificationFromDb = (r: any) => ({

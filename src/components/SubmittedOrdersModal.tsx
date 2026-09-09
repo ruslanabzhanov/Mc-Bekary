@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Search,
@@ -10,9 +10,15 @@ import {
   FileCheck2,
   ArrowLeft,
   PackageSearch,
-  Trash2
+  Trash2,
+  Calendar,
+  Loader2
 } from 'lucide-react';
 import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole, RolePermissions } from '../types';
+
+// 'YYYY-MM-DD' for the given instant, as an Asia/Almaty calendar date (en-CA locale formats
+// dates in that exact order) — matches how the server buckets order_history by date.
+const almatyDateStr = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Almaty' });
 
 interface SubmittedOrdersModalProps {
   isOpen: boolean;
@@ -50,9 +56,53 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [detailShopId, setDetailShopId] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState(() => almatyDateStr(new Date()));
+  const [historyOrders, setHistoryOrders] = useState<Record<number, ShopOrder>>({});
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const todayStr = almatyDateStr(new Date());
+  const isToday = selectedDate === todayStr;
 
-  // Owner always may act; admin only if the Owner has granted this permission.
-  const canManage = currentRole === 'owner' || (currentRole === 'admin' && permissions.admin.accept_reject_orders);
+  // Owner always may act; admin only if the Owner has granted this permission. Never on a past
+  // date — those decisions already happened, this view is read-only history for anything else.
+  const canManage = isToday && (currentRole === 'owner' || (currentRole === 'admin' && permissions.admin.accept_reject_orders));
+
+  useEffect(() => {
+    if (isToday || !isOpen) return;
+    let cancelled = false;
+    setIsHistoryLoading(true);
+    fetch(`/api/order-history-by-date?date=${selectedDate}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        const map: Record<number, ShopOrder> = {};
+        (data.history || []).forEach((entry: any) => {
+          map[entry.shopId] = {
+            shopId: entry.shopId,
+            items: entry.items,
+            status: entry.status,
+            submittedAt: new Date(entry.submittedAt).toLocaleTimeString('ru-RU', {
+              timeZone: 'Asia/Almaty',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            }),
+            managerName: entry.managerName,
+          };
+        });
+        setHistoryOrders(map);
+      })
+      .catch((e) => console.error('Failed to load order history by date:', e))
+      .finally(() => {
+        if (!cancelled) setIsHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, isToday, isOpen]);
+
+  // What the list/detail actually render from — live data for today (actionable), a read-only
+  // snapshot built from order_history for any other date.
+  const displayOrders = isToday ? orders : historyOrders;
 
   if (!isOpen) return null;
 
@@ -69,7 +119,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   let totalDraft = 0;
 
   shops.forEach((shop) => {
-    const order = orders[shop.id];
+    const order = displayOrders[shop.id];
     const status = order?.status || 'draft';
     if (status === 'accepted') totalAccepted++;
     else if (status === 'submitted') totalSubmitted++;
@@ -77,8 +127,10 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
     else totalDraft++;
   });
 
+  const totalSubmittedOrDecided = totalSubmitted + totalAccepted + totalRejected;
+
   const tabs: { key: StatusFilter; label: string }[] = [
-    { key: 'all', label: `Все заявки (${shops.length})` },
+    { key: 'all', label: `Поданные заявки (${totalSubmittedOrDecided})` },
     { key: 'submitted', label: `Ожидают подтверждения (${totalSubmitted})` },
     { key: 'accepted', label: `Принятые (${totalAccepted})` },
     { key: 'rejected', label: `Отклонённые (${totalRejected})` },
@@ -101,12 +153,17 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
     return { pcs, sum };
   };
 
-  // Filtered shops list
+  // Filtered shops list. "all" here means "все поданные" — a shop that hasn't submitted
+  // anything only shows up under the dedicated "Не поданы" tab, not by default.
   const filteredShops = shops.filter((shop) => {
-    const order = orders[shop.id];
+    const order = displayOrders[shop.id];
     const status = order?.status || 'draft';
 
-    if (statusFilter !== 'all' && status !== statusFilter) return false;
+    if (statusFilter === 'all') {
+      if (status === 'draft') return false;
+    } else if (status !== statusFilter) {
+      return false;
+    }
 
     const term = searchTerm.toLowerCase();
     if (!term) return true;
@@ -118,7 +175,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   });
 
   const detailShop = detailShopId != null ? shops.find((s) => s.id === detailShopId) || null : null;
-  const detailOrder = detailShop ? orders[detailShop.id] : undefined;
+  const detailOrder = detailShop ? displayOrders[detailShop.id] : undefined;
   const detailLines = detailOrder?.items
     ? Object.entries(detailOrder.items)
         .map(([pId, qtyVal]) => {
@@ -177,6 +234,39 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
 
         {!detailShop && (
           <div className="p-4 border-b border-slate-100 space-y-3 shrink-0">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1.5 rounded-lg">
+                <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <input
+                  type="date"
+                  value={selectedDate}
+                  max={todayStr}
+                  onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                  className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none"
+                />
+                {!isToday && (
+                  <button
+                    onClick={() => setSelectedDate(todayStr)}
+                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 pl-1"
+                  >
+                    Сегодня
+                  </button>
+                )}
+              </div>
+              {!isToday && (
+                <span className="flex items-center gap-1.5 text-[11px] text-slate-400 italic">
+                  {isHistoryLoading ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Загрузка истории…</span>
+                    </>
+                  ) : (
+                    <span>Просмотр истории — приём/отклонение недоступны для прошедших дат</span>
+                  )}
+                </span>
+              )}
+            </div>
+
             <div className="flex items-center gap-1 flex-wrap bg-slate-100 p-1 rounded-lg">
               {tabs.map((tab) => (
                 <button
@@ -332,7 +422,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
               {/* MOBILE CARDS VIEW */}
               <div className="block sm:hidden space-y-2">
                 {filteredShops.map((shop) => {
-                  const order = orders[shop.id];
+                  const order = displayOrders[shop.id];
                   const status = order?.status || 'draft';
                   const badge = STATUS_BADGE[status];
                   const { pcs, sum } = getOrderSummary(order);
@@ -436,7 +526,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                       ) : (
                         <div className="flex items-center justify-center gap-1.5 py-1.5 bg-slate-50 rounded-lg text-[11px] font-semibold text-slate-500 border border-slate-200">
                           <Lock className="w-3 h-3" />
-                          <span>Доступно только Управляющему</span>
+                          <span>{isToday ? 'Доступно только Управляющему' : 'История — только просмотр'}</span>
                         </div>
                       )}
                     </div>
@@ -459,7 +549,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredShops.map((shop) => {
-                      const order = orders[shop.id];
+                      const order = displayOrders[shop.id];
                       const status = order?.status || 'draft';
                       const badge = STATUS_BADGE[status];
                       const { pcs, sum } = getOrderSummary(order);
@@ -569,10 +659,10 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                             ) : (
                               <span
                                 className="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-slate-100 px-2 py-1 rounded"
-                                title="Изменение статусов доступно только Управляющему"
+                                title={isToday ? 'Изменение статусов доступно только Управляющему' : 'История — только просмотр'}
                               >
                                 <Lock className="w-3 h-3" />
-                                <span>Только Управляющий</span>
+                                <span>{isToday ? 'Только Управляющий' : 'История'}</span>
                               </span>
                             )}
                           </td>

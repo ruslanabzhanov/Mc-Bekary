@@ -41,6 +41,15 @@ function timeNow() {
   });
 }
 
+// UTC instant bounds [start, end) of one Kazakhstan calendar day, for querying a timestamptz
+// column by "which Almaty-local day did this fall on". Almaty is a fixed UTC+5 with no DST
+// (nationwide since 2024), so a literal offset is exact — no timezone-table lookup needed.
+function almatyDayRangeUtc(dateStr: string) {
+  const start = new Date(`${dateStr}T00:00:00+05:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
 // Fallback when a role has no row yet in `role_permissions` — matches the app's fixed
 // behavior before this feature existed, so adding the table is not a behavior change.
 const DEFAULT_ROLE_PERMISSIONS = {
@@ -668,6 +677,36 @@ export function createApiApp() {
     }
   });
 
+  // "Реестр заявок" for a past date: one entry per shop (its latest submission that day, with
+  // whatever accept/reject decision was eventually recorded — see the sync in the status PATCH
+  // below), across all 27 shops. Powers the registry's date picker; "today" uses live /orders
+  // data instead since that's already accurate and actionable (accept/reject/delete).
+  app.get('/api/order-history-by-date', async (req, res) => {
+    try {
+      const dateStr = String(req.query.date || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      }
+      const { startIso, endIso } = almatyDayRangeUtc(dateStr);
+      const { data, error } = await supabase
+        .from('order_history')
+        .select('*')
+        .gte('submitted_at', startIso)
+        .lt('submitted_at', endIso)
+        .order('submitted_at', { ascending: false });
+      if (error) throw error;
+
+      const latestPerShop = new Map<number, any>();
+      for (const row of data || []) {
+        if (!latestPerShop.has(row.shop_id)) latestPerShop.set(row.shop_id, row);
+      }
+      res.json({ history: Array.from(latestPerShop.values()).map(orderHistoryFromDb) });
+    } catch (e) {
+      console.error('Failed to fetch order history by date:', e);
+      res.status(500).json({ error: 'Failed to fetch order history by date' });
+    }
+  });
+
   // Update order status (accept / reject / submitted)
   app.patch('/api/orders/:shopId/status', async (req, res) => {
     try {
@@ -702,6 +741,35 @@ export function createApiApp() {
       if (error) throw error;
 
       res.json({ success: true, order });
+
+      // Keep the append-only history in sync with the final decision, so a past date's history
+      // shows what actually happened (not just that something was submitted that day). Applies
+      // only to the single most recent submission for this shop (found first, then updated by
+      // id — an update() can't itself be ordered/limited, that would touch every past row).
+      if (status === 'accepted' || status === 'rejected') {
+        supabase
+          .from('order_history')
+          .select('id')
+          .eq('shop_id', shopId)
+          .order('submitted_at', { ascending: false })
+          .limit(1)
+          .then(({ data: rows, error: selectError }) => {
+            if (selectError) {
+              console.error(`Failed to find latest order_history row for shop ${shopId}:`, selectError);
+              return;
+            }
+            if (!rows || rows.length === 0) return;
+            return supabase
+              .from('order_history')
+              .update({ status, decided_at: new Date().toISOString() })
+              .eq('id', rows[0].id);
+          })
+          .then((result) => {
+            if (result && 'error' in result && result.error) {
+              console.error(`Failed to sync order_history status for shop ${shopId}:`, result.error);
+            }
+          });
+      }
 
       // Let the manager who actually submitted this order know it was decided on — without this,
       // their device only finds out on its own next poll/reload, with nothing in the meantime.

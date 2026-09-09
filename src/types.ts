@@ -52,6 +52,8 @@ export interface OrderHistoryEntry {
   items: Record<string, number>; // productId -> quantity
   managerName?: string;
   submittedAt: string; // ISO timestamp
+  status: OrderStatus; // kept in sync with the eventual accept/reject decision, see apiApp.ts
+  decidedAt?: string; // ISO timestamp of that decision, if any
 }
 
 export interface DisciplineNotification {
