@@ -51,15 +51,25 @@ const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
 // telegram-owner effect below), which reverts this if verification doesn't confirm Owner.
 const OWNER_VIEW_STORAGE_KEY = 'mc-bekary-owner-view';
 
+// Which territorial_manager staff record this device was approved as, set once by
+// grantAccess() on registration approval and never changed afterward — a territorial
+// manager's device has no UI to switch to a different role or a different territorial
+// identity (see Header.tsx). Deterministically `staff-from-<registrationRequestId>`,
+// computed the same way in handleApproveRegistrationRequest below.
+const TERRITORIAL_ID_STORAGE_KEY = 'mc-bekary-territorial-manager-id';
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(() => !wasSplashShownThisSession());
 
-  const [currentRole, setCurrentRole] = useState<UserRole>(() =>
-    typeof window !== 'undefined' && window.localStorage.getItem(OWNER_VIEW_STORAGE_KEY) === '1'
-      ? 'owner'
-      : 'manager'
+  const [currentRole, setCurrentRole] = useState<UserRole>(() => {
+    if (typeof window === 'undefined') return 'manager';
+    if (window.localStorage.getItem(OWNER_VIEW_STORAGE_KEY) === '1') return 'owner';
+    if (window.localStorage.getItem(TERRITORIAL_ID_STORAGE_KEY)) return 'territorial';
+    return 'manager';
+  });
+  const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(() =>
+    typeof window !== 'undefined' ? window.localStorage.getItem(TERRITORIAL_ID_STORAGE_KEY) : null
   );
-  const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(null);
   const SHOP_ID_STORAGE_KEY = 'mc-bekary-selected-shop-id';
   const [selectedShopId, setSelectedShopIdRaw] = useState<number>(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem(SHOP_ID_STORAGE_KEY) : null;
@@ -86,9 +96,17 @@ export default function App() {
       !!window.localStorage.getItem(REGISTERED_STORAGE_KEY)
     );
   });
-  const grantAccess = (approvedShopId?: number) => {
-    if (approvedShopId != null) {
-      setSelectedShopId(approvedShopId);
+  const grantAccess = (approvedRequest: RegistrationRequest) => {
+    if (approvedRequest.requestedRole === 'shop_manager') {
+      setSelectedShopId(approvedRequest.requestedShopId);
+    } else if (approvedRequest.requestedRole === 'territorial_manager') {
+      // Matches the id handleApproveRegistrationRequest gives the new staff record, so this
+      // device can identify (and stay locked to) exactly that territorial manager.
+      const staffId = `staff-from-${approvedRequest.id}`;
+      window.localStorage.setItem(TERRITORIAL_ID_STORAGE_KEY, staffId);
+      window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
+      setCurrentTerritorialManagerId(staffId);
+      setCurrentRole('territorial');
     } else {
       window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
     }
@@ -465,8 +483,10 @@ export default function App() {
     const request = registrationRequests.find((r) => r.id === requestId);
     if (!request) return;
     const isTerritorial = request.requestedRole === 'territorial_manager';
+    // Deterministic (not Date.now()) so an approved territorial manager's own device can
+    // compute this same id independently and lock itself to it — see grantAccess().
     const newStaffMember: StaffMember = {
-      id: `staff-${Date.now()}`,
+      id: `staff-from-${request.id}`,
       name: request.name,
       role: request.requestedRole,
       shopId: isTerritorial ? null : request.requestedShopId,
@@ -661,11 +681,6 @@ export default function App() {
     if (role !== 'territorial') setCurrentTerritorialManagerId(null);
   };
 
-  const handleLoginTerritorial = (staffId: string) => {
-    setCurrentTerritorialManagerId(staffId);
-    setCurrentRole('territorial');
-  };
-
   return (
     <>
       {showSplash && (
@@ -694,9 +709,7 @@ export default function App() {
           selectedShopName={selectedShop?.name}
           onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
           shops={shops}
-          staff={staff}
           onSubmitRegistrationRequest={handleAddRegistrationRequest}
-          onLoginTerritorial={handleLoginTerritorial}
           currentTerritorialManagerName={currentTerritorialManager?.name}
           isOwnerVerified={isOwnerVerified}
         />

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ShieldCheck, UserCheck, Clock, Lock, LogOut, KeyRound, X, UserPlus, Compass, Crown } from 'lucide-react';
+import { Clock, LogOut, UserPlus, Compass, Crown } from 'lucide-react';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
-import { CoffeeShop, RegistrationRequest, StaffMember, UserRole } from '../types';
+import { CoffeeShop, RegistrationRequest, UserRole } from '../types';
 import { RegistrationRequestModal } from './RegistrationRequestModal';
 
 interface HeaderProps {
@@ -12,9 +12,7 @@ interface HeaderProps {
   selectedShopName?: string;
   onOpenSubmittedOrdersModal?: () => void;
   shops: CoffeeShop[];
-  staff: StaffMember[];
   onSubmitRegistrationRequest: (request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>) => void;
-  onLoginTerritorial: (staffId: string) => void;
   currentTerritorialManagerName?: string;
   isOwnerVerified?: boolean;
 }
@@ -27,41 +25,13 @@ export const Header: React.FC<HeaderProps> = ({
   selectedShopName,
   onOpenSubmittedOrdersModal,
   shops,
-  staff,
   onSubmitRegistrationRequest,
-  onLoginTerritorial,
   currentTerritorialManagerName,
   isOwnerVerified,
 }) => {
-  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
-  const [pinCode, setPinCode] = useState('');
-  const [pinError, setPinError] = useState(false);
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
-  const [isTerritorialModalOpen, setIsTerritorialModalOpen] = useState(false);
-  const [selectedTerritorialStaffId, setSelectedTerritorialStaffId] = useState('');
 
   const percentage = Math.round((submittedCount / totalShops) * 100);
-  const territorialManagers = staff.filter((s) => s.role === 'territorial_manager');
-
-  const handleAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pinCode === '1234' || pinCode === '7777' || pinCode.trim() === '') {
-      onRoleChange('admin');
-      setIsPinModalOpen(false);
-      setPinCode('');
-      setPinError(false);
-    } else {
-      setPinError(true);
-    }
-  };
-
-  const handleTerritorialLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedTerritorialStaffId) return;
-    onLoginTerritorial(selectedTerritorialStaffId);
-    setIsTerritorialModalOpen(false);
-    setSelectedTerritorialStaffId('');
-  };
 
   return (
     <header className="bg-white text-slate-900 border-b border-slate-200 sticky top-0 z-40 shadow-sm">
@@ -117,50 +87,19 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Executive Access Button / Executive Active State */}
             <div className="flex items-center space-x-2">
-              {currentRole === 'manager' && (
-                <>
-                  {isOwnerVerified && (
-                    <button
-                      id="btn-owner-login"
-                      onClick={() => onRoleChange('owner')}
-                      className="p-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-900 transition-all shadow-2xs cursor-pointer"
-                      title="Вход для Владельца"
-                    >
-                      <Crown className="w-4 h-4" />
-                    </button>
-                  )}
-                  <button
-                    id="btn-admin-login"
-                    onClick={() => setIsPinModalOpen(true)}
-                    className="p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-indigo-600 hover:text-indigo-900 transition-all shadow-2xs cursor-pointer"
-                    title="Вход для Управляющего Производством"
-                  >
-                    <Lock className="w-4 h-4" />
-                  </button>
-                  <button
-                    id="btn-territorial-login"
-                    onClick={() => setIsTerritorialModalOpen(true)}
-                    className="p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-indigo-600 hover:text-indigo-900 transition-all shadow-2xs cursor-pointer"
-                    title="Вход для Территориального управляющего"
-                  >
-                    <Compass className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-
-              {currentRole === 'admin' && (
-                <div className="flex items-center space-x-1.5 bg-indigo-50 border border-indigo-200 p-1 rounded-xl shadow-2xs">
-                  <div className="p-1 text-indigo-700 flex items-center justify-center" title="Управляющий Производством">
-                    <ShieldCheck className="w-4 h-4" />
-                  </div>
-                  <button
-                    onClick={() => onRoleChange('manager')}
-                    className="p-1 text-rose-700 hover:text-rose-800 bg-white border border-rose-200 rounded-lg shadow-2xs hover:bg-rose-50 transition-colors cursor-pointer"
-                    title="Выйти из режима Управляющего"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+              {/* Owner access is the one real, Telegram-verified identity — safe to always
+                  offer it. Admin (shared PIN) and Territorial (pick-any-name) login were
+                  removed: a registered manager/territorial device stays locked to the role
+                  it was approved for, with no way to switch into another one. */}
+              {currentRole === 'manager' && isOwnerVerified && (
+                <button
+                  id="btn-owner-login"
+                  onClick={() => onRoleChange('owner')}
+                  className="p-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-900 transition-all shadow-2xs cursor-pointer"
+                  title="Вход для Владельца"
+                >
+                  <Crown className="w-4 h-4" />
+                </button>
               )}
 
               {currentRole === 'owner' && (
@@ -187,13 +126,6 @@ export const Header: React.FC<HeaderProps> = ({
                       {currentTerritorialManagerName}
                     </span>
                   </div>
-                  <button
-                    onClick={() => onRoleChange('manager')}
-                    className="p-1 text-rose-700 hover:text-rose-800 bg-white border border-rose-200 rounded-lg shadow-2xs hover:bg-rose-50 transition-colors cursor-pointer"
-                    title="Выйти из режима Территориального управляющего"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
                 </div>
               )}
             </div>
@@ -201,146 +133,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         </div>
       </div>
-
-      {/* Admin Login PIN Modal */}
-      {isPinModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 relative">
-            <button
-              onClick={() => {
-                setIsPinModalOpen(false);
-                setPinError(false);
-                setPinCode('');
-              }}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex flex-col items-center text-center">
-              <div className="w-12 h-12 bg-indigo-100 text-indigo-700 rounded-2xl flex items-center justify-center mb-3 border border-indigo-200">
-                <KeyRound className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-extrabold text-slate-900">Вход для Управляющего</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Доступ к сводной матрице 27 точек, цеховым чек-листам и калькуляции
-              </p>
-
-              <form onSubmit={handleAdminLogin} className="w-full mt-5 space-y-4">
-                <div>
-                  <input
-                    type="password"
-                    maxLength={4}
-                    placeholder="ПИН-код (например, 1234)"
-                    value={pinCode}
-                    onChange={(e) => {
-                      setPinCode(e.target.value);
-                      setPinError(false);
-                    }}
-                    className={`w-full text-center text-lg tracking-widest font-bold py-2.5 px-4 bg-slate-50 border rounded-xl focus:outline-none focus:ring-2 ${
-                      pinError
-                        ? 'border-rose-400 focus:ring-rose-400 text-rose-900'
-                        : 'border-slate-300 focus:ring-indigo-500 text-slate-900'
-                    }`}
-                    autoFocus
-                  />
-                  {pinError && (
-                    <p className="text-xs text-rose-600 font-bold mt-1">
-                      Неверный ПИН-код. Попробуйте 1234
-                    </p>
-                  )}
-                  <p className="text-[10px] text-slate-400 mt-1.5">
-                    💡 Для быстрого входа используйте код <span className="font-bold text-slate-600">1234</span> или просто нажмите «Войти»
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPinModalOpen(false);
-                      setPinError(false);
-                      setPinCode('');
-                    }}
-                    className="w-1/2 py-2.5 text-xs font-bold uppercase text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl"
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    type="submit"
-                    className="w-1/2 py-2.5 text-xs font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
-                  >
-                    Войти
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Territorial Manager Login Modal */}
-      {isTerritorialModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 relative">
-            <button
-              onClick={() => {
-                setIsTerritorialModalOpen(false);
-                setSelectedTerritorialStaffId('');
-              }}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex flex-col items-center text-center">
-              <div className="w-12 h-12 bg-indigo-100 text-indigo-700 rounded-2xl flex items-center justify-center mb-3 border border-indigo-200">
-                <Compass className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-extrabold text-slate-900">Вход для Территориального управляющего</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Выберите, кем вы входите — увидите только свои точки
-              </p>
-
-              <form onSubmit={handleTerritorialLogin} className="w-full mt-5 space-y-4">
-                <select
-                  value={selectedTerritorialStaffId}
-                  onChange={(e) => setSelectedTerritorialStaffId(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
-                  autoFocus
-                >
-                  <option value="">Выберите управляющего...</option>
-                  {territorialManagers.map((tm) => (
-                    <option key={tm.id} value={tm.id}>
-                      {tm.name}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsTerritorialModalOpen(false);
-                      setSelectedTerritorialStaffId('');
-                    }}
-                    className="w-1/2 py-2.5 text-xs font-bold uppercase text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl"
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!selectedTerritorialStaffId}
-                    className="w-1/2 py-2.5 text-xs font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all disabled:opacity-50"
-                  >
-                    Войти
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Registration Request Modal */}
       <RegistrationRequestModal

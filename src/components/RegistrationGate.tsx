@@ -10,7 +10,7 @@ interface RegistrationGateProps {
   shops: CoffeeShop[];
   registrationRequests: RegistrationRequest[];
   onSubmit: (request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>) => string;
-  onApproved: (shopIdIfManager?: number) => void;
+  onApproved: (approvedRequest: RegistrationRequest) => void;
   onRefresh: () => void;
 }
 
@@ -41,7 +41,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   useEffect(() => {
     if (myRequest?.status === 'approved') {
       window.localStorage.removeItem(PENDING_ID_KEY);
-      onApproved(myRequest.requestedRole === 'shop_manager' ? myRequest.requestedShopId : undefined);
+      onApproved(myRequest);
     }
   }, [myRequest?.status]);
 
