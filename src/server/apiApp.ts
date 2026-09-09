@@ -551,7 +551,7 @@ export function createApiApp() {
   app.post('/api/orders/:shopId', async (req, res) => {
     try {
       const shopId = parseInt(req.params.shopId, 10);
-      const { items, status, notes, managerName } = req.body;
+      const { items, status, notes, managerName, submittedByTelegramId } = req.body;
 
       const { data: shopRow, error: shopError } = await supabase
         .from('shops')
@@ -599,6 +599,7 @@ export function createApiApp() {
         managerName: managerName || shop.manager,
         notes,
         anomalies: Object.keys(anomalies).length > 0 ? anomalies : undefined,
+        submittedByTelegramId: submittedByTelegramId || existingOrder?.submittedByTelegramId,
       };
 
       const { error: upsertError } = await supabase.from('orders').upsert(orderToDb(order));
@@ -623,6 +624,20 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to save order:', e);
       res.status(500).json({ error: 'Failed to save order' });
+    }
+  });
+
+  // Lightweight single-shop order fetch — lets the manager's own device poll for status changes
+  // (accepted/rejected) without re-fetching the whole /api/initial-data payload every time.
+  app.get('/api/orders/:shopId', async (req, res) => {
+    try {
+      const shopId = parseInt(req.params.shopId, 10);
+      const { data, error } = await supabase.from('orders').select('*').eq('shop_id', shopId).maybeSingle();
+      if (error) throw error;
+      res.json({ order: data ? orderFromDb(data) : null });
+    } catch (e) {
+      console.error('Failed to fetch order:', e);
+      res.status(500).json({ error: 'Failed to fetch order' });
     }
   });
 
@@ -679,6 +694,21 @@ export function createApiApp() {
       if (error) throw error;
 
       res.json({ success: true, order });
+
+      // Let the manager who actually submitted this order know it was decided on — without this,
+      // their device only finds out on its own next poll/reload, with nothing in the meantime.
+      if ((status === 'accepted' || status === 'rejected') && order.submittedByTelegramId) {
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (botToken) {
+          const text =
+            status === 'accepted'
+              ? `✅ <b>Заявка принята</b>\n\nВаша заявка для точки №${shopId} принята Управляющим Производством.`
+              : `❌ <b>Заявка отклонена</b>\n\nВаша заявка для точки №${shopId} отклонена Управляющим Производством. Уточните детали у управляющего.`;
+          sendTelegramMessage(botToken, order.submittedByTelegramId, text, 'https://mc-bekary.vercel.app').catch(
+            (e) => console.error('Failed to notify manager of order status:', e)
+          );
+        }
+      }
     } catch (e) {
       console.error('Failed to update order status:', e);
       res.status(500).json({ error: 'Failed to update order status' });

@@ -43,6 +43,7 @@ export interface ShopOrder {
   managerName?: string;
   notes?: string;
   anomalies?: Record<string, string>; // productId -> anomaly message
+  submittedByTelegramId?: string; // captured client-side at submit time, for accept/reject push notifications
 }
 
 export interface OrderHistoryEntry {

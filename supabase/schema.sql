@@ -37,7 +37,12 @@ create table if not exists orders (
   accepted_at text,
   manager_name text,
   notes text,
-  anomalies jsonb
+  anomalies jsonb,
+  -- Telegram user id of whoever submitted this order (captured client-side from
+  -- window.Telegram.WebApp.initDataUnsafe at submit time, not server-verified — fine for a
+  -- courtesy accept/reject push, not used for authorization). Lets us notify the actual
+  -- submitter without needing full per-manager Telegram identity linkage.
+  submitted_by_telegram_id text
 );
 
 -- Append-only log of every order actually submitted (not drafts), so a shop's

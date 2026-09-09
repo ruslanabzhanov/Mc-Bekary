@@ -60,6 +60,7 @@ export const orderFromDb = (r: any) => ({
   managerName: r.manager_name || undefined,
   notes: r.notes || undefined,
   anomalies: r.anomalies || undefined,
+  submittedByTelegramId: r.submitted_by_telegram_id || undefined,
 });
 export const orderToDb = (o: any) => ({
   shop_id: o.shopId,
@@ -70,6 +71,7 @@ export const orderToDb = (o: any) => ({
   manager_name: o.managerName || null,
   notes: o.notes || null,
   anomalies: o.anomalies || null,
+  submitted_by_telegram_id: o.submittedByTelegramId || null,
 });
 
 export const orderHistoryFromDb = (r: any) => ({

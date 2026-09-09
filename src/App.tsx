@@ -223,6 +223,35 @@ export default function App() {
     refreshInitialData();
   }, []);
 
+  // Poll this device's own order status while a manager has the app open — otherwise an
+  // accept/reject decision only ever reaches this device on its next full reload. The Telegram
+  // push (see submittedByTelegramId server-side) covers "app is closed"; this covers "app is
+  // open" without needing a full /api/initial-data refetch every time.
+  useEffect(() => {
+    if (currentRole !== 'manager') return;
+    let lastStatus: string | undefined = orders[selectedShopId]?.status;
+    const POLL_MS = 20000;
+    const interval = setInterval(() => {
+      fetch(`/api/orders/${selectedShopId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (!data.order) return;
+          if (lastStatus && lastStatus !== data.order.status) {
+            if (data.order.status === 'accepted') {
+              showToast(`✅ Заявка для Точки №${selectedShopId} принята Управляющим!`);
+            } else if (data.order.status === 'rejected') {
+              showToast(`🔴 Заявка для Точки №${selectedShopId} отклонена Управляющим`);
+            }
+          }
+          lastStatus = data.order.status;
+          setOrders((prev) => ({ ...prev, [selectedShopId]: data.order }));
+        })
+        .catch((e) => console.error('Failed to poll order status:', e));
+    }, POLL_MS);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRole, selectedShopId]);
+
   // Persist which cabinet the Owner is sitting in, so a reload restores it (see
   // OWNER_VIEW_STORAGE_KEY above). Only ever remembers 'owner' — every other role still
   // starts back at the Manager view on reload, same as before.
@@ -296,6 +325,14 @@ export default function App() {
     const shop = shops.find((s) => s.id === shopId);
     if (!shop) return;
 
+    // Prefer the actual registered manager for this point over the shop's generic fallback name
+    const shopManager = staff.find((s) => s.role === 'shop_manager' && s.shopId === shopId);
+    const managerName = shopManager?.name || shop.manager;
+
+    // Captured client-side (only meaningful inside real Telegram) so an accept/reject decision
+    // can be pushed back to whoever actually submitted this order — see submittedByTelegramId.
+    const telegramUserId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
+
     // Optimistic local update
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -307,7 +344,8 @@ export default function App() {
         items,
         status,
         submittedAt: status === 'submitted' ? timeStr : prev[shopId]?.submittedAt || timeStr,
-        managerName: shop.manager,
+        managerName,
+        submittedByTelegramId: telegramUserId ? String(telegramUserId) : prev[shopId]?.submittedByTelegramId,
       },
     }));
 
@@ -323,7 +361,8 @@ export default function App() {
         body: JSON.stringify({
           items,
           status,
-          managerName: shop.manager,
+          managerName,
+          submittedByTelegramId: telegramUserId ? String(telegramUserId) : undefined,
         }),
       });
     } catch (e) {

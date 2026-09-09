@@ -74,6 +74,12 @@ Because the app is just a normal website that Telegram happens to open in a `web
 
 Every order that transitions to `status: 'submitted'` (not draft saves) is also appended to `order_history` (shop_id, items, manager_name, submitted_at — a real Postgres timestamp, unlike `orders.submitted_at` which is just an `HH:MM` string). `GET /api/orders/:shopId/history` returns it newest-first. In `ManagerView.tsx`, clicking the "Точка №X" tile opens `OrderHistoryModal.tsx`, which fetches this endpoint and lets the manager drill into any past submission's full item breakdown. This is append-only and independent of the single current-order-per-shop row in `orders`.
 
+### Order status reaching the submitter back
+
+`SubmittedOrdersModal.tsx` (the Owner/Admin "Реестр заявок") shows a per-shop itemized breakdown on click (not just the aggregate pcs/sum), reusing the same `product.id -> qty` shape as `OrderHistoryModal.tsx`.
+
+Getting an accept/reject decision back to the manager who actually submitted doesn't require full per-manager Telegram identity (still not implemented — see "Known issues"): at submit time, the client captures `window.Telegram.WebApp.initDataUnsafe.user.id` (unverified — fine for a courtesy notification, not an authorization decision) and sends it as `submittedByTelegramId`, stored on the `orders` row. `PATCH /api/orders/:shopId/status` reads it back and pushes a Telegram message via `sendTelegramMessage` when the status becomes `accepted`/`rejected` — silently skipped if the order has none (e.g. submitted outside real Telegram). Independently, `App.tsx` polls `GET /api/orders/:shopId` (a lightweight single-row fetch, not the full `/api/initial-data`) every 20s while `currentRole === 'manager'`, updates local state, and shows an in-app toast on a status change — this covers "app is open" even when the Telegram push doesn't apply.
+
 ### Owner role and the permission matrix
 
 `UserRole` includes `'owner'` in addition to `manager | admin | territorial`. Unlike every other role (PIN, or picking a name from a dropdown — all client-side, unauthenticated), **Owner is the one real, server-verified identity** in the app:
