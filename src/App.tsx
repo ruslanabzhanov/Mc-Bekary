@@ -6,6 +6,7 @@ import { TerritorialManagerView } from './components/TerritorialManagerView';
 import { OrderPreviewModal } from './components/OrderPreviewModal';
 import { SubmittedOrdersModal } from './components/SubmittedOrdersModal';
 import { RegistrationGate } from './components/RegistrationGate';
+import { SplashScreen, wasSplashShownThisSession, markSplashShown } from './components/SplashScreen';
 import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
 import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
@@ -51,6 +52,8 @@ const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
 const OWNER_VIEW_STORAGE_KEY = 'mc-bekary-owner-view';
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(() => !wasSplashShownThisSession());
+
   const [currentRole, setCurrentRole] = useState<UserRole>(() =>
     typeof window !== 'undefined' && window.localStorage.getItem(OWNER_VIEW_STORAGE_KEY) === '1'
       ? 'owner'
@@ -625,7 +628,16 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
+    <>
+      {showSplash && (
+        <SplashScreen
+          onDone={() => {
+            markSplashShown();
+            setShowSplash(false);
+          }}
+        />
+      )}
+      <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
       <div>
         {/* Toast Notification */}
         {toastMessage && (
@@ -761,5 +773,6 @@ export default function App() {
       </footer>
 
     </div>
+    </>
   );
 }
