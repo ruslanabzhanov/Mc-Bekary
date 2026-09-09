@@ -119,10 +119,7 @@ export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
               onClick={() => setSelectedShopId(shop.id)}
               className="text-left bg-white border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40 rounded-xl p-4 shadow-sm transition-all"
             >
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest">
-                  Точка №{shop.id}
-                </span>
+              <div className="flex items-center justify-end mb-1.5">
                 <span
                   className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
                     order?.status === 'accepted'
@@ -152,9 +149,6 @@ export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xl space-y-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest">
-                  Точка №{selectedShop.id}
-                </span>
                 <input
                   type="text"
                   value={selectedShop.district}
