@@ -66,9 +66,9 @@ Which products appear on a given department's checklist is independent of `Produ
 
 Because the app is just a normal website that Telegram happens to open in a `web_app` button, it keeps working even if Telegram itself is down — the same production URL loads fine in a plain browser (the SDK calls above are no-ops there). Only the one-tap launch convenience depends on Telegram.
 
-### Shop selection (manager) — stopgap, not real identity
+### Shop selection (manager) — locked after registration, not real identity
 
-`App.tsx`'s `selectedShopId` is persisted to `localStorage` (`mc-bekary-selected-shop-id`) rather than hardcoded, and `ManagerView.tsx` has a shop-picker (pencil icon on the "Точка №X" tile) that calls `onSelectShop`. This means each **device** remembers which shop it represents — it is still not tied to who is actually holding the device. Real per-manager identity (Telegram `initData` → shop lookup) is still not implemented; this is a stopgap, matching the "🔴 Blocking" item this section used to describe.
+`App.tsx`'s `selectedShopId` is persisted to `localStorage` (`mc-bekary-selected-shop-id`) rather than hardcoded. It is set exactly once per device: either by `grantAccess()` when a registration request is approved for that device (see "Mandatory registration" below), or, for devices that were already active before the registration gate shipped, whatever was already in `localStorage` (grandfathered). **There is no self-service way to change it afterward** — `ManagerView.tsx` used to have a pencil-icon shop-picker for this, which was removed so an approved device can't just switch itself to a different point's ordering screen; a manager can only ever order for the point their registration was approved for. This is still not tied to *who* is physically holding the device (real per-manager Telegram identity is still not implemented), but the point itself is now fixed once approved rather than freely reassignable.
 
 ### Order history
 

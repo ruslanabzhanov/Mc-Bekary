@@ -677,7 +677,6 @@ export default function App() {
               coffeeShops={shops}
               products={products}
               selectedShopId={selectedShopId}
-              onSelectShop={setSelectedShopId}
               currentOrder={currentOrder}
               onUpdateOrder={handleUpdateOrder}
               onOpenPreview={() => setIsPreviewOpen(true)}
