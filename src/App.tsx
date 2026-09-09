@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { ManagerView } from './components/ManagerView';
 import { AdminView } from './components/AdminView';
@@ -341,6 +341,21 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  // Every mutation below (submit, accept/reject, delete) writes the same orders/<shopId> row.
+  // Each is fire-and-forget for a snappy UI, but two of them for the same shop fired close
+  // together (e.g. "Отклонить" immediately followed by "Удалить") can otherwise reach the
+  // server out of order — a slower reject PATCH landing after a delete would silently
+  // resurrect the row via upsert, undoing the deletion with no visible error. Chaining each
+  // shop's requests onto a per-shop promise guarantees they reach the server in the same order
+  // they were clicked, without blocking the optimistic local UI update at all.
+  const orderRequestQueueRef = useRef<Record<number, Promise<unknown>>>({});
+  const queueOrderRequest = (shopId: number, run: () => Promise<unknown>) => {
+    const prev = orderRequestQueueRef.current[shopId] || Promise.resolve();
+    const next = prev.then(run, run);
+    orderRequestQueueRef.current[shopId] = next;
+    return next;
+  };
+
   // Update shop order
   const handleUpdateOrder = async (
     shopId: number,
@@ -378,8 +393,8 @@ export default function App() {
     }
 
     // Persist to Express backend
-    try {
-      await fetch(`/api/orders/${shopId}`, {
+    await queueOrderRequest(shopId, () =>
+      fetch(`/api/orders/${shopId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -388,10 +403,8 @@ export default function App() {
           managerName,
           submittedByTelegramId: telegramUserId ? String(telegramUserId) : undefined,
         }),
-      });
-    } catch (e) {
-      console.error('Failed to sync order to server:', e);
-    }
+      }).catch((e) => console.error('Failed to sync order to server:', e))
+    );
   };
 
   // Admin/Manager: Update single order status (accept / reject)
@@ -419,15 +432,13 @@ export default function App() {
       showToast(`🔴 Заявка точки "${shopName}" отклонена Управляющим!`);
     }
 
-    try {
-      await fetch(`/api/orders/${shopId}/status`, {
+    await queueOrderRequest(shopId, () =>
+      fetch(`/api/orders/${shopId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
-      });
-    } catch (e) {
-      console.error(e);
-    }
+      }).catch((e) => console.error(e))
+    );
   };
 
   // Owner/Admin: wipe a shop's current order entirely (e.g. a stray accept/reject click with
@@ -438,11 +449,9 @@ export default function App() {
       delete next[shopId];
       return next;
     });
-    try {
-      await fetch(`/api/orders/${shopId}`, { method: 'DELETE' });
-    } catch (e) {
-      console.error('Failed to delete order:', e);
-    }
+    await queueOrderRequest(shopId, () =>
+      fetch(`/api/orders/${shopId}`, { method: 'DELETE' }).catch((e) => console.error('Failed to delete order:', e))
+    );
   };
 
   // Admin: Update a single product's card fields (photo, category, price, etc.)

@@ -422,7 +422,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                               <XCircle className="w-4 h-4" />
                               <span>{status === 'rejected' ? 'Отклонена' : 'Отклонить'}</span>
                             </button>
-                            {status !== 'draft' && (
+                            {order && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
                                 className="col-span-2 py-2 rounded-lg text-xs font-bold bg-white hover:bg-rose-50 text-rose-600 border border-dashed border-rose-200 flex items-center justify-center gap-1.5"
@@ -555,7 +555,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                                   >
                                     {status === 'rejected' ? 'Отклонена' : 'Отклонить'}
                                   </button>
-                                  {status !== 'draft' && (
+                                  {order && (
                                     <button
                                       onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
                                       className="text-slate-400 hover:text-rose-600 p-1"
