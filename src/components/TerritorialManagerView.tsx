@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CoffeeShop, ShopOrder, Product, StaffMember } from '../types';
-import { buildSalesHistory } from '../utils/salesHistory';
+import { ShopOrderHistoryTable } from './ShopOrderHistoryTable';
 import { Store, X, MapPin, User, ShieldCheck, Clock, Compass } from 'lucide-react';
 
 interface TerritorialManagerViewProps {
@@ -146,34 +146,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                 <span>История продаж:</span>
               </h4>
               <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                    <tr>
-                      <th className="py-2 px-3">Дата</th>
-                      <th className="py-2 px-3">Время заказа</th>
-                      <th className="py-2 px-3 text-center">Позиций</th>
-                      <th className="py-2 px-3 text-right">Сумма</th>
-                      <th className="py-2 px-3 text-center">Статус</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {buildSalesHistory(selectedShop, products, orders[selectedShop.id]).map((entry, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 font-bold text-slate-900">{entry.date}</td>
-                        <td className="py-2 px-3 text-slate-600">{entry.time}</td>
-                        <td className="py-2 px-3 text-center text-slate-700">{entry.itemsCount} шт</td>
-                        <td className="py-2 px-3 text-right font-bold text-indigo-900">
-                          {entry.totalSum.toLocaleString('ru-RU')} ₸
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                            {entry.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <ShopOrderHistoryTable shopId={selectedShop.id} products={products} />
               </div>
             </div>
           </div>

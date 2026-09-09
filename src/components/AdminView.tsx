@@ -59,6 +59,7 @@ interface AdminViewProps {
   onAddStaffMember: (member: Omit<StaffMember, 'id'>) => void;
   onDeleteStaffMember: (staffId: string) => void;
   onAssignTerritorialManager: (shopId: number, staffId: string) => void;
+  onUnassignTerritorialManager: (shopId: number) => void;
   onAcceptAllOrders: () => void;
   onSendRemindersAll: () => void;
   onSimulateAll: () => void;
@@ -100,6 +101,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onAddStaffMember,
   onDeleteStaffMember,
   onAssignTerritorialManager,
+  onUnassignTerritorialManager,
   onAcceptAllOrders,
   onSendRemindersAll,
   onSimulateAll,
@@ -552,6 +554,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               onAddStaffMember={onAddStaffMember}
               onDeleteStaffMember={onDeleteStaffMember}
               onAssignTerritorialManager={onAssignTerritorialManager}
+              onUnassignTerritorialManager={onUnassignTerritorialManager}
             />
           </div>
         </div>

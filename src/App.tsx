@@ -469,6 +469,17 @@ export default function App() {
     );
   };
 
+  // Personnel: remove whichever territorial manager currently covers this point, without assigning a new one
+  const handleUnassignTerritorialManager = (shopId: number) => {
+    setStaff((prev) =>
+      prev.map((s) =>
+        s.role === 'territorial_manager'
+          ? { ...s, assignedShopIds: (s.assignedShopIds || []).filter((id) => id !== shopId) }
+          : s
+      )
+    );
+  };
+
   // Sales Points: add a new point of sale
   const handleAddShop = (data: { address: string; manager: string; district: string }) => {
     const newId = Math.max(...shops.map((s) => s.id), 0) + 1;
@@ -696,6 +707,7 @@ export default function App() {
               onAddStaffMember={handleAddStaffMember}
               onDeleteStaffMember={handleDeleteStaffMember}
               onAssignTerritorialManager={handleAssignTerritorialManager}
+              onUnassignTerritorialManager={handleUnassignTerritorialManager}
               onAcceptAllOrders={handleAcceptAllOrders}
               onSendRemindersAll={handleSendRemindersAll}
               onSimulateAll={handleSimulateAll}

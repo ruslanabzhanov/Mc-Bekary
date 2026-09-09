@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CoffeeShop, ShopOrder, Product, StaffMember } from '../types';
-import { buildSalesHistory } from '../utils/salesHistory';
+import { ShopOrderHistoryTable } from './ShopOrderHistoryTable';
 import { Store, Plus, X, MapPin, User, ShieldCheck, Clock, ChevronDown, Trash2 } from 'lucide-react';
 
 interface SalesPointsManagerProps {
@@ -13,6 +13,7 @@ interface SalesPointsManagerProps {
   onAddStaffMember: (member: Omit<StaffMember, 'id'>) => void;
   onDeleteStaffMember: (staffId: string) => void;
   onAssignTerritorialManager: (shopId: number, staffId: string) => void;
+  onUnassignTerritorialManager: (shopId: number) => void;
 }
 
 export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
@@ -24,7 +25,8 @@ export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
   onUpdateShop,
   onAddStaffMember,
   onDeleteStaffMember,
-  onAssignTerritorialManager
+  onAssignTerritorialManager,
+  onUnassignTerritorialManager
 }) => {
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -61,6 +63,17 @@ export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
     if (!newManagerName.trim() || !selectedShop) return;
     onAddStaffMember({ name: newManagerName.trim(), role: 'shop_manager', shopId: selectedShop.id });
     setNewManagerName('');
+  };
+
+  const handleDeleteManager = (name: string, staffId: string) => {
+    if (!window.confirm(`Удалить менеджера «${name}»? Это действие нельзя отменить.`)) return;
+    onDeleteStaffMember(staffId);
+  };
+
+  const handleUnassignTerritorial = (shopId: number, name: string) => {
+    if (!window.confirm(`Снять «${name}» с этой точки?`)) return;
+    onUnassignTerritorialManager(shopId);
+    setIsTerritorialPickerOpen(false);
   };
 
   const handleSubmitNewShop = (e: React.FormEvent) => {
@@ -206,9 +219,25 @@ export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
                     className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isTerritorialPickerOpen ? 'rotate-180' : ''}`}
                   />
                 </button>
-                <span className="font-bold text-slate-900 text-sm block mt-1 truncate">
-                  {getTerritorialManager(selectedShop)?.name || 'Не назначен'}
-                </span>
+                <div className="flex items-center justify-between gap-1 mt-1">
+                  <span className="font-bold text-slate-900 text-sm truncate">
+                    {getTerritorialManager(selectedShop)?.name || 'Не назначен'}
+                  </span>
+                  {getTerritorialManager(selectedShop) && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const tm = getTerritorialManager(selectedShop);
+                        if (tm) handleUnassignTerritorial(selectedShop.id, tm.name);
+                      }}
+                      className="text-slate-400 hover:text-rose-600 p-0.5 shrink-0"
+                      title="Снять назначение"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
 
                 {isTerritorialPickerOpen && (
                   <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1 max-h-56 overflow-y-auto">
@@ -256,7 +285,7 @@ export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
                         {manager.phone && <div className="text-[11px] text-slate-500">{manager.phone}</div>}
                       </div>
                       <button
-                        onClick={() => onDeleteStaffMember(manager.id)}
+                        onClick={() => handleDeleteManager(manager.name, manager.id)}
                         className="text-slate-400 hover:text-rose-600 p-1"
                         title="Удалить менеджера"
                       >
@@ -291,34 +320,7 @@ export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
                 <span>История продаж:</span>
               </h4>
               <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                    <tr>
-                      <th className="py-2 px-3">Дата</th>
-                      <th className="py-2 px-3">Время заказа</th>
-                      <th className="py-2 px-3 text-center">Позиций</th>
-                      <th className="py-2 px-3 text-right">Сумма</th>
-                      <th className="py-2 px-3 text-center">Статус</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {buildSalesHistory(selectedShop, products, orders[selectedShop.id]).map((entry, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 font-bold text-slate-900">{entry.date}</td>
-                        <td className="py-2 px-3 text-slate-600">{entry.time}</td>
-                        <td className="py-2 px-3 text-center text-slate-700">{entry.itemsCount} шт</td>
-                        <td className="py-2 px-3 text-right font-bold text-indigo-900">
-                          {entry.totalSum.toLocaleString('ru-RU')} ₸
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                            {entry.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <ShopOrderHistoryTable shopId={selectedShop.id} products={products} />
               </div>
             </div>
           </div>

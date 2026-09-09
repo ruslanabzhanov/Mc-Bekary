@@ -604,13 +604,19 @@ export function createApiApp() {
       const { error: upsertError } = await supabase.from('orders').upsert(orderToDb(order));
       if (upsertError) throw upsertError;
 
-      // Log every actual submission (not draft saves) to the append-only history table
+      // Log every actual submission (not draft saves) to the append-only history table. Errors
+      // here must never fail the request (the order itself is already saved above) — but must
+      // not be silently swallowed either, since a lost insert here means that submission simply
+      // never shows up in the shop's order history with no other trace.
       if (status === 'submitted') {
-        await supabase.from('order_history').insert({
+        const { error: historyError } = await supabase.from('order_history').insert({
           shop_id: shopId,
           items: order.items,
           manager_name: order.managerName,
         });
+        if (historyError) {
+          console.error(`Failed to append order_history for shop ${shopId}:`, historyError);
+        }
       }
 
       res.json({ success: true, order });
