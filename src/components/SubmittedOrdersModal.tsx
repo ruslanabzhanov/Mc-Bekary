@@ -1,16 +1,13 @@
 import React, { useState } from 'react';
-import { 
-  X, 
-  Search, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  Building2, 
-  ShieldCheck, 
-  Lock, 
+import {
+  X,
+  Search,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Lock,
   AlertCircle,
-  FileCheck2,
-  Filter
+  FileCheck2
 } from 'lucide-react';
 import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole, RolePermissions } from '../types';
 
@@ -26,6 +23,15 @@ interface SubmittedOrdersModalProps {
   onSendReminderSingle?: (shopId: number) => void;
 }
 
+type StatusFilter = 'all' | 'submitted' | 'accepted' | 'rejected' | 'draft';
+
+const STATUS_BADGE: Record<'accepted' | 'submitted' | 'rejected' | 'draft', { label: string; className: string }> = {
+  accepted: { label: 'Принята', className: 'bg-emerald-100 text-emerald-800 border border-emerald-200' },
+  submitted: { label: 'Поданная', className: 'bg-amber-100 text-amber-800 border border-amber-200' },
+  rejected: { label: 'Отклонена', className: 'bg-rose-100 text-rose-700 border border-rose-200' },
+  draft: { label: 'Не подана', className: 'bg-slate-100 text-slate-600 border border-slate-200' }
+};
+
 export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   isOpen,
   onClose,
@@ -35,10 +41,9 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   currentRole,
   permissions,
   onUpdateOrderStatus,
-  onSendReminderSingle,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'submitted' | 'accepted' | 'rejected' | 'draft'>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   // Owner always may act; admin only if the Owner has granted this permission.
   const canManage = currentRole === 'owner' || (currentRole === 'admin' && permissions.admin.accept_reject_orders);
@@ -60,7 +65,13 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
     else totalDraft++;
   });
 
-  const totalSubmittedOrAccepted = totalSubmitted + totalAccepted;
+  const tabs: { key: StatusFilter; label: string }[] = [
+    { key: 'all', label: `Все заявки (${shops.length})` },
+    { key: 'submitted', label: `Ожидают подтверждения (${totalSubmitted})` },
+    { key: 'accepted', label: `Принятые (${totalAccepted})` },
+    { key: 'rejected', label: `Отклонённые (${totalRejected})` },
+    { key: 'draft', label: `Не поданы (${totalDraft})` }
+  ];
 
   // Helper to compute order volume and cost
   const getOrderSummary = (order?: ShopOrder) => {
@@ -83,14 +94,10 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
     const order = orders[shop.id];
     const status = order?.status || 'draft';
 
-    // Status filter
-    if (statusFilter === 'submitted' && status !== 'submitted') return false;
-    if (statusFilter === 'accepted' && status !== 'accepted') return false;
-    if (statusFilter === 'rejected' && status !== 'rejected') return false;
-    if (statusFilter === 'draft' && status !== 'draft') return false;
+    if (statusFilter !== 'all' && status !== statusFilter) return false;
 
-    // Search term filter
     const term = searchTerm.toLowerCase();
+    if (!term) return true;
     const matchName = shop.name.toLowerCase().includes(term);
     const matchManager = shop.manager.toLowerCase().includes(term);
     const matchId = `точка ${shop.id}`.includes(term) || `${shop.id}` === term;
@@ -99,135 +106,68 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
-      <div 
-        className="bg-white rounded-2xl max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white border border-slate-200 rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        
-        {/* MODAL HEADER */}
-        <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-900 text-white px-4 py-3.5 flex items-center justify-between border-b border-indigo-800">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-indigo-600/80 rounded-xl border border-indigo-400/30 text-amber-300">
+        {/* HEADER */}
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center space-x-2.5 min-w-0">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100 shrink-0">
               <FileCheck2 className="w-5 h-5" />
             </div>
-            <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
-              Реестр заявок
-            </h3>
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-slate-900 truncate">Реестр заявок</h3>
+              <p className="text-[11px] text-slate-500 truncate">
+                {canManage
+                  ? 'Вы можете принимать и отклонять заявки точек'
+                  : 'Режим просмотра — принимать и отклонять может только Управляющий Производством'}
+              </p>
+            </div>
           </div>
-
           <button
             onClick={onClose}
-            className="p-1.5 text-indigo-200 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-            title="Закрыть окно"
+            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* ROLE AUTHORITY NOTICE BAR */}
-        <div className={`px-5 py-2.5 text-xs font-semibold flex items-center justify-between border-b ${
-          canManage 
-            ? 'bg-emerald-50 text-emerald-950 border-emerald-200' 
-            : 'bg-amber-50 text-amber-950 border-amber-200'
-        }`}>
-          <div className="flex items-center space-x-2">
-            {canManage ? (
-              <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            ) : (
-              <Lock className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            )}
-            <span>
-              {canManage ? (
-                <><strong>У вас есть право принимать заявки:</strong> вы можете принимать и отклонять заявки кофеен.</>
-              ) : (
-                <><strong>Режим просмотра (Менеджер):</strong> Статусы заявок видны всем, а принимать и отклонять заявки может только <strong>Управляющий Производством</strong>.</>
-              )}
-            </span>
+        {/* FILTERS BAR */}
+        <div className="p-4 border-b border-slate-100 space-y-3 shrink-0">
+          <div className="flex items-center gap-1 flex-wrap bg-slate-100 p-1 rounded-lg">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setStatusFilter(tab.key)}
+                className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wide transition-all ${
+                  statusFilter === tab.key
+                    ? 'bg-white text-indigo-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          <span className="hidden md:inline-block text-[11px] opacity-80">
-            Обновлено: сегодня
-          </span>
-        </div>
-
-        {/* STATS KPIs SUMMARY & FILTERS BAR */}
-        <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3">
-          {/* Quick status tabs (2 in a row grid) */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-            <button
-              onClick={() => setStatusFilter('all')}
-              className={`w-full flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                statusFilter === 'all'
-                  ? 'bg-indigo-900 text-white border-indigo-950 shadow-xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-200'
-              }`}
-            >
-              <span>📋 Все заявки ({shops.length})</span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter('submitted')}
-              className={`w-full flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                statusFilter === 'submitted'
-                  ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-xs'
-                  : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border-amber-200'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-              <span className="truncate">🟡 Ожидающие подтверждения ({totalSubmitted})</span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter('accepted')}
-              className={`w-full flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                statusFilter === 'accepted'
-                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                  : 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border-emerald-200'
-              }`}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-              <span className="truncate">🟢 Принятые ({totalAccepted})</span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter('rejected')}
-              className={`w-full flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                statusFilter === 'rejected'
-                  ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
-                  : 'bg-rose-50 text-rose-900 hover:bg-rose-100 border-rose-200'
-              }`}
-            >
-              <XCircle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
-              <span className="truncate">🔴 Отклоненные ({totalRejected})</span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter('draft')}
-              className={`col-span-2 sm:col-span-1 w-full flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                statusFilter === 'draft'
-                  ? 'bg-slate-700 text-white border-slate-800 shadow-xs'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border-slate-200'
-              }`}
-            >
-              <span className="truncate">⚪ Не поданы ({totalDraft})</span>
-            </button>
-          </div>
-
-          {/* Search Bar */}
-          <div className="relative w-full">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Поиск по названию кофейни, номеру точки или имени менеджера..."
-              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs"
+              placeholder="Поиск по названию точки, номеру или имени менеджера..."
+              className="w-full pl-8 pr-16 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 font-bold"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 hover:text-slate-600 font-bold"
               >
                 Очистить
               </button>
@@ -235,8 +175,8 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
           </div>
         </div>
 
-        {/* CONTENT CONTAINER - MOBILE CARDS & DESKTOP TABLE */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
+        {/* CONTENT */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {filteredShops.length === 0 ? (
             <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-300">
               <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
@@ -250,154 +190,92 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
             </div>
           ) : (
             <>
-              {/* MOBILE CARDS VIEW (Visible on mobile screens < sm) */}
-              <div className="block sm:hidden space-y-3">
+              {/* MOBILE CARDS VIEW */}
+              <div className="block sm:hidden space-y-2">
                 {filteredShops.map((shop) => {
                   const order = orders[shop.id];
                   const status = order?.status || 'draft';
+                  const badge = STATUS_BADGE[status];
                   const { pcs, sum } = getOrderSummary(order);
                   const cleanShopName = shop.name.replace(`Кофейня №${shop.id} — `, '');
 
                   return (
-                    <div 
-                      key={`mobile-${shop.id}`}
-                      className={`p-3.5 rounded-xl border transition-all shadow-2xs space-y-3 ${
-                        status === 'accepted' ? 'bg-emerald-50/40 border-emerald-200' :
-                        status === 'submitted' ? 'bg-amber-50/50 border-amber-200' :
-                        status === 'rejected' ? 'bg-rose-50/40 border-rose-200' :
-                        'bg-white border-slate-200'
-                      }`}
-                    >
-                      {/* CARD HEADER: Point ID, Name, Status Badge */}
-                      <div className="flex items-start justify-between gap-2 border-b border-slate-200/60 pb-2.5">
-                        <div className="flex items-center space-x-2.5">
-                          <span className="w-8 h-8 rounded-xl bg-indigo-900 text-white font-black text-xs flex items-center justify-center flex-shrink-0 shadow-2xs">
+                    <div key={shop.id} className="p-3 rounded-lg border border-slate-200 bg-white space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <span className="w-8 h-8 rounded-lg bg-indigo-900 text-white font-bold text-[11px] flex items-center justify-center shrink-0">
                             №{shop.id}
                           </span>
-                          <div>
-                            <h4 className="font-black text-slate-900 text-sm leading-tight">
-                              {cleanShopName}
-                            </h4>
-                            <p className="text-[11px] text-slate-500 font-medium">
-                              {shop.district}
-                            </p>
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-slate-900 text-sm truncate">{cleanShopName}</h4>
+                            <p className="text-[11px] text-slate-500 truncate">{shop.district}</p>
                           </div>
                         </div>
-
-                        {/* Status badge */}
-                        <div className="flex-shrink-0 flex items-center space-x-1.5">
-                          {status === 'accepted' && (
-                            <>
-                              <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Принятая</span>
-                              </span>
-                              {canManage && (
-                                <button
-                                  onClick={() => onUpdateOrderStatus(shop.id, 'rejected')}
-                                  className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 border border-rose-200 rounded-lg transition-colors cursor-pointer"
-                                  title="Отклонить принятую заявку"
-                                >
-                                  <XCircle className="w-4 h-4" />
-                                </button>
-                              )}
-                            </>
-                          )}
-
-                          {status === 'submitted' && (
-                            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-black bg-amber-100 text-amber-950 border border-amber-300 animate-pulse">
-                              <Clock className="w-3.5 h-3.5 text-amber-600" />
-                              <span>Поданная</span>
-                            </span>
-                          )}
-
-                          {status === 'rejected' && (
-                            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-300">
-                              <XCircle className="w-3.5 h-3.5 text-rose-600" />
-                              <span>Отклоненная</span>
-                            </span>
-                          )}
-
-                          {status === 'draft' && (
-                            <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                              <span className="w-2 h-2 rounded-full bg-slate-400" />
-                              <span>Не подана</span>
-                            </span>
-                          )}
-                        </div>
+                        <span className={`shrink-0 px-2 py-1 rounded text-[10px] font-bold ${badge.className}`}>
+                          {badge.label}
+                        </span>
                       </div>
 
-                      {/* CARD DETAILS GRID */}
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        {/* Manager */}
-                        <div className="bg-white/80 p-2 rounded-lg border border-slate-200/60">
-                          <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">Менеджер</span>
-                          <span className="font-extrabold text-slate-800 text-xs block truncate">
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+                          <span className="text-[9px] font-bold uppercase text-slate-400 block">Менеджер</span>
+                          <span className="font-bold text-slate-800 text-xs block truncate">
                             {order?.managerName || shop.manager}
                           </span>
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            {status === 'draft' ? '—' : shop.phone}
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+                          <span className="text-[9px] font-bold uppercase text-slate-400 block">Время подачи</span>
+                          <span className="font-bold text-slate-800 text-xs block">
+                            {status !== 'draft' ? order?.submittedAt || '—' : 'Не подана'}
                           </span>
                         </div>
-
-                        {/* Submission Time */}
-                        <div className="bg-white/80 p-2 rounded-lg border border-slate-200/60">
-                          <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">Время подачи</span>
-                          {status !== 'draft' ? (
-                            <div className="flex items-center space-x-1 font-black text-slate-900 mt-0.5">
-                              <Clock className="w-3.5 h-3.5 text-indigo-600" />
-                              <span className="text-sm">{order?.submittedAt || '09:15'}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-400 italic block mt-0.5">Не подана</span>
-                          )}
-                        </div>
-
-                        {/* Order Summary */}
-                        <div className="col-span-2 bg-indigo-900/5 p-2 rounded-lg border border-indigo-200/50 flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-slate-600">Объем и сумма заявки:</span>
+                        <div className="col-span-2 bg-slate-50 border border-slate-200 rounded-lg p-2 flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">Объём и сумма</span>
                           {pcs > 0 ? (
-                            <div className="text-right">
-                              <span className="font-black text-slate-900 text-xs mr-2">{pcs} шт</span>
-                              <span className="font-black text-indigo-700 text-xs">{sum.toLocaleString('ru-RU')} ₸</span>
-                            </div>
+                            <span className="font-bold text-slate-900 text-xs">
+                              {pcs} шт · <span className="text-indigo-700">{sum.toLocaleString('ru-RU')} ₸</span>
+                            </span>
                           ) : (
-                            <span className="text-xs text-slate-400 italic">Заказ пуст</span>
+                            <span className="text-slate-400 italic text-xs">Заказ пуст</span>
                           )}
                         </div>
                       </div>
 
-                      {/* MOBILE ACTIONS (Only for non-accepted orders) */}
-                      {canManage && status !== 'accepted' && (
-                        <div className="pt-1">
+                      {canManage ? (
+                        status === 'accepted' ? (
+                          <button
+                            onClick={() => onUpdateOrderStatus(shop.id, 'rejected')}
+                            className="w-full py-2 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
+                          >
+                            Отклонить принятую заявку
+                          </button>
+                        ) : (
                           <div className="grid grid-cols-2 gap-2">
                             <button
                               onClick={() => onUpdateOrderStatus(shop.id, 'accepted')}
-                              className="py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center space-x-1.5 transition-all min-h-[44px] cursor-pointer bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-xs"
+                              className="py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1.5"
                             >
                               <CheckCircle2 className="w-4 h-4" />
                               <span>Принять</span>
                             </button>
-
                             <button
                               onClick={() => onUpdateOrderStatus(shop.id, 'rejected')}
                               disabled={status === 'rejected'}
-                              className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center space-x-1.5 transition-all min-h-[44px] cursor-pointer ${
+                              className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 ${
                                 status === 'rejected'
-                                  ? 'bg-rose-100 text-rose-800 border border-rose-300 cursor-default opacity-80'
-                                  : 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-xs'
+                                  ? 'bg-rose-50 text-rose-400 border border-rose-100 cursor-default'
+                                  : 'bg-rose-600 hover:bg-rose-700 text-white'
                               }`}
                             >
                               <XCircle className="w-4 h-4" />
                               <span>{status === 'rejected' ? 'Отклонена' : 'Отклонить'}</span>
                             </button>
                           </div>
-                        </div>
-                      )}
-
-                      {!canManage && (
-                        <div className="text-center py-1 bg-slate-100 rounded-lg text-[11px] font-semibold text-slate-500 border border-slate-200">
-                          🔒 Принимать / отклонять может только Управляющий
+                        )
+                      ) : (
+                        <div className="flex items-center justify-center gap-1.5 py-1.5 bg-slate-50 rounded-lg text-[11px] font-semibold text-slate-500 border border-slate-200">
+                          <Lock className="w-3 h-3" />
+                          <span>Доступно только Управляющему</span>
                         </div>
                       )}
                     </div>
@@ -405,79 +283,57 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                 })}
               </div>
 
-              {/* DESKTOP TABLE VIEW (Visible on sm and larger screens) */}
-              <div className="hidden sm:block border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 text-slate-600 font-extrabold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                      <th className="py-3 px-4">Кофейня (Какая точка)</th>
-                      <th className="py-3 px-3">Кто подал (Менеджер)</th>
-                      <th className="py-3 px-3">Во сколько</th>
-                      <th className="py-3 px-3">Заказ (Объем / Сумма)</th>
-                      <th className="py-3 px-3">Статус заявки</th>
-                      <th className="py-3 px-4 text-right">Действия</th>
+              {/* DESKTOP TABLE VIEW */}
+              <div className="hidden sm:block border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                    <tr>
+                      <th className="py-2.5 px-3">Точка</th>
+                      <th className="py-2.5 px-3">Менеджер</th>
+                      <th className="py-2.5 px-3">Время</th>
+                      <th className="py-2.5 px-3">Заказ</th>
+                      <th className="py-2.5 px-3">Статус</th>
+                      <th className="py-2.5 px-3 text-right">Действия</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
+                  <tbody className="divide-y divide-slate-100">
                     {filteredShops.map((shop) => {
                       const order = orders[shop.id];
                       const status = order?.status || 'draft';
+                      const badge = STATUS_BADGE[status];
                       const { pcs, sum } = getOrderSummary(order);
                       const cleanShopName = shop.name.replace(`Кофейня №${shop.id} — `, '');
 
                       return (
-                        <tr 
-                          key={`desktop-${shop.id}`} 
-                          className={`hover:bg-slate-50/80 transition-colors ${
-                            status === 'accepted' ? 'bg-emerald-50/30' :
-                            status === 'submitted' ? 'bg-amber-50/30' :
-                            status === 'rejected' ? 'bg-rose-50/30' : ''
-                          }`}
-                        >
-                          {/* Point Name & Number */}
-                          <td className="py-3 px-4">
+                        <tr key={shop.id} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3">
                             <div className="flex items-center space-x-2">
-                              <span className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-900 font-black text-[11px] flex items-center justify-center flex-shrink-0">
+                              <span className="w-6 h-6 rounded bg-indigo-100 text-indigo-900 font-bold text-[11px] flex items-center justify-center shrink-0">
                                 {shop.id}
                               </span>
-                              <div>
-                                <div className="font-extrabold text-slate-900 text-xs">
-                                  {cleanShopName}
-                                </div>
-                                <div className="text-[10px] text-slate-400">
-                                  {shop.district}
-                                </div>
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-900">{cleanShopName}</div>
+                                <div className="text-[10px] text-slate-400">{shop.district}</div>
                               </div>
                             </div>
                           </td>
-
-                          {/* Manager Name */}
-                          <td className="py-3 px-3">
-                            <div className="font-bold text-slate-800">
-                              {order?.managerName || shop.manager}
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              {status === 'draft' ? '—' : shop.phone}
-                            </div>
+                          <td className="py-2.5 px-3">
+                            <div className="font-semibold text-slate-800">{order?.managerName || shop.manager}</div>
                           </td>
-
-                          {/* Submission Time */}
-                          <td className="py-3 px-3">
+                          <td className="py-2.5 px-3">
                             {status !== 'draft' ? (
-                              <div className="flex items-center space-x-1 text-slate-900 font-bold">
+                              <div className="flex items-center space-x-1 text-slate-700 font-medium">
                                 <Clock className="w-3.5 h-3.5 text-slate-400" />
-                                <span>{order?.submittedAt || '09:15'}</span>
+                                <span>{order?.submittedAt || '—'}</span>
                               </div>
                             ) : (
-                              <span className="text-slate-400 italic">Не подана</span>
+                              <span className="text-slate-400">Не подана</span>
                             )}
                           </td>
-
-                          {/* Order Volume & Sum */}
-                          <td className="py-3 px-3">
+                          <td className="py-2.5 px-3">
                             {pcs > 0 ? (
                               <div>
-                                <span className="font-black text-slate-900">{pcs} шт</span>
+                                <span className="font-bold text-slate-900">{pcs} шт</span>
                                 <span className="text-[10px] text-indigo-700 block font-bold">
                                   {sum.toLocaleString('ru-RU')} ₸
                                 </span>
@@ -486,90 +342,55 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                               <span className="text-slate-400">—</span>
                             )}
                           </td>
-
-                          {/* Status Icon & Badge */}
-                          <td className="py-3 px-3">
-                            {status === 'accepted' && (
-                              <div className="flex items-center space-x-1.5">
-                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>Принятая</span>
-                                </span>
-                                {canManage && (
-                                  <button
-                                    onClick={() => onUpdateOrderStatus(shop.id, 'rejected')}
-                                    className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 border border-rose-200 rounded-lg transition-colors cursor-pointer"
-                                    title="Отклонить принятую заявку"
-                                  >
-                                    <XCircle className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-
-                            {status === 'submitted' && (
-                              <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
-                                <Clock className="w-3.5 h-3.5 text-amber-600" />
-                                <span>Поданная</span>
+                          <td className="py-2.5 px-3">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2 py-1 rounded text-[10px] font-bold ${badge.className}`}>
+                                {badge.label}
                               </span>
-                            )}
-
-                            {status === 'rejected' && (
-                              <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-300">
-                                <XCircle className="w-3.5 h-3.5 text-rose-600" />
-                                <span>Отклоненная</span>
-                              </span>
-                            )}
-
-                            {status === 'draft' && (
-                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                                <span className="w-2 h-2 rounded-full bg-slate-400" />
-                                <span>Не подана</span>
-                              </span>
-                            )}
+                              {status === 'accepted' && canManage && (
+                                <button
+                                  onClick={() => onUpdateOrderStatus(shop.id, 'rejected')}
+                                  className="text-slate-400 hover:text-rose-600 p-1"
+                                  title="Отклонить принятую заявку"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </td>
-
-                          {/* Manager Actions */}
-                          <td className="py-3 px-4 text-right">
+                          <td className="py-2.5 px-3 text-right">
                             {canManage ? (
                               status === 'accepted' ? (
-                                <span className="text-emerald-700 font-extrabold text-xs">✓ Принята</span>
+                                <span className="text-emerald-700 font-bold text-xs">Принята</span>
                               ) : (
-                                <div className="flex items-center justify-end space-x-1.5">
+                                <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     onClick={() => onUpdateOrderStatus(shop.id, 'accepted')}
-                                    className="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs hover:scale-105"
-                                    title="Принять заявку этой точки"
+                                    className="px-2.5 py-1 rounded text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
                                   >
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Принять</span>
+                                    Принять
                                   </button>
-
                                   <button
                                     onClick={() => onUpdateOrderStatus(shop.id, 'rejected')}
                                     disabled={status === 'rejected'}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer ${
+                                    className={`px-2.5 py-1 rounded text-xs font-bold ${
                                       status === 'rejected'
-                                        ? 'bg-rose-100 text-rose-800 cursor-default opacity-80'
-                                        : 'bg-rose-600 hover:bg-rose-700 text-white shadow-2xs hover:scale-105'
+                                        ? 'bg-rose-50 text-rose-400 cursor-default'
+                                        : 'bg-rose-600 hover:bg-rose-700 text-white'
                                     }`}
-                                    title="Отклонить заявку этой точки"
                                   >
-                                    <XCircle className="w-3.5 h-3.5" />
-                                    <span>{status === 'rejected' ? 'Отклонена' : 'Отклонить'}</span>
+                                    {status === 'rejected' ? 'Отклонена' : 'Отклонить'}
                                   </button>
                                 </div>
                               )
                             ) : (
-                              <div className="flex items-center justify-end">
-                                <span 
-                                  className="inline-flex items-center space-x-1 text-[11px] text-slate-400 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200"
-                                  title="Изменение статусов (Принять / Отклонить) доступно только Управляющему"
-                                >
-                                  <Lock className="w-3 h-3 text-slate-400" />
-                                  <span>Только Управляющий</span>
-                                </span>
-                              </div>
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-slate-100 px-2 py-1 rounded"
+                                title="Изменение статусов доступно только Управляющему"
+                              >
+                                <Lock className="w-3 h-3" />
+                                <span>Только Управляющий</span>
+                              </span>
                             )}
                           </td>
                         </tr>
@@ -582,20 +403,18 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
           )}
         </div>
 
-        {/* MODAL FOOTER (MINIMIZED) */}
-        <div className="px-3 py-1.5 bg-slate-100 border-t border-slate-200 flex items-center justify-between gap-2 text-[11px]">
-          <div className="text-slate-500 font-bold truncate">
-            Показано: <span className="text-slate-900">{filteredShops.length}</span> из <span className="text-slate-900">{shops.length}</span>
-          </div>
-
+        {/* FOOTER */}
+        <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between gap-2 shrink-0">
+          <span className="text-[11px] text-slate-500 font-medium">
+            Показано {filteredShops.length} из {shops.length}
+          </span>
           <button
             onClick={onClose}
-            className="px-3 py-1 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg transition-all cursor-pointer text-xs flex-shrink-0"
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition-colors"
           >
             Закрыть
           </button>
         </div>
-
       </div>
     </div>
   );
