@@ -28,9 +28,17 @@ import {
 import { verifyTelegramInitData } from '../lib/telegramAuth.js';
 import { sendTelegramMessage } from '../lib/telegramNotify.js';
 
+// All 27 shops are in Kazakhstan (UTC+5, unified nationwide since 2024). Using
+// Date#getHours()/getMinutes() here would report the server runtime's own timezone (UTC on
+// Vercel) instead — every submitted_at/accepted_at would silently be off by several hours from
+// the real Kazakhstan wall-clock time an order was actually placed at.
 function timeNow() {
-  const now = new Date();
-  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return new Date().toLocaleTimeString('ru-RU', {
+    timeZone: 'Asia/Almaty',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 // Fallback when a role has no row yet in `role_permissions` — matches the app's fixed
@@ -712,6 +720,21 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to update order status:', e);
       res.status(500).json({ error: 'Failed to update order status' });
+    }
+  });
+
+  // Owner/Admin: wipe a shop's current order entirely — for clearing out a stray/test entry
+  // (e.g. accepted or rejected by mistake with nothing actually ordered), not a normal part of
+  // daily use. The shop reverts to its default "never ordered" state; order_history is untouched.
+  app.delete('/api/orders/:shopId', async (req, res) => {
+    try {
+      const shopId = parseInt(req.params.shopId, 10);
+      const { error } = await supabase.from('orders').delete().eq('shop_id', shopId);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to delete order:', e);
+      res.status(500).json({ error: 'Failed to delete order' });
     }
   });
 

@@ -9,7 +9,8 @@ import {
   AlertCircle,
   FileCheck2,
   ArrowLeft,
-  PackageSearch
+  PackageSearch,
+  Trash2
 } from 'lucide-react';
 import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole, RolePermissions } from '../types';
 
@@ -22,6 +23,7 @@ interface SubmittedOrdersModalProps {
   currentRole: UserRole;
   permissions: RolePermissions;
   onUpdateOrderStatus: (shopId: number, status: OrderStatus) => void;
+  onDeleteOrder: (shopId: number) => void;
   onSendReminderSingle?: (shopId: number) => void;
 }
 
@@ -43,6 +45,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   currentRole,
   permissions,
   onUpdateOrderStatus,
+  onDeleteOrder,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -52,6 +55,12 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   const canManage = currentRole === 'owner' || (currentRole === 'admin' && permissions.admin.accept_reject_orders);
 
   if (!isOpen) return null;
+
+  const handleDeleteOrder = (shopId: number, shopLabel: string) => {
+    if (!window.confirm(`Удалить заявку точки «${shopLabel}»? Точка вернётся в состояние «не подана». Действие нельзя отменить.`)) return;
+    onDeleteOrder(shopId);
+    if (detailShopId === shopId) setDetailShopId(null);
+  };
 
   // Calculate stats
   let totalSubmitted = 0;
@@ -296,6 +305,16 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                   )}
                 </div>
               )}
+
+              {canManage && detailOrder && (
+                <button
+                  onClick={() => handleDeleteOrder(detailShop.id, detailShop.district.trim() || detailShop.name)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 border border-dashed border-rose-200"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Удалить заявку (вернуть в «не подана»)</span>
+                </button>
+              )}
             </div>
           ) : filteredShops.length === 0 ? (
             <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-300">
@@ -367,12 +386,21 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
 
                       {canManage ? (
                         status === 'accepted' ? (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'rejected'); }}
-                            className="w-full py-2 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
-                          >
-                            Отклонить принятую заявку
-                          </button>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'rejected'); }}
+                              className="py-2 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
+                            >
+                              Отклонить
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
+                              className="py-2 rounded-lg text-xs font-bold bg-white hover:bg-rose-50 text-rose-600 border border-dashed border-rose-200 flex items-center justify-center gap-1.5"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Удалить</span>
+                            </button>
+                          </div>
                         ) : (
                           <div className="grid grid-cols-2 gap-2">
                             <button
@@ -394,6 +422,15 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                               <XCircle className="w-4 h-4" />
                               <span>{status === 'rejected' ? 'Отклонена' : 'Отклонить'}</span>
                             </button>
+                            {status !== 'draft' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
+                                className="col-span-2 py-2 rounded-lg text-xs font-bold bg-white hover:bg-rose-50 text-rose-600 border border-dashed border-rose-200 flex items-center justify-center gap-1.5"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Удалить заявку</span>
+                              </button>
+                            )}
                           </div>
                         )
                       ) : (
@@ -489,7 +526,16 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                           <td className="py-2.5 px-3 text-right">
                             {canManage ? (
                               status === 'accepted' ? (
-                                <span className="text-emerald-700 font-bold text-xs">Принята</span>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <span className="text-emerald-700 font-bold text-xs">Принята</span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
+                                    className="text-slate-400 hover:text-rose-600 p-1"
+                                    title="Удалить заявку"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               ) : (
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
@@ -509,6 +555,15 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                                   >
                                     {status === 'rejected' ? 'Отклонена' : 'Отклонить'}
                                   </button>
+                                  {status !== 'draft' && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
+                                      className="text-slate-400 hover:text-rose-600 p-1"
+                                      title="Удалить заявку"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                 </div>
                               )
                             ) : (

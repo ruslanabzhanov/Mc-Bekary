@@ -45,6 +45,13 @@ const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
   ])
 );
 
+// All 27 shops are in Kazakhstan (UTC+5, unified nationwide since 2024). This is only an
+// optimistic local echo of what the server will save (see timeNow() in apiApp.ts, the
+// authoritative value) — but a device whose OS timezone is misconfigured would otherwise show
+// a briefly-wrong time before the next refetch, so pin it explicitly here too.
+const timeNowAlmaty = () =>
+  new Date().toLocaleTimeString('ru-RU', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hour12: false });
+
 // Remembers that this browser/device was last sitting in the Owner cabinet, so a page
 // reload doesn't bounce the Owner back to the Manager view. Safe to persist client-side:
 // Owner identity is re-verified against real Telegram initData on every load (see the
@@ -352,8 +359,7 @@ export default function App() {
     const telegramUserId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
 
     // Optimistic local update
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const timeStr = timeNowAlmaty();
 
     setOrders((prev) => ({
       ...prev,
@@ -390,8 +396,7 @@ export default function App() {
 
   // Admin/Manager: Update single order status (accept / reject)
   const handleUpdateOrderStatus = async (shopId: number, status: OrderStatus) => {
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const timeStr = timeNowAlmaty();
 
     setOrders((prev) => {
       const existing = prev[shopId] || { shopId, items: {}, status: 'draft' };
@@ -422,6 +427,21 @@ export default function App() {
       });
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // Owner/Admin: wipe a shop's current order entirely (e.g. a stray accept/reject click with
+  // nothing actually ordered) — reverts that shop to its default "never ordered" state.
+  const handleDeleteOrder = async (shopId: number) => {
+    setOrders((prev) => {
+      const next = { ...prev };
+      delete next[shopId];
+      return next;
+    });
+    try {
+      await fetch(`/api/orders/${shopId}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('Failed to delete order:', e);
     }
   };
 
@@ -459,8 +479,7 @@ export default function App() {
   const handleAddRegistrationRequest = (
     request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>
   ) => {
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const timeStr = timeNowAlmaty();
     const newRequest: RegistrationRequest = {
       ...request,
       id: `reg-${Date.now()}`,
@@ -591,8 +610,7 @@ export default function App() {
 
   // Admin: Accept all submitted orders
   const handleAcceptAllOrders = async () => {
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const timeStr = timeNowAlmaty();
 
     setOrders((prev) => {
       const updated = { ...prev };
@@ -633,8 +651,7 @@ export default function App() {
   const handleSendReminderSingle = (shopId: number) => {
     const shop = shops.find((s) => s.id === shopId);
     if (!shop) return;
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const timeStr = timeNowAlmaty();
 
     const notif: DisciplineNotification = {
       id: `notif-single-${Date.now()}`,
@@ -809,6 +826,7 @@ export default function App() {
         currentRole={currentRole}
         permissions={rolePermissions}
         onUpdateOrderStatus={handleUpdateOrderStatus}
+        onDeleteOrder={handleDeleteOrder}
         onSendReminderSingle={handleSendReminderSingle}
       />
 
