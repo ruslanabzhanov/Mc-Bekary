@@ -1,16 +1,29 @@
 import React from 'react';
-import { CoffeeShop, StaffRole, MAX_TERRITORIAL_SHOPS } from '../types';
+import { CoffeeShop, StaffRole, MAX_TERRITORIAL_SHOPS, EMPLOYEE_POSITIONS } from '../types';
 
-const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
+// Registration is a two-step pick: first which of the two staff categories, then a more
+// specific role/position within it. "Сотрудники кофейни" covers the two point-facing roles;
+// "Внутренние сотрудники" is always StaffRole 'employee', further described by a job title
+// (EMPLOYEE_POSITIONS) — that title is descriptive only, not a separate app permission level.
+type StaffCategory = 'shop' | 'internal';
+const categoryOf = (role: StaffRole): StaffCategory => (role === 'employee' ? 'internal' : 'shop');
+
+const CATEGORY_OPTIONS: { value: StaffCategory; label: string }[] = [
+  { value: 'shop', label: 'Сотрудники кофейни' },
+  { value: 'internal', label: 'Внутренние сотрудники' },
+];
+
+const SHOP_ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
   { value: 'shop_manager', label: 'Менеджер точки' },
   { value: 'territorial_manager', label: 'Территориальный управляющий' },
-  { value: 'employee', label: 'Внутренний сотрудник' },
 ];
 
 interface RoleShopFieldsProps {
   shops: CoffeeShop[];
   role: StaffRole;
   onRoleChange: (role: StaffRole) => void;
+  position: string;
+  onPositionChange: (position: string) => void;
   shopId: number;
   onShopIdChange: (id: number) => void;
   shopIds: number[];
@@ -21,18 +34,21 @@ interface RoleShopFieldsProps {
 // actually printed at the point and what managers/territorial staff recognize it by.
 const shopLabel = (s: CoffeeShop) => s.district.trim() || s.address;
 
-// Должность/точка picker shared between the mandatory registration gate, the opt-in
-// "+" registration modal, and the admin's pending-request editor — a shop manager or
-// employee picks exactly one point; a territorial manager picks up to MAX_TERRITORIAL_SHOPS.
+// Категория/должность/точка picker shared between the mandatory registration gate, the opt-in
+// "+" registration modal, and the admin's pending-request editor.
 export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
   shops,
   role,
   onRoleChange,
+  position,
+  onPositionChange,
   shopId,
   onShopIdChange,
   shopIds,
   onShopIdsChange,
 }) => {
+  const category = categoryOf(role);
+
   const toggleShop = (id: number) => {
     if (shopIds.includes(id)) {
       onShopIdsChange(shopIds.filter((s) => s !== id));
@@ -44,17 +60,45 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
   return (
     <>
       <div>
-        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Должность</label>
+        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Категория</label>
         <select
-          value={role}
-          onChange={(e) => onRoleChange(e.target.value as StaffRole)}
+          value={category}
+          onChange={(e) => onRoleChange(e.target.value === 'internal' ? 'employee' : 'shop_manager')}
           className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
         >
-          {ROLE_OPTIONS.map((r) => (
-            <option key={r.value} value={r.value}>{r.label}</option>
+          {CATEGORY_OPTIONS.map((c) => (
+            <option key={c.value} value={c.value}>{c.label}</option>
           ))}
         </select>
       </div>
+
+      {category === 'shop' ? (
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Должность</label>
+          <select
+            value={role}
+            onChange={(e) => onRoleChange(e.target.value as StaffRole)}
+            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+          >
+            {SHOP_ROLE_OPTIONS.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Должность</label>
+          <select
+            value={position || EMPLOYEE_POSITIONS[0]}
+            onChange={(e) => onPositionChange(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+          >
+            {EMPLOYEE_POSITIONS.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {role === 'territorial_manager' ? (
         <div>

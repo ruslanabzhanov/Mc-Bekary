@@ -136,7 +136,10 @@ create table if not exists staff (
   role text not null,
   shop_id integer,
   assigned_shop_ids jsonb,
-  phone text
+  phone text,
+  -- Job title, only meaningful for role 'employee' — see EMPLOYEE_POSITIONS in types.ts.
+  -- Descriptive only, not a separate app permission level.
+  position text
 );
 
 create table if not exists registration_requests (
@@ -146,6 +149,7 @@ create table if not exists registration_requests (
   requested_shop_id integer not null,
   requested_shop_ids jsonb,
   requested_role text not null,
+  requested_position text,
   submitted_at text not null,
   status text not null default 'pending'
 );

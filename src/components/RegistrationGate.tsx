@@ -35,6 +35,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   const [shopId, setShopId] = useState<number>(shops[0]?.id || 1);
   const [shopIds, setShopIds] = useState<number[]>([]);
   const [role, setRole] = useState<StaffRole>('shop_manager');
+  const [position, setPosition] = useState('');
 
   const myRequest = pendingId ? registrationRequests.find((r) => r.id === pendingId) : null;
 
@@ -55,6 +56,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
       requestedShopId: shopId,
       requestedShopIds: role === 'territorial_manager' ? shopIds : undefined,
       requestedRole: role,
+      requestedPosition: role === 'employee' ? position : undefined,
     });
     window.localStorage.setItem(PENDING_ID_KEY, newId);
     setPendingId(newId);
@@ -114,7 +116,14 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
         {myRequest && (
           <div className="w-full mt-4 bg-slate-50 border border-slate-200 rounded-xl p-3 text-left text-xs space-y-1">
             <div><span className="text-slate-400">ФИО:</span> <span className="font-bold text-slate-800">{myRequest.name}</span></div>
-            <div><span className="text-slate-400">Должность:</span> <span className="font-bold text-slate-800">{ROLE_LABELS[myRequest.requestedRole]}</span></div>
+            <div>
+              <span className="text-slate-400">Должность:</span>{' '}
+              <span className="font-bold text-slate-800">
+                {myRequest.requestedRole === 'employee' && myRequest.requestedPosition
+                  ? myRequest.requestedPosition
+                  : ROLE_LABELS[myRequest.requestedRole]}
+              </span>
+            </div>
             <div>
               <span className="text-slate-400">{myRequest.requestedShopIds ? 'Точки:' : 'Точка:'}</span>{' '}
               <span className="font-bold text-slate-800">
@@ -173,6 +182,8 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
           shops={shops}
           role={role}
           onRoleChange={setRole}
+          position={position}
+          onPositionChange={setPosition}
           shopId={shopId}
           onShopIdChange={setShopId}
           shopIds={shopIds}

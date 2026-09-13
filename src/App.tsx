@@ -519,7 +519,8 @@ export default function App() {
       role: request.requestedRole,
       shopId: isTerritorial ? null : request.requestedShopId,
       assignedShopIds: isTerritorial ? request.requestedShopIds : undefined,
-      phone: request.phone
+      phone: request.phone,
+      position: request.requestedRole === 'employee' ? request.requestedPosition : undefined
     };
     setStaff((prev) => [...prev, newStaffMember]);
     setRegistrationRequests((prev) =>

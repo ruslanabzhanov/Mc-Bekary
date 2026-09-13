@@ -157,6 +157,7 @@ export const staffFromDb = (r: any) => ({
   shopId: r.shop_id,
   assignedShopIds: r.assigned_shop_ids || undefined,
   phone: r.phone || undefined,
+  position: r.position || undefined,
 });
 export const staffToDb = (s: any) => ({
   id: s.id,
@@ -165,6 +166,7 @@ export const staffToDb = (s: any) => ({
   shop_id: s.shopId,
   assigned_shop_ids: s.assignedShopIds || null,
   phone: s.phone || null,
+  position: s.position || null,
 });
 
 export const registrationRequestFromDb = (r: any) => ({
@@ -174,6 +176,7 @@ export const registrationRequestFromDb = (r: any) => ({
   requestedShopId: r.requested_shop_id,
   requestedShopIds: r.requested_shop_ids || undefined,
   requestedRole: r.requested_role,
+  requestedPosition: r.requested_position || undefined,
   submittedAt: r.submitted_at,
   status: r.status || 'pending',
 });
@@ -184,6 +187,7 @@ export const registrationRequestToDb = (r: any) => ({
   requested_shop_id: r.requestedShopId,
   requested_shop_ids: r.requestedShopIds || null,
   requested_role: r.requestedRole,
+  requested_position: r.requestedPosition || null,
   submitted_at: r.submittedAt,
   status: r.status || 'pending',
 });

@@ -21,6 +21,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
   const [shopId, setShopId] = useState<number>(shops[0]?.id || 1);
   const [shopIds, setShopIds] = useState<number[]>([]);
   const [role, setRole] = useState<StaffRole>('employee');
+  const [position, setPosition] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   if (!isOpen) return null;
@@ -31,6 +32,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
       setName('');
       setPhone('');
       setRole('employee');
+      setPosition('');
       setShopIds([]);
       setIsSubmitted(false);
     }, 200);
@@ -46,6 +48,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
       requestedShopId: shopId,
       requestedShopIds: role === 'territorial_manager' ? shopIds : undefined,
       requestedRole: role,
+      requestedPosition: role === 'employee' ? position : undefined,
     });
     setIsSubmitted(true);
   };
@@ -119,6 +122,8 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                 shops={shops}
                 role={role}
                 onRoleChange={setRole}
+                position={position}
+                onPositionChange={setPosition}
                 shopId={shopId}
                 onShopIdChange={setShopId}
                 shopIds={shopIds}

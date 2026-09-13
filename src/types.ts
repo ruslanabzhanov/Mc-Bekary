@@ -130,6 +130,23 @@ export type RolePermissions = Record<'admin' | 'territorial', Record<Permission,
 
 export type StaffRole = 'employee' | 'territorial_manager' | 'shop_manager';
 
+// Registration groups roles into two categories the applicant picks between first: shop-facing
+// staff (shop_manager/territorial_manager) vs internal employees, who then also pick a specific
+// job title from this list — purely descriptive (HR/org-chart labeling), not a separate app
+// permission level; every position here is still the 'employee' StaffRole.
+export const EMPLOYEE_POSITIONS = [
+  'Шеф-пекарь',
+  'Пекарь',
+  'Ночной пекарь',
+  'Кондитер',
+  'Заведующий производством',
+  'Заготовщик бара',
+  'Заготовщик кухни',
+  'Ночной заготовщик кухни',
+  'Заготовщик полуфабрикатов',
+  'Кухонная рабочая'
+] as const;
+
 export interface StaffMember {
   id: string;
   name: string;
@@ -137,6 +154,7 @@ export interface StaffMember {
   shopId: number | null; // assigned point, null for staff not tied to a single point
   assignedShopIds?: number[]; // for territorial managers: the points they oversee
   phone?: string;
+  position?: string; // job title, only meaningful for role 'employee' — see EMPLOYEE_POSITIONS
 }
 
 export type ChecklistAssignments = Record<string, string[]>; // checklist dept key -> assigned product IDs
@@ -150,6 +168,7 @@ export interface RegistrationRequest {
   requestedShopId: number; // used for 'shop_manager'/'employee' (single point)
   requestedShopIds?: number[]; // used for 'territorial_manager' (up to 8 points)
   requestedRole: StaffRole;
+  requestedPosition?: string; // job title when requestedRole is 'employee' — see EMPLOYEE_POSITIONS
   submittedAt: string;
   status: RegistrationRequestStatus;
 }
