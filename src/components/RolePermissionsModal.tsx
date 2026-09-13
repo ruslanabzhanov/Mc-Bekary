@@ -81,8 +81,8 @@ export const RolePermissionsModal: React.FC<RolePermissionsModalProps> = ({
             <thead>
               <tr className="text-slate-500 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <th className="py-2 pr-2">Право</th>
-                <th className="py-2 px-2 text-center w-24">Управляющий</th>
-                <th className="py-2 pl-2 text-center w-28">Территориальный</th>
+                <th className="py-2 px-1 text-center w-20 sm:w-24"><span className="sm:hidden">Упр.</span><span className="hidden sm:inline">Управляющий</span></th>
+                <th className="py-2 pl-1 text-center w-20 sm:w-28"><span className="sm:hidden">Терр.</span><span className="hidden sm:inline">Территориальный</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -94,7 +94,7 @@ export const RolePermissionsModal: React.FC<RolePermissionsModalProps> = ({
                       type="checkbox"
                       checked={draft.admin[key]}
                       onChange={() => toggle('admin', key)}
-                      className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                      className="w-6 h-6 accent-indigo-600 cursor-pointer"
                     />
                   </td>
                   <td className="py-2.5 pl-2 text-center">
@@ -102,7 +102,7 @@ export const RolePermissionsModal: React.FC<RolePermissionsModalProps> = ({
                       type="checkbox"
                       checked={draft.territorial[key]}
                       onChange={() => toggle('territorial', key)}
-                      className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                      className="w-6 h-6 accent-indigo-600 cursor-pointer"
                     />
                   </td>
                 </tr>

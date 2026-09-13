@@ -180,11 +180,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
       )}
 
       {/* TOP DASHBOARD METRIC CARDS & ACTIONS */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-6">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-sm space-y-6">
         <div className="flex items-center justify-center gap-4 border-b border-slate-100 pb-5">
-          <div className="flex items-center space-x-2 whitespace-nowrap">
+          {/* No whitespace-nowrap: at text-xl this title is wider than a 360px phone and was
+              spilling out past both edges of the card. */}
+          <div className="flex items-center gap-2 min-w-0">
             <ShieldCheck className="w-6 h-6 text-indigo-600 shrink-0" />
-            <h2 className="text-xl font-bold tracking-tight uppercase text-indigo-900">Управляющий производством</h2>
+            <h2 className="text-base sm:text-xl font-bold tracking-tight uppercase text-indigo-900">Управляющий производством</h2>
           </div>
         </div>
 

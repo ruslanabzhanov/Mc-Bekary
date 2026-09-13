@@ -125,12 +125,12 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                                   shopId: e.target.value ? Number(e.target.value) : null
                                 })
                               }
-                              className="w-full bg-transparent font-bold text-indigo-900 text-[10px] leading-tight focus:outline-none cursor-pointer"
+                              className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
                             >
                               <option value="">Без точки</option>
                               {shops.map((s) => (
                                 <option key={s.id} value={s.id}>
-                                  №{s.id}
+                                  {s.district.trim() || s.address}
                                 </option>
                               ))}
                             </select>
@@ -140,7 +140,7 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                             <select
                               value={member.role}
                               onChange={(e) => onUpdateStaffMember(member.id, { role: e.target.value as StaffRole })}
-                              className="w-full bg-transparent font-bold text-indigo-900 text-[10px] leading-tight focus:outline-none cursor-pointer"
+                              className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
                             >
                               {ROLE_GROUPS.map((g) => (
                                 <option key={g.key} value={g.key}>
@@ -196,11 +196,11 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                         onChange={(e) =>
                           onUpdateRegistrationRequest(req.id, { requestedShopId: Number(e.target.value) })
                         }
-                        className="w-full bg-transparent font-bold text-indigo-900 text-[10px] leading-tight focus:outline-none cursor-pointer"
+                        className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
                       >
                         {shops.map((s) => (
                           <option key={s.id} value={s.id}>
-                            №{s.id}
+                            {s.district.trim() || s.address}
                           </option>
                         ))}
                       </select>
@@ -213,7 +213,7 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                       onChange={(e) =>
                         onUpdateRegistrationRequest(req.id, { requestedRole: e.target.value as StaffRole })
                       }
-                      className="w-full bg-transparent font-bold text-indigo-900 text-[10px] leading-tight focus:outline-none cursor-pointer"
+                      className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
                     >
                       {ROLE_GROUPS.map((g) => (
                         <option key={g.key} value={g.key}>
