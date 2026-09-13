@@ -364,6 +364,50 @@ export default function App() {
     return next;
   };
 
+  // Draft saves are debounced per shop (see handleUpdateOrder) so a burst of taps becomes one
+  // write instead of one per tap. Kept short: it is the window in which a closed app loses the
+  // last change, so it trades a little safety for a lot less lag, not the other way round.
+  const DRAFT_SAVE_DELAY_MS = 600;
+  const draftTimerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const pendingDraftRef = useRef<Record<number, () => void>>({});
+
+  const cancelPendingDraft = (shopId: number) => {
+    if (draftTimerRef.current[shopId]) {
+      clearTimeout(draftTimerRef.current[shopId]);
+      delete draftTimerRef.current[shopId];
+    }
+    delete pendingDraftRef.current[shopId];
+  };
+
+  const flushDraft = (shopId: number) => {
+    if (draftTimerRef.current[shopId]) {
+      clearTimeout(draftTimerRef.current[shopId]);
+      delete draftTimerRef.current[shopId];
+    }
+    const run = pendingDraftRef.current[shopId];
+    if (run) {
+      delete pendingDraftRef.current[shopId];
+      run();
+    }
+  };
+
+  // Telegram backgrounds the Mini App the moment it is swiped away, which would otherwise
+  // strand a debounced draft. Write it out the instant the page stops being visible.
+  useEffect(() => {
+    const flushAll = () => {
+      Object.keys(pendingDraftRef.current).forEach((id) => flushDraft(Number(id)));
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushAll();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flushAll);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flushAll);
+    };
+  }, []);
+
   // Update shop order
   const handleUpdateOrder = async (
     shopId: number,
@@ -400,19 +444,39 @@ export default function App() {
       showToast(`✅ Заявка для Кофейни №${shopId} (${shop.name}) успешно отправлена в производство!`);
     }
 
-    // Persist to Express backend
-    await queueOrderRequest(shopId, () =>
-      fetch(`/api/orders/${shopId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items,
-          status,
-          managerName,
-          submittedByTelegramId: telegramUserId ? String(telegramUserId) : undefined,
-        }),
-      }).catch((e) => console.error('Failed to sync order to server:', e))
-    );
+    const sendToServer = () =>
+      queueOrderRequest(shopId, () =>
+        fetch(`/api/orders/${shopId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Lets the write finish even if the page is being torn down (app closed, Telegram
+          // swiped away) instead of being cancelled with the document.
+          keepalive: true,
+          body: JSON.stringify({
+            items,
+            status,
+            managerName,
+            submittedByTelegramId: telegramUserId ? String(telegramUserId) : undefined,
+          }),
+        }).catch((e) => console.error('Failed to sync order to server:', e))
+      );
+
+    if (status === 'submitted') {
+      // A submit supersedes any draft write still waiting for this shop: drop it and go now.
+      cancelPendingDraft(shopId);
+      await sendToServer();
+      return;
+    }
+
+    // Draft saves are coalesced. Every keystroke and every "+" tap used to fire its own
+    // request, and because they are queued one-after-another a burst of taps left the server
+    // seconds behind the screen — measured at ~6s behind after ten taps. Anything that ended
+    // the page in that window (closing the app, a reload) dropped the tail, so the manager saw
+    // 10 on screen while the bakery received 3. Now the taps collapse into a single write of
+    // the final value shortly after the manager stops touching it.
+    pendingDraftRef.current[shopId] = sendToServer;
+    if (draftTimerRef.current[shopId]) clearTimeout(draftTimerRef.current[shopId]);
+    draftTimerRef.current[shopId] = setTimeout(() => flushDraft(shopId), DRAFT_SAVE_DELAY_MS);
   };
 
   // Admin/Manager: Update single order status (accept / reject)

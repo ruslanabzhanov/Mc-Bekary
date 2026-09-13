@@ -103,17 +103,74 @@ const REGISTRATION_ROLE_LABELS: Record<string, string> = {
 // Pings the Owner (and, once assigned, any production managers listed in
 // ADMIN_NOTIFY_TELEGRAM_IDS) the moment a new registration request comes in, so approval
 // doesn't have to wait for someone to happen to open the "Персонал" tab.
-async function notifyNewRegistrationRequests(requests: any[]) {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) return;
-
-  const recipientIds = new Set<string>();
-  if (process.env.OWNER_TELEGRAM_ID) recipientIds.add(process.env.OWNER_TELEGRAM_ID);
+// Everyone who supervises the network: the Owner plus any production managers listed in
+// ADMIN_NOTIFY_TELEGRAM_IDS (comma-separated Telegram ids).
+function supervisorRecipientIds(): Set<string> {
+  const ids = new Set<string>();
+  if (process.env.OWNER_TELEGRAM_ID) ids.add(process.env.OWNER_TELEGRAM_ID);
   (process.env.ADMIN_NOTIFY_TELEGRAM_IDS || '')
     .split(',')
     .map((id) => id.trim())
     .filter(Boolean)
-    .forEach((id) => recipientIds.add(id));
+    .forEach((id) => ids.add(id));
+  return ids;
+}
+
+// Accept/reject push. The submitter gets it addressed to them ("ваша заявка"); the Owner and
+// the production managers get the same decision phrased as network news, with the point named
+// and the order's size, so it reads on its own without opening the app. Sent to each Telegram
+// id once even when the same person is both submitter and supervisor.
+async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejected', order: any) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) return;
+
+  const webAppUrl = 'https://mc-bekary.vercel.app';
+  const { data: shopRow } = await supabase.from('shops').select('*').eq('id', shopId).maybeSingle();
+  const shop = shopRow ? shopFromDb(shopRow) : null;
+  const shopLabel = shop ? (shop.district || '').trim() || shop.address || `Точка №${shopId}` : `Точка №${shopId}`;
+
+  const { data: productRows } = await supabase.from('products').select('*');
+  const priceById = new Map<string, number>((productRows || []).map((r: any) => [r.id, Number(r.price) || 0]));
+  let pcs = 0;
+  let sum = 0;
+  Object.entries(order.items || {}).forEach(([pid, q]) => {
+    const qty = Number(q) || 0;
+    if (qty > 0) {
+      pcs += qty;
+      sum += qty * (priceById.get(pid) || 0);
+    }
+  });
+  const size = `${pcs} шт · ${sum.toLocaleString('ru-RU')} ₸`;
+
+  const sent = new Set<string>();
+  const send = (chatId: string, text: string) => {
+    if (!chatId || sent.has(chatId)) return Promise.resolve();
+    sent.add(chatId);
+    return sendTelegramMessage(botToken, chatId, text, webAppUrl).catch((e) =>
+      console.error(`Failed to notify ${chatId} about order decision:`, e)
+    );
+  };
+
+  const submitterText =
+    status === 'accepted'
+      ? `✅ <b>Заявка принята</b>\n\nВаша заявка для точки «${shopLabel}» принята Управляющим Производством.\n${size}`
+      : `❌ <b>Заявка отклонена</b>\n\nВаша заявка для точки «${shopLabel}» отклонена Управляющим Производством. Уточните детали у управляющего.\n${size}`;
+
+  const supervisorText =
+    status === 'accepted'
+      ? `✅ <b>Заявка принята</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}`
+      : `❌ <b>Заявка отклонена</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}`;
+
+  // Submitter first, so the person waiting on the answer is never delayed by the others.
+  if (order.submittedByTelegramId) await send(String(order.submittedByTelegramId), submitterText);
+  for (const chatId of supervisorRecipientIds()) await send(chatId, supervisorText);
+}
+
+async function notifyNewRegistrationRequests(requests: any[]) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) return;
+
+  const recipientIds = supervisorRecipientIds();
   if (recipientIds.size === 0) return;
 
   const webAppUrl = 'https://mc-bekary.vercel.app';
@@ -742,19 +799,13 @@ export function createApiApp() {
           });
       }
 
-      // Let the manager who actually submitted this order know it was decided on — without this,
-      // their device only finds out on its own next poll/reload, with nothing in the meantime.
-      if ((status === 'accepted' || status === 'rejected') && order.submittedByTelegramId) {
-        const botToken = process.env.TELEGRAM_BOT_TOKEN;
-        if (botToken) {
-          const text =
-            status === 'accepted'
-              ? `✅ <b>Заявка принята</b>\n\nВаша заявка для точки №${shopId} принята Управляющим Производством.`
-              : `❌ <b>Заявка отклонена</b>\n\nВаша заявка для точки №${shopId} отклонена Управляющим Производством. Уточните детали у управляющего.`;
-          sendTelegramMessage(botToken, order.submittedByTelegramId, text, 'https://mc-bekary.vercel.app').catch(
-            (e) => console.error('Failed to notify manager of order status:', e)
-          );
-        }
+      // Tell everyone with a stake in the decision: the manager who submitted it (otherwise
+      // their device only finds out on its own next poll), plus the Owner and the production
+      // managers, so a decision is visible to supervision without opening the app.
+      if (status === 'accepted' || status === 'rejected') {
+        notifyOrderDecision(shopId, status, order).catch((e) =>
+          console.error(`Failed to notify about order decision for shop ${shopId}:`, e)
+        );
       }
     } catch (e) {
       console.error('Failed to update order status:', e);
