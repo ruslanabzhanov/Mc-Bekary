@@ -18,6 +18,14 @@ const ROLE_GROUPS: { key: StaffRole; label: string }[] = [
   { key: 'shop_manager', label: 'Менеджеры точек' }
 ];
 
+// The staff list toggles between two views instead of stacking three separate groups:
+// "internal" (employees, not tied to a shop) and "shop" (territorial managers + shop
+// managers together — both are point-facing roles, shown in one merged list).
+const STAFF_VIEWS: { key: 'internal' | 'shop'; label: string; roles: StaffRole[] }[] = [
+  { key: 'shop', label: 'Сотрудники кофейни', roles: ['territorial_manager', 'shop_manager'] },
+  { key: 'internal', label: 'Внутренние сотрудники', roles: ['employee'] }
+];
+
 export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
   shops,
   staff,
@@ -28,6 +36,7 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
   onRejectRegistrationRequest
 }) => {
   const [activeTab, setActiveTab] = useState<'staff' | 'requests'>('staff');
+  const [staffView, setStaffView] = useState<'internal' | 'shop'>('shop');
   const pendingRequests = registrationRequests.filter((r) => r.status === 'pending');
 
   return (
@@ -72,14 +81,31 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
 
       {/* STAFF TAB */}
       {activeTab === 'staff' && (
-        <div className="space-y-6">
-          {ROLE_GROUPS.map((group) => {
-            const members = staff.filter((s) => s.role === group.key);
+        <div className="space-y-4">
+          {/* Internal employees vs. point-facing staff — one list at a time, not three stacked */}
+          <div className="flex flex-wrap bg-slate-100 p-1 rounded-lg border border-slate-200 w-fit">
+            {STAFF_VIEWS.map((view) => {
+              const count = staff.filter((s) => view.roles.includes(s.role)).length;
+              return (
+                <button
+                  key={view.key}
+                  onClick={() => setStaffView(view.key)}
+                  className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all ${
+                    staffView === view.key
+                      ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  {view.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {STAFF_VIEWS.filter((view) => view.key === staffView).map((view) => {
+            const members = staff.filter((s) => view.roles.includes(s.role));
             return (
-              <div key={group.key} className="space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                  {group.label} ({members.length})
-                </h4>
+              <div key={view.key} className="space-y-3">
                 {members.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">Пока никого нет в этой группе.</p>
                 ) : (
