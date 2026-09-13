@@ -79,10 +79,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="btn-open-registration-request"
               onClick={() => setIsRegistrationModalOpen(true)}
-              className="p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-indigo-600 hover:text-indigo-900 transition-all shadow-2xs cursor-pointer"
+              className="w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-indigo-600 hover:text-indigo-900 transition-all shadow-2xs cursor-pointer"
               title="Подать заявку на регистрацию"
             >
-              <UserPlus className="w-4 h-4" />
+              <UserPlus className="w-5 h-5" />
             </button>
 
             {/* Executive Access Button / Executive Active State */}
@@ -95,10 +95,10 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   id="btn-owner-login"
                   onClick={() => onRoleChange('owner')}
-                  className="p-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-900 transition-all shadow-2xs cursor-pointer"
+                  className="w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-700 hover:text-amber-900 transition-all shadow-2xs cursor-pointer"
                   title="Вход для Владельца"
                 >
-                  <Crown className="w-4 h-4" />
+                  <Crown className="w-5 h-5" />
                 </button>
               )}
 

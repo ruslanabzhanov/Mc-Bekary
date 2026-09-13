@@ -60,11 +60,11 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
   return (
     <>
       <div>
-        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Категория</label>
+        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Категория</label>
         <select
           value={category}
           onChange={(e) => onRoleChange(e.target.value === 'internal' ? 'employee' : 'shop_manager')}
-          className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+          className="w-full px-2.5 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
         >
           {CATEGORY_OPTIONS.map((c) => (
             <option key={c.value} value={c.value}>{c.label}</option>
@@ -74,11 +74,11 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
 
       {category === 'shop' ? (
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Должность</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Должность</label>
           <select
             value={role}
             onChange={(e) => onRoleChange(e.target.value as StaffRole)}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+            className="w-full px-2 min-h-[48px] text-[13px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
           >
             {SHOP_ROLE_OPTIONS.map((r) => (
               <option key={r.value} value={r.value}>{r.label}</option>
@@ -87,11 +87,11 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
         </div>
       ) : (
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Должность</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Должность</label>
           <select
             value={position || EMPLOYEE_POSITIONS[0]}
             onChange={(e) => onPositionChange(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+            className="w-full px-2.5 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
           >
             {EMPLOYEE_POSITIONS.map((p) => (
               <option key={p} value={p}>{p}</option>
@@ -102,18 +102,26 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
 
       {role === 'territorial_manager' ? (
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-            Точки (до {MAX_TERRITORIAL_SHOPS}) — выбрано {shopIds.length}/{MAX_TERRITORIAL_SHOPS}
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+            Точки — выбрано {shopIds.length} из {MAX_TERRITORIAL_SHOPS}
           </label>
-          <div className="max-h-40 overflow-y-auto border border-slate-300 rounded-lg divide-y divide-slate-100">
+          {/* Rendered inline at full height on purpose: a nested scroll box here is nearly
+              unusable inside Telegram's WebView, where the swipe gets taken by the page (or
+              by Telegram's own dismiss gesture) instead of the list. The page scrolls; the
+              list doesn't need to. */}
+          <div className="border border-slate-300 rounded-xl divide-y divide-slate-100 overflow-hidden">
             {shops.map((s) => {
               const checked = shopIds.includes(s.id);
               const disabled = !checked && shopIds.length >= MAX_TERRITORIAL_SHOPS;
               return (
                 <label
                   key={s.id}
-                  className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium ${
-                    disabled ? 'text-slate-300 cursor-not-allowed' : 'text-slate-800 cursor-pointer hover:bg-slate-50'
+                  className={`flex items-center gap-3 px-3 min-h-[48px] text-sm font-medium ${
+                    disabled
+                      ? 'text-slate-300 cursor-not-allowed bg-slate-50'
+                      : checked
+                      ? 'text-indigo-900 bg-indigo-50 cursor-pointer'
+                      : 'text-slate-800 cursor-pointer active:bg-slate-100'
                   }`}
                 >
                   <input
@@ -121,21 +129,26 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
                     checked={checked}
                     disabled={disabled}
                     onChange={() => toggleShop(s.id)}
-                    className="accent-indigo-600"
+                    className="w-5 h-5 accent-indigo-600 shrink-0"
                   />
-                  <span>{shopLabel(s)}</span>
+                  <span className="py-2">{shopLabel(s)}</span>
                 </label>
               );
             })}
           </div>
+          {shopIds.length >= MAX_TERRITORIAL_SHOPS && (
+            <p className="mt-1.5 text-xs text-slate-500">
+              Выбрано максимум {MAX_TERRITORIAL_SHOPS} точек. Чтобы выбрать другую, снимите галочку с одной из отмеченных.
+            </p>
+          )}
         </div>
       ) : (
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Точка</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Точка</label>
           <select
             value={shopId}
             onChange={(e) => onShopIdChange(Number(e.target.value))}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+            className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
           >
             {shops.map((s) => (
               <option key={s.id} value={s.id}>{shopLabel(s)}</option>

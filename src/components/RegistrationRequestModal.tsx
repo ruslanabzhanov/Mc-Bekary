@@ -74,7 +74,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
             </p>
             <button
               onClick={handleClose}
-              className="mt-5 w-full py-2.5 text-xs font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
+              className="mt-5 w-full min-h-[52px] text-sm font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
             >
               Понятно
             </button>
@@ -91,7 +91,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
 
             <form onSubmit={handleSubmit} className="w-full mt-5 space-y-3 text-left">
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
                   ФИО
                 </label>
                 <input
@@ -100,13 +100,13 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                   placeholder="Например: Асель Ким"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                  className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
                   autoFocus
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
                   Телефон (необязательно)
                 </label>
                 <input
@@ -114,7 +114,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                   placeholder="+7 707 000 00 00"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                  className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
                 />
               </div>
 
@@ -132,7 +132,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
 
               <button
                 type="submit"
-                className="w-full mt-2 py-2.5 text-xs font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
+                className="w-full mt-2 min-h-[52px] text-sm font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
               >
                 Отправить заявку
               </button>

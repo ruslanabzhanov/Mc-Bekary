@@ -101,7 +101,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
   // Quick auto-fill AI recommendation
   const handleApplyAiRecommendation = (productId: string) => {
-    const avg = selectedShop?.historicalAvg[productId] || 12;
+    // Must match the fallback used for the "≈ N шт" label and the anomaly check below,
+    // otherwise the chip promises one number and fills in another.
+    const avg = selectedShop?.historicalAvg[productId] || 10;
     handleQuantityChange(productId, String(avg));
   };
 
@@ -182,8 +184,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 Точка №{selectedShop.id}
               </span>
             </div>
-            <span className="font-extrabold text-slate-900 text-xs block truncate" title={selectedShop.name}>
-              {selectedShop.name.replace(`Кофейня №${selectedShop.id} — `, '')}
+            {/* The point's own short name ("Мс сыгынак"), not the street address — the address
+                is far too long for this tile and was being cut mid-word. */}
+            <span className="font-extrabold text-slate-900 text-sm block leading-tight" title={selectedShop.address}>
+              {selectedShop.district.trim() || selectedShop.address}
             </span>
             <span className="text-[9px] font-bold text-indigo-500 flex items-center gap-1 mt-1">
               <History className="w-2.5 h-2.5" />
@@ -261,7 +265,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <button
             id="tab-croissants"
             onClick={() => setActiveTab('croissants')}
-            className={`py-2 px-3 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
+            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
               activeTab === 'croissants'
                 ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -273,7 +277,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <button
             id="tab-sandwiches"
             onClick={() => setActiveTab('sandwiches')}
-            className={`py-2 px-3 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
+            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
               activeTab === 'sandwiches'
                 ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -285,7 +289,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <button
             id="tab-desserts"
             onClick={() => setActiveTab('desserts')}
-            className={`py-2 px-3 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
+            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
               activeTab === 'desserts'
                 ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -297,7 +301,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <button
             id="tab-bar-prep"
             onClick={() => setActiveTab('bar_prep')}
-            className={`py-2 px-3 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
+            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
               activeTab === 'bar_prep'
                 ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -309,7 +313,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <button
             id="tab-kitchen-prep"
             onClick={() => setActiveTab('kitchen_prep')}
-            className={`py-2 px-3 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
+            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
               activeTab === 'kitchen_prep'
                 ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -321,7 +325,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <button
             id="tab-new-items"
             onClick={() => setActiveTab('new_items')}
-            className={`py-2 px-3 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
+            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
               activeTab === 'new_items'
                 ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -378,13 +382,18 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <div>
                 {/* CLEAN SQUARE PHOTO */}
                 <div className="relative aspect-square w-full overflow-hidden bg-slate-100">
+                  {/* Empty alt on purpose: a failed image used to sprawl its alt text across
+                      the card. The emoji below sits underneath and shows through instead. */}
+                  <span className="absolute inset-0 flex items-center justify-center text-4xl select-none">
+                    {product.imageEmoji || '🍽️'}
+                  </span>
                   <img
                     src={product.imageUrl}
-                    alt={product.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    alt=""
+                    className="relative w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     referrerPolicy="no-referrer"
                     onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
+                      (e.target as HTMLElement).style.visibility = 'hidden';
                     }}
                   />
 
@@ -402,7 +411,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
                 {/* Content Details */}
                 <div className="px-2 pt-1.5 pb-0.5 text-center">
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-900 leading-tight line-clamp-1 group-hover:text-indigo-600 transition-colors" title={product.name}>
+                  {/* Two lines, with room reserved for both, so cards stay aligned and a name
+                      like "Слойка сэндвич с курицей и сыром" is readable instead of cut to "...". */}
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-900 leading-tight line-clamp-2 min-h-[2.2em] group-hover:text-indigo-600 transition-colors" title={product.name}>
                     {product.name}
                   </h3>
 
@@ -413,23 +424,20 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     <button
                       id={`btn-ai-fill-${product.id}`}
                       onClick={() => handleApplyAiRecommendation(product.id)}
-                      className="text-[9px] font-bold text-slate-400 hover:text-indigo-700"
-                      title="Вставить ИИ-расчетную норму"
+                      className="px-2 py-1 -my-1 rounded-md text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-indigo-100 hover:text-indigo-700 active:bg-indigo-200 transition-colors"
+                      title="Подставить обычное количество для этой точки"
                     >
-                      · {avgQty} шт
+                      ≈ {avgQty} шт
                     </button>
                   </div>
 
-                  {/* Red Anomaly Alert Banner */}
-                  {anomalyType && (
-                    <div className="mt-1 p-1.5 rounded bg-rose-100 text-rose-950 text-[10px] font-bold border border-rose-300 text-left">
-                      <span>{anomalyText}</span>
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* Quantity Input Controls */}
+              {/* Quantity Input Controls. The anomaly banner deliberately renders *below* this
+                  row, never above it: typing a quantity can trigger the warning, and when it
+                  appeared above, the card grew and pushed +/- out from under the user's finger,
+                  so the next tap in a quick sequence missed the button entirely. */}
               <div className="px-2 pb-2 pt-1">
                 <div>
                   <div className="flex items-center justify-between space-x-1">
@@ -437,9 +445,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                       id={`btn-dec-${product.id}`}
                       onClick={() => handleDecrement(product.id)}
                       disabled={currentQty === 0}
-                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 flex items-center justify-center border border-slate-200 font-bold transition-colors"
+                      className="w-11 h-11 shrink-0 rounded-lg bg-slate-100 hover:bg-slate-200 active:bg-slate-300 disabled:opacity-40 text-slate-700 flex items-center justify-center border border-slate-200 font-bold transition-colors"
                     >
-                      <Minus className="w-3.5 h-3.5" />
+                      <Minus className="w-5 h-5" />
                     </button>
 
                     <div className="flex-1 text-center">
@@ -451,19 +459,25 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         value={currentQty === 0 ? '' : currentQty}
                         placeholder="0"
                         onChange={(e) => handleQuantityChange(product.id, e.target.value)}
-                        className="w-full text-center bg-slate-50 border border-slate-200 rounded-lg py-1 text-slate-900 font-black text-sm sm:text-base focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition-all"
+                        className="w-full h-11 text-center bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-black text-base focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition-all"
                       />
                     </div>
 
                     <button
                       id={`btn-inc-${product.id}`}
                       onClick={() => handleIncrement(product.id)}
-                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold flex items-center justify-center transition-colors shadow-sm"
+                      className="w-11 h-11 shrink-0 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold flex items-center justify-center transition-colors shadow-sm"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
+
+                {anomalyType && (
+                  <div className="mt-2 p-1.5 rounded bg-rose-100 text-rose-950 text-[11px] font-bold border border-rose-300 text-left">
+                    <span>{anomalyText}</span>
+                  </div>
+                )}
               </div>
             </div>
           );

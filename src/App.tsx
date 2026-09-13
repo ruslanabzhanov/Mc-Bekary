@@ -840,16 +840,15 @@ export default function App() {
         onSendReminderSingle={handleSendReminderSingle}
       />
 
-      {/* Bottom Status Bar (Geometric Balance Theme) */}
-      <footer className="h-9 bg-indigo-950 flex items-center px-6 justify-between text-[10px] font-bold text-indigo-200 uppercase tracking-widest border-t border-indigo-900">
-        <div className="flex gap-6">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            AI Engine: Active
-          </span>
-          <span>Anomaly Detection: Scan complete</span>
-        </div>
-        <div>© 2026 Master Bakery Supply System</div>
+      {/* Bottom Status Bar. The old three-column "AI Engine / Anomaly Detection" strip wrapped
+          and clipped on a phone; only the copyright line is worth the space there. */}
+      <footer className="bg-indigo-950 flex items-center justify-center px-4 py-2.5 text-[10px] font-bold text-indigo-200 uppercase tracking-widest border-t border-indigo-900">
+        <span className="hidden sm:flex items-center gap-1.5 mr-auto">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          AI Engine: Active
+        </span>
+        <span className="text-center">© 2026 Master Bakery</span>
+        <span className="hidden sm:block ml-auto">Anomaly Detection: Scan complete</span>
       </footer>
 
     </div>

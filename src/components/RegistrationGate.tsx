@@ -93,7 +93,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
         </p>
         <button
           onClick={handleRetry}
-          className="mt-5 w-full flex items-center justify-center space-x-1.5 py-2.5 text-xs font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
+          className="mt-5 w-full flex items-center justify-center space-x-1.5 min-h-[52px] text-sm font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span>Подать заявку заново</span>
@@ -134,7 +134,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
         )}
         <button
           onClick={onRefresh}
-          className="mt-5 w-full py-2.5 text-xs font-bold uppercase text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all"
+          className="mt-5 w-full min-h-[52px] text-sm font-bold uppercase text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all"
         >
           Проверить статус
         </button>
@@ -155,26 +155,26 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
 
       <form onSubmit={handleSubmit} className="w-full mt-5 space-y-3 text-left">
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">ФИО</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">ФИО</label>
           <input
             type="text"
             required
             placeholder="Например: Асель Ким"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+            className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
             autoFocus
           />
         </div>
 
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Телефон (необязательно)</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Телефон (необязательно)</label>
           <input
             type="tel"
             placeholder="+7 707 000 00 00"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+            className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
           />
         </div>
 
@@ -192,7 +192,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
 
         <button
           type="submit"
-          className="w-full mt-2 py-2.5 text-xs font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
+          className="w-full mt-2 min-h-[52px] text-sm font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
         >
           Отправить заявку
         </button>
