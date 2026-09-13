@@ -496,8 +496,15 @@ export function createApiApp() {
   });
 
   // Accept all submitted orders
+  // Owner-verified: one call flips every submitted order in the network to accepted, so it
+  // must not be reachable by anyone who simply knows the URL. Only the Owner cabinet renders
+  // this button today; if a production-manager role is reintroduced later, widen this check
+  // rather than removing it.
   app.post('/api/orders/accept-all', async (req, res) => {
     try {
+      if (!requireOwner(req.body?.initData)) {
+        return res.status(403).json({ error: 'Not allowed to accept all orders' });
+      }
       const timeStr = timeNow();
       const { error } = await supabase
         .from('orders')
@@ -521,48 +528,12 @@ export function createApiApp() {
   });
 
   // Bulk simulate full order submissions for testing
-  app.post('/api/orders/simulate-all', async (req, res) => {
-    try {
-      const timeStr = timeNow();
-      const [{ data: shopRows, error: shopsError }, { data: productRows, error: productsError }] = await Promise.all([
-        supabase.from('shops').select('*'),
-        supabase.from('products').select('*'),
-      ]);
-      if (shopsError) throw shopsError;
-      if (productsError) throw productsError;
-
-      const shops = (shopRows || []).map(shopFromDb);
-      const products = (productRows || []).map(productFromDb);
-
-      const newOrders = shops.map((shop) => {
-        const items: Record<string, number> = {};
-        products.forEach((p) => {
-          const avg = shop.historicalAvg[p.id] || 12;
-          items[p.id] = Math.max(1, Math.round(avg * (0.9 + Math.random() * 0.3)));
-        });
-        return {
-          shopId: shop.id,
-          items,
-          status: 'submitted',
-          submittedAt: timeStr,
-          managerName: shop.manager,
-        };
-      });
-
-      const { error: upsertError } = await supabase.from('orders').upsert(newOrders.map(orderToDb));
-      if (upsertError) throw upsertError;
-
-      const ordersRecord: Record<number, any> = {};
-      newOrders.forEach((o) => {
-        ordersRecord[o.shopId] = o;
-      });
-
-      res.json({ success: true, orders: ordersRecord });
-    } catch (e) {
-      console.error('Failed to simulate orders:', e);
-      res.status(500).json({ error: 'Failed to simulate orders' });
-    }
-  });
+  // NOTE: there used to be a POST /api/orders/simulate-all here, left over from an early
+  // demo. It generated a full made-up order for every shop and every product and wrote them
+  // in as 'submitted' under each shop's real manager name, replacing whatever those shops had
+  // actually ordered that day. It had no button anywhere, but the route was live and
+  // unauthenticated, so a single request could wipe a real working day for all 27 points.
+  // Deleted deliberately — do not reintroduce it against the production database.
 
   // Submit or save order for a specific coffee shop
   app.post('/api/orders/:shopId', async (req, res) => {
@@ -806,9 +777,14 @@ export function createApiApp() {
     }
   });
 
-  // Send reminder notifications to all unsubmitted coffee shops
+  // Send reminder notifications to all unsubmitted coffee shops. Owner-verified: this pushes
+  // real Telegram messages out to every lagging point, so an open route here is a way to spam
+  // the whole network from outside the app.
   app.post('/api/reminders/send-all', async (req, res) => {
     try {
+      if (!requireOwner(req.body?.initData)) {
+        return res.status(403).json({ error: 'Not allowed to send reminders' });
+      }
       const timeStr = timeNow();
       const [{ data: shopRows, error: shopsError }, { data: orderRows, error: ordersError }] = await Promise.all([
         supabase.from('shops').select('*'),

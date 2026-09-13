@@ -30,7 +30,6 @@ interface SubmittedOrdersModalProps {
   permissions: RolePermissions;
   onUpdateOrderStatus: (shopId: number, status: OrderStatus) => void;
   onDeleteOrder: (shopId: number) => void;
-  onSendReminderSingle?: (shopId: number) => void;
 }
 
 type StatusFilter = 'all' | 'submitted' | 'accepted' | 'rejected' | 'draft';

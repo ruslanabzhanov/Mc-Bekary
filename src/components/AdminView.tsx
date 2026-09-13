@@ -577,11 +577,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
         rawMaterials={rawMaterials}
       />
 
-      <AiProcurementModal
-        isOpen={isAiProcurementOpen}
-        onClose={() => setIsAiProcurementOpen(false)}
-      />
-
       {isOwner && (
         <RolePermissionsModal
           isOpen={isRolePermissionsOpen}

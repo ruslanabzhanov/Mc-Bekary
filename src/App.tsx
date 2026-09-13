@@ -13,6 +13,10 @@ import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedPro
 
 // A useState that also fires-and-forgets a POST to persist every update to the Express backend,
 // so the value survives a full page reload (not just re-opening a modal within the same session).
+// Returns [value, setSynced, hydrate]. `setSynced` is a real edit — it POSTs the whole new
+// value back. `hydrate` only fills local state and writes nothing: use it for data that just
+// came *from* the server, so opening the app never pushes a device's copy of the catalogs
+// back over whatever the server now holds.
 function useSyncedState<T>(initial: T, endpoint: string, bodyKey: string) {
   const [value, setValue] = useState<T>(initial);
   const setSynced: React.Dispatch<React.SetStateAction<T>> = (update) => {
@@ -26,7 +30,7 @@ function useSyncedState<T>(initial: T, endpoint: string, bodyKey: string) {
       return next;
     });
   };
-  return [value, setSynced] as const;
+  return [value, setSynced, setValue] as const;
 }
 
 // Default checklist -> product assignment, seeded from each department's matching product category
@@ -120,26 +124,26 @@ export default function App() {
     setHasAccess(true);
     showToast('✅ Заявка одобрена! Добро пожаловать.');
   };
-  const [shops, setShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
-  const [products, setProducts] = useSyncedState<Product[]>(PRODUCTS, '/api/products', 'products');
+  const [shops, setShops, hydrateShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
+  const [products, setProducts, hydrateProducts] = useSyncedState<Product[]>(PRODUCTS, '/api/products', 'products');
   const [orders, setOrders] = useState<Record<number, ShopOrder>>(INITIAL_ORDERS);
   const [notifications, setNotifications] = useState<DisciplineNotification[]>([]);
-  const [semiFinishedList, setSemiFinishedList] = useSyncedState<SemiFinishedProduct[]>(
+  const [semiFinishedList, setSemiFinishedList, hydrateSemiFinishedList] = useSyncedState<SemiFinishedProduct[]>(
     INITIAL_SEMI_FINISHED,
     '/api/semi-finished',
     'semiFinishedList'
   );
-  const [dishCostings, setDishCostings] = useSyncedState<Record<string, DishCosting>>(
+  const [dishCostings, setDishCostings, hydrateDishCostings] = useSyncedState<Record<string, DishCosting>>(
     INITIAL_DISH_COSTINGS,
     '/api/dish-costings',
     'dishCostings'
   );
-  const [rawMaterials, setRawMaterials] = useSyncedState<RawMaterial[]>(
+  const [rawMaterials, setRawMaterials, hydrateRawMaterials] = useSyncedState<RawMaterial[]>(
     INITIAL_RAW_MATERIALS,
     '/api/raw-materials',
     'rawMaterials'
   );
-  const [rawCategoryDefs, setRawCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
+  const [rawCategoryDefs, setRawCategoryDefs, hydrateRawCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
     [
       { key: 'meat', label: 'Мясо и птица' },
       { key: 'fish', label: 'Рыба и морепродукты' },
@@ -152,7 +156,7 @@ export default function App() {
     '/api/raw-category-defs',
     'rawCategoryDefs'
   );
-  const [semiCategoryDefs, setSemiCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
+  const [semiCategoryDefs, setSemiCategoryDefs, hydrateSemiCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
     [
       { key: 'prep_veg', label: 'Нарезка и овощи' },
       { key: 'prep_meat', label: 'Мясо и птица' },
@@ -163,7 +167,7 @@ export default function App() {
     '/api/semi-category-defs',
     'semiCategoryDefs'
   );
-  const [dishCategoryDefs, setDishCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
+  const [dishCategoryDefs, setDishCategoryDefs, hydrateDishCategoryDefs] = useSyncedState<{ key: string; label: string }[]>(
     [
       { key: 'croissants', label: 'Круассаны и слойки' },
       { key: 'sandwiches', label: 'Сэндвичи и завтраки' },
@@ -175,13 +179,13 @@ export default function App() {
     '/api/dish-category-defs',
     'dishCategoryDefs'
   );
-  const [checklistAssignments, setChecklistAssignments] = useSyncedState<ChecklistAssignments>(
+  const [checklistAssignments, setChecklistAssignments, hydrateChecklistAssignments] = useSyncedState<ChecklistAssignments>(
     DEFAULT_CHECKLIST_ASSIGNMENTS,
     '/api/checklist-assignments',
     'checklistAssignments'
   );
-  const [staff, setStaff] = useSyncedState<StaffMember[]>(INITIAL_STAFF, '/api/staff', 'staff');
-  const [registrationRequests, setRegistrationRequests] = useSyncedState<RegistrationRequest[]>(
+  const [staff, setStaff, hydrateStaff] = useSyncedState<StaffMember[]>(INITIAL_STAFF, '/api/staff', 'staff');
+  const [registrationRequests, setRegistrationRequests, hydrateRegistrationRequests] = useSyncedState<RegistrationRequest[]>(
     INITIAL_REGISTRATION_REQUESTS,
     '/api/registration-requests',
     'registrationRequests'
@@ -223,20 +227,24 @@ export default function App() {
     fetch('/api/initial-data')
       .then((res) => res.json())
       .then((data) => {
-        if (data.shops) setShops(data.shops);
-        if (data.products) setProducts(data.products);
+        // Hydrate only — never the syncing setters. This data just arrived *from* the server;
+        // echoing it straight back made every device rewrite all eleven catalogs on every
+        // open, which is both pointless traffic and a real way for one device's stale copy to
+        // land on top of an edit someone else had just saved.
+        if (data.shops) hydrateShops(data.shops);
+        if (data.products) hydrateProducts(data.products);
         if (data.orders) setOrders(data.orders);
         if (data.notifications) setNotifications(data.notifications);
-        if (data.rawMaterials) setRawMaterials(data.rawMaterials);
-        if (data.rawCategoryDefs) setRawCategoryDefs(data.rawCategoryDefs);
-        if (data.semiCategoryDefs) setSemiCategoryDefs(data.semiCategoryDefs);
-        if (data.dishCategoryDefs) setDishCategoryDefs(data.dishCategoryDefs);
-        if (data.semiFinishedList) setSemiFinishedList(data.semiFinishedList);
-        if (data.dishCostings) setDishCostings(data.dishCostings);
-        if (data.checklistAssignments) setChecklistAssignments(data.checklistAssignments);
+        if (data.rawMaterials) hydrateRawMaterials(data.rawMaterials);
+        if (data.rawCategoryDefs) hydrateRawCategoryDefs(data.rawCategoryDefs);
+        if (data.semiCategoryDefs) hydrateSemiCategoryDefs(data.semiCategoryDefs);
+        if (data.dishCategoryDefs) hydrateDishCategoryDefs(data.dishCategoryDefs);
+        if (data.semiFinishedList) hydrateSemiFinishedList(data.semiFinishedList);
+        if (data.dishCostings) hydrateDishCostings(data.dishCostings);
+        if (data.checklistAssignments) hydrateChecklistAssignments(data.checklistAssignments);
         if (data.rolePermissions) setRolePermissions(data.rolePermissions);
-        if (data.staff) setStaff(data.staff);
-        if (data.registrationRequests) setRegistrationRequests(data.registrationRequests);
+        if (data.staff) hydrateStaff(data.staff);
+        if (data.registrationRequests) hydrateRegistrationRequests(data.registrationRequests);
       })
       .catch((err) => {
         console.log('Using local fallback state:', err);
@@ -638,7 +646,15 @@ export default function App() {
     });
 
     try {
-      await fetch('/api/orders/accept-all', { method: 'POST' });
+      const res = await fetch('/api/orders/accept-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: telegramInitData }),
+      });
+      if (!res.ok) {
+        showToast('⚠️ Не удалось принять заявки: нет подтверждения доступа.');
+        refreshInitialData();
+      }
     } catch (e) {
       console.error(e);
     }
@@ -647,10 +663,16 @@ export default function App() {
   // Admin: Send reminder to all unsubmitted shops
   const handleSendRemindersAll = async () => {
     try {
-      const res = await fetch('/api/reminders/send-all', { method: 'POST' });
+      const res = await fetch('/api/reminders/send-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: telegramInitData }),
+      });
       const data = await res.json();
       if (data.notifications) {
         setNotifications(data.notifications);
+      } else if (!res.ok) {
+        showToast('⚠️ Не удалось отправить напоминания: нет подтверждения доступа.');
       }
     } catch (e) {
       console.error(e);
@@ -676,19 +698,6 @@ export default function App() {
   };
 
   // Admin: Simulate full fill across all 27 shops
-  const handleSimulateAll = async () => {
-    try {
-      const res = await fetch('/api/orders/simulate-all', { method: 'POST' });
-      const data = await res.json();
-      if (data.orders) {
-        setOrders(data.orders);
-        showToast('🚀 Все 27 кофеен сети успешно заполнили и подали заявки!');
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const currentOrder = orders[selectedShopId] || {
     shopId: selectedShopId,
     items: {},
@@ -800,7 +809,6 @@ export default function App() {
               onUnassignTerritorialManager={handleUnassignTerritorialManager}
               onAcceptAllOrders={handleAcceptAllOrders}
               onSendRemindersAll={handleSendRemindersAll}
-              onSimulateAll={handleSimulateAll}
               onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
             />
           ) : (
@@ -837,7 +845,6 @@ export default function App() {
         permissions={rolePermissions}
         onUpdateOrderStatus={handleUpdateOrderStatus}
         onDeleteOrder={handleDeleteOrder}
-        onSendReminderSingle={handleSendReminderSingle}
       />
 
       {/* Bottom Status Bar. The old three-column "AI Engine / Anomaly Detection" strip wrapped
