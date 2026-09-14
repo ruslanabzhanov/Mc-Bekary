@@ -124,20 +124,71 @@ function supervisorRecipientIds(): Set<string> {
   return ids;
 }
 
-// Accept/reject push. The submitter gets it addressed to them ("ваша заявка"); the Owner and
-// the production managers get the same decision phrased as network news, with the point named
-// and the order's size, so it reads on its own without opening the app. Sent to each Telegram
-// id once even when the same person is both submitter and supervisor.
-async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejected', order: any) {
+// Everyone with a stake in one point: its own staff (a point can have several managers and a
+// barista who all need to know an order went in, whoever actually pressed the button) and the
+// territorial manager whose patch it is. Telegram ids are whatever we captured at registration
+// — anyone without one simply isn't reachable yet and is skipped.
+async function shopAudienceIds(shopId: number): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const { data, error } = await supabase.from('staff').select('*');
+  if (error) {
+    console.error('Failed to load staff for notifications:', error);
+    return ids;
+  }
+  for (const row of data || []) {
+    const member = staffFromDb(row);
+    if (!member.telegramUserId) continue;
+    const worksHere = member.shopId === shopId;
+    const overseesHere = Array.isArray(member.assignedShopIds) && member.assignedShopIds.includes(shopId);
+    if (worksHere || overseesHere) ids.add(String(member.telegramUserId));
+  }
+  return ids;
+}
+
+// Send one message per Telegram id, whatever combination of roles put them on the list.
+function makeSender(botToken: string, webAppUrl: string) {
+  const sent = new Set<string>();
+  return async (chatId: string | undefined | null, text: string) => {
+    const id = chatId ? String(chatId) : '';
+    if (!id || sent.has(id)) return;
+    sent.add(id);
+    await sendTelegramMessage(botToken, id, text, webAppUrl).catch((e) =>
+      console.error(`Failed to notify ${id}:`, e)
+    );
+  };
+}
+
+const WEB_APP_URL = 'https://mc-bekary.vercel.app';
+
+// A point's order has just gone in. Nobody was told about this before — supervision had to
+// open the app and look, and the point's other staff had no way to know it was already done.
+async function notifyOrderSubmitted(shopId: number, order: any) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) return;
 
-  const webAppUrl = 'https://mc-bekary.vercel.app';
   const { data: shopRow } = await supabase.from('shops').select('*').eq('id', shopId).maybeSingle();
   const shop = shopRow ? shopFromDb(shopRow) : null;
   const shopLabel = shop ? (shop.district || '').trim() || shop.address || `Точка №${shopId}` : `Точка №${shopId}`;
+  const size = await orderSizeLabel(order);
 
-  const { data: productRows } = await supabase.from('products').select('*');
+  const send = makeSender(botToken, WEB_APP_URL);
+  const supervisorText =
+    `📥 <b>Заявка подана</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}\n\n` +
+    `Принять или отклонить — в «Реестре заявок».`;
+  const teamText =
+    `📥 <b>Заявка вашей точки подана</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}\n\n` +
+    `Ждём решения управляющего производством.`;
+
+  // Supervision first — they're the ones who have to act on it.
+  for (const chatId of supervisorRecipientIds()) await send(chatId, supervisorText);
+  for (const chatId of await shopAudienceIds(shopId)) await send(chatId, teamText);
+  // The submitter may not be registered staff yet (or opened the app outside Telegram).
+  await send(order.submittedByTelegramId, teamText);
+}
+
+// Pieces and money for one order, so a message says something without opening the app.
+async function orderSizeLabel(order: any) {
+  const { data: productRows } = await supabase.from('products').select('id, price');
   const priceById = new Map<string, number>((productRows || []).map((r: any) => [r.id, Number(r.price) || 0]));
   let pcs = 0;
   let sum = 0;
@@ -148,30 +199,62 @@ async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejecte
       sum += qty * (priceById.get(pid) || 0);
     }
   });
-  const size = `${pcs} шт · ${sum.toLocaleString('ru-RU')} ₸`;
+  return `${pcs} шт · ${sum.toLocaleString('ru-RU')} ₸`;
+}
 
-  const sent = new Set<string>();
-  const send = (chatId: string, text: string) => {
-    if (!chatId || sent.has(chatId)) return Promise.resolve();
-    sent.add(chatId);
-    return sendTelegramMessage(botToken, chatId, text, webAppUrl).catch((e) =>
-      console.error(`Failed to notify ${chatId} about order decision:`, e)
-    );
-  };
+// Accept/reject push. The submitter gets it addressed to them ("ваша заявка"); the Owner and
+// the production managers get the same decision phrased as network news, with the point named
+// and the order's size, so it reads on its own without opening the app. Sent to each Telegram
+// id once even when the same person is both submitter and supervisor.
+async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejected', order: any) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) return;
+
+  const { data: shopRow } = await supabase.from('shops').select('*').eq('id', shopId).maybeSingle();
+  const shop = shopRow ? shopFromDb(shopRow) : null;
+  const shopLabel = shop ? (shop.district || '').trim() || shop.address || `Точка №${shopId}` : `Точка №${shopId}`;
+  const size = await orderSizeLabel(order);
+
+  const send = makeSender(botToken, WEB_APP_URL);
 
   const submitterText =
     status === 'accepted'
       ? `✅ <b>Заявка принята</b>\n\nВаша заявка для точки «${shopLabel}» принята Управляющим Производством.\n${size}`
       : `❌ <b>Заявка отклонена</b>\n\nВаша заявка для точки «${shopLabel}» отклонена Управляющим Производством. Уточните детали у управляющего.\n${size}`;
 
+  const teamText =
+    status === 'accepted'
+      ? `✅ <b>Заявка вашей точки принята</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}`
+      : `❌ <b>Заявка вашей точки отклонена</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}\n\nУточните детали у управляющего.`;
+
   const supervisorText =
     status === 'accepted'
       ? `✅ <b>Заявка принята</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}`
       : `❌ <b>Заявка отклонена</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}`;
 
-  // Submitter first, so the person waiting on the answer is never delayed by the others.
-  if (order.submittedByTelegramId) await send(String(order.submittedByTelegramId), submitterText);
+  // The person waiting on the answer first, so they're never held up by the rest of the list.
+  await send(order.submittedByTelegramId, submitterText);
+  // Then everyone else at that point and its territorial manager — an order is the point's,
+  // not one person's, and the next shift needs to know it was decided.
+  for (const chatId of await shopAudienceIds(shopId)) await send(chatId, teamText);
   for (const chatId of supervisorRecipientIds()) await send(chatId, supervisorText);
+}
+
+// The applicant finally hears back. Until now approval was silent: their device discovered it
+// on its own next poll, and a rejection was never communicated at all.
+async function notifyRegistrationDecision(request: any, status: 'approved' | 'rejected') {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken || !request?.telegramUserId) return;
+
+  const send = makeSender(botToken, WEB_APP_URL);
+  const text =
+    status === 'approved'
+      ? `✅ <b>Регистрация подтверждена</b>\n\n${request.name}, ваша заявка одобрена — приложение уже открыто для вас.\n\n` +
+        `Откройте его и начинайте работать.`
+      : `❌ <b>Заявка на регистрацию отклонена</b>\n\n${request.name}, управляющий отклонил вашу заявку. ` +
+        `Уточните детали у управляющего и при необходимости подайте её заново.`;
+
+  await send(request.telegramUserId, text);
 }
 
 async function notifyNewRegistrationRequests(requests: any[]) {
@@ -535,20 +618,56 @@ export function createApiApp() {
     }
   });
 
+  // Remembers where to reach one staff member. Sent by their own device on startup, which
+  // covers everyone who registered before the id was captured at registration time. The id is
+  // unverified — the same standard as submittedByTelegramId — because it only ever decides
+  // where a notification goes, never what anyone is allowed to do.
+  app.post('/api/staff/telegram-link', async (req, res) => {
+    try {
+      const { staffId, telegramUserId } = req.body || {};
+      if (!staffId || !telegramUserId) {
+        return res.status(400).json({ error: 'staffId and telegramUserId are required' });
+      }
+      const { error } = await supabase
+        .from('staff')
+        .update({ telegram_user_id: String(telegramUserId) })
+        .eq('id', String(staffId));
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to link a Telegram id to a staff member:', e);
+      res.status(500).json({ error: 'Failed to link Telegram id' });
+    }
+  });
+
   // Persist pending registration requests
   app.post('/api/registration-requests', async (req, res) => {
     try {
       const incoming = Array.isArray(req.body?.registrationRequests) ? req.body.registrationRequests : null;
       if (incoming) {
-        const { data: existingRows } = await supabase.from('registration_requests').select('id');
-        const existingIds = new Set((existingRows || []).map((r) => r.id));
-        const newlyAdded = incoming.filter((r) => !existingIds.has(r.id));
+        const { data: existingRows } = await supabase.from('registration_requests').select('id, status');
+        const previousStatus = new Map((existingRows || []).map((r) => [r.id, r.status]));
+        const newlyAdded = incoming.filter((r) => !previousStatus.has(r.id));
+        // A request that just stopped being 'pending' is a decision someone is waiting on.
+        // Comparing against what was stored is what makes this reliable: the client sends the
+        // whole array every time, so "approved" alone would re-notify on every later save.
+        const justDecided = incoming.filter(
+          (r) =>
+            previousStatus.has(r.id) &&
+            previousStatus.get(r.id) === 'pending' &&
+            (r.status === 'approved' || r.status === 'rejected')
+        );
 
         await replaceTable('registration_requests', 'id', incoming.map(registrationRequestToDb));
 
         if (newlyAdded.length > 0) {
           notifyNewRegistrationRequests(newlyAdded).catch((e) =>
             console.error('Failed to send registration notifications:', e)
+          );
+        }
+        for (const request of justDecided) {
+          notifyRegistrationDecision(request, request.status).catch((e) =>
+            console.error('Failed to notify about a registration decision:', e)
           );
         }
       }
@@ -681,6 +800,14 @@ export function createApiApp() {
       }
 
       res.json({ success: true, order });
+
+      // After the response: supervision needs to know there's something to decide on, and the
+      // point's other staff need to know it's already been sent so nobody sends it twice.
+      if (status === 'submitted') {
+        notifyOrderSubmitted(shopId, order).catch((e) =>
+          console.error(`Failed to notify about submitted order for shop ${shopId}:`, e)
+        );
+      }
     } catch (e) {
       console.error('Failed to save order:', e);
       res.status(500).json({ error: 'Failed to save order' });

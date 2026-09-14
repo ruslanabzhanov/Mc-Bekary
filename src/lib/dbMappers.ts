@@ -161,6 +161,9 @@ export const staffFromDb = (r: any) => ({
   phone: r.phone || undefined,
   position: r.position || undefined,
   shiftRate: Number(r.shift_rate) || 0,
+  // Unverified, captured from Telegram when the person registered or last opened the app.
+  // Good enough to send them a notification; never used to decide what they may do.
+  telegramUserId: r.telegram_user_id || undefined,
 });
 export const staffToDb = (s: any) => ({
   id: s.id,
@@ -171,6 +174,7 @@ export const staffToDb = (s: any) => ({
   phone: s.phone || null,
   position: s.position || null,
   shift_rate: Number(s.shiftRate) || 0,
+  telegram_user_id: s.telegramUserId || null,
 });
 
 export const shiftFromDb = (r: any) => ({
@@ -189,6 +193,7 @@ export const registrationRequestFromDb = (r: any) => ({
   requestedShopIds: r.requested_shop_ids || undefined,
   requestedRole: r.requested_role,
   requestedPosition: r.requested_position || undefined,
+  telegramUserId: r.telegram_user_id || undefined,
   submittedAt: r.submitted_at,
   status: r.status || 'pending',
 });
@@ -200,6 +205,7 @@ export const registrationRequestToDb = (r: any) => ({
   requested_shop_ids: r.requestedShopIds || null,
   requested_role: r.requestedRole,
   requested_position: r.requestedPosition || null,
+  telegram_user_id: r.telegramUserId || null,
   submitted_at: r.submittedAt,
   status: r.status || 'pending',
 });

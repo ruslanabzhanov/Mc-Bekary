@@ -149,7 +149,10 @@ create table if not exists staff (
   position text,
   -- Current pay per shift. This is the *default* copied onto a new shift, not the figure
   -- earnings are computed from — see the shifts table below.
-  shift_rate numeric not null default 0
+  shift_rate numeric not null default 0,
+  -- Where to send this person a notification. Unverified (captured from Telegram at
+  -- registration, or by their own device on startup) — it decides delivery, never permission.
+  telegram_user_id text
 );
 
 -- One row per person per day they actually worked. The timesheet is a record of fact, not
@@ -181,6 +184,7 @@ create table if not exists registration_requests (
   requested_shop_ids jsonb,
   requested_role text not null,
   requested_position text,
+  telegram_user_id text,
   submitted_at text not null,
   status text not null default 'pending'
 );

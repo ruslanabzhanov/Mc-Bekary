@@ -78,6 +78,11 @@ type OrderSyncEntry = { status: 'sending' | 'failed'; isSubmit: boolean; retry: 
 // timesheet to show. Set once by grantAccess() and never changed.
 const EMPLOYEE_ID_STORAGE_KEY = 'mc-bekary-employee-id';
 
+// Which staff record this device belongs to, whatever the role. A point can have several
+// managers plus a barista; without this, a shop_manager device knew only its point and could
+// not say which of those people it was — so there was no way to notify the others.
+const STAFF_ID_STORAGE_KEY = 'mc-bekary-staff-id';
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(() => !wasSplashShownThisSession());
 
@@ -124,6 +129,8 @@ export default function App() {
     );
   });
   const grantAccess = (approvedRequest: RegistrationRequest) => {
+    // Same deterministic id handleApproveRegistrationRequest gives the new staff record.
+    window.localStorage.setItem(STAFF_ID_STORAGE_KEY, `staff-from-${approvedRequest.id}`);
     if (approvedRequest.requestedRole === 'shop_manager') {
       setSelectedShopId(approvedRequest.requestedShopId);
     } else if (approvedRequest.requestedRole === 'territorial_manager') {
@@ -327,6 +334,19 @@ export default function App() {
     if (tg) {
       tg.ready();
       tg.expand();
+      // Tell the server where to reach this person. Registration captures it going forward;
+      // this covers anyone already registered before that existed, and repairs it if someone
+      // changes device. Cheap and idempotent — it just writes the same id again.
+      const myStaffId = window.localStorage.getItem(STAFF_ID_STORAGE_KEY);
+      const myTelegramId = tg.initDataUnsafe?.user?.id;
+      if (myStaffId && myTelegramId) {
+        fetch('/api/staff/telegram-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ staffId: myStaffId, telegramUserId: String(myTelegramId) }),
+        }).catch((e) => console.error('Failed to link Telegram id:', e));
+      }
+
       if (tg.initData) {
         setTelegramInitData(tg.initData);
         fetch('/api/auth/telegram-owner', {
@@ -632,8 +652,13 @@ export default function App() {
     request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>
   ) => {
     const timeStr = timeNowAlmaty();
+    // Captured here so the approve/reject decision can be pushed back to this person, and so
+    // that once they're staff we know where to send everything else — this is the only moment
+    // their Telegram id is reliably in front of us.
+    const telegramUserId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
     const newRequest: RegistrationRequest = {
       ...request,
+      telegramUserId: telegramUserId ? String(telegramUserId) : request.telegramUserId,
       id: `reg-${Date.now()}`,
       submittedAt: timeStr,
       status: 'pending',
@@ -663,7 +688,8 @@ export default function App() {
       shopId: isTerritorial ? null : request.requestedShopId,
       assignedShopIds: isTerritorial ? request.requestedShopIds : undefined,
       phone: request.phone,
-      position: request.requestedRole === 'employee' ? request.requestedPosition : undefined
+      position: request.requestedRole === 'employee' ? request.requestedPosition : undefined,
+      telegramUserId: request.telegramUserId
     };
     setStaff((prev) => [...prev, newStaffMember]);
     setRegistrationRequests((prev) =>

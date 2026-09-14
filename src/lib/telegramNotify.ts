@@ -20,7 +20,11 @@ export async function sendTelegramMessage(
         inline_keyboard: [[{ text: '📋 Открыть приложение', web_app: { url: webAppUrl } }]],
       };
     }
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    // Overridable so the notification fan-out can be exercised end to end — who gets told
+    // what, on which event — without sending real messages to real people. Unset in
+    // production, where it resolves to Telegram itself.
+    const apiBase = process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+    const res = await fetch(`${apiBase}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

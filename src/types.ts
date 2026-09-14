@@ -157,6 +157,7 @@ export interface StaffMember {
   phone?: string;
   position?: string; // job title, only meaningful for role 'employee' — see EMPLOYEE_POSITIONS
   shiftRate?: number; // current pay per shift; the default copied onto a new Shift, see below
+  telegramUserId?: string; // for notifications only — unverified, never an authorization input
 }
 
 // One recorded day of work. `rate` is frozen at the moment the shift is entered rather than
@@ -181,6 +182,7 @@ export interface RegistrationRequest {
   requestedShopIds?: number[]; // used for 'territorial_manager' (up to 8 points)
   requestedRole: StaffRole;
   requestedPosition?: string; // job title when requestedRole is 'employee' — see EMPLOYEE_POSITIONS
+  telegramUserId?: string; // captured at submit so the decision can be pushed back to them
   submittedAt: string;
   status: RegistrationRequestStatus;
 }
