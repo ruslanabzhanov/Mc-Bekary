@@ -36,6 +36,7 @@ export type OrderStatus = 'draft' | 'submitted' | 'accepted' | 'rejected' | 'in_
 
 export interface ShopOrder {
   shopId: number;
+  orderDate?: string; // YYYY-MM-DD Kazakhstan day this order belongs to; earlier days are ignored
   items: Record<string, number>; // productId -> quantity
   status: OrderStatus;
   submittedAt?: string;

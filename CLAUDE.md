@@ -70,6 +70,14 @@ Because the app is just a normal website that Telegram happens to open in a `web
 
 `App.tsx`'s `selectedShopId` is persisted to `localStorage` (`mc-bekary-selected-shop-id`) rather than hardcoded. It is set exactly once per device: either by `grantAccess()` when a registration request is approved for that device (see "Mandatory registration" below), or, for devices that were already active before the registration gate shipped, whatever was already in `localStorage` (grandfathered). **There is no self-service way to change it afterward** — `ManagerView.tsx` used to have a pencil-icon shop-picker for this, which was removed so an approved device can't just switch itself to a different point's ordering screen; a manager can only ever order for the point their registration was approved for. This is still not tied to *who* is physically holding the device (real per-manager Telegram identity is still not implemented), but the point itself is now fixed once approved rather than freely reassignable.
 
+### The working day ends at Kazakhstan midnight
+
+`orders` carries an `order_date` — the Kazakhstan calendar day the order belongs to. Every write stamps today's date; **every read filters to it** (`/api/initial-data`, `GET /api/orders/:shopId`, accept-all, reminders, AI procurement). So the network starts each day with nothing submitted, today's checklists are computed from today's orders only, and "27 не подали" is true again each morning — without anything having to run at midnight.
+
+This is deliberately a stored date rather than a scheduled wipe: a cron that fails one night would leave the whole chain ordering and baking against yesterday's figures, whereas a date can't drift and needs no scheduler. Yesterday's row is left in the table (one row per shop, `shop_id` is the PK) and is simply overwritten when that shop orders again — it's already preserved in `order_history`, which is the real record.
+
+Consequence worth knowing: an unsubmitted draft does not survive the day boundary. That's intended — a draft nobody submitted isn't an order — but it means a manager filling a draft at 23:55 loses it at 00:00.
+
 ### Order history
 
 Every order that transitions to `status: 'submitted'` (not draft saves) is also appended to `order_history` (shop_id, items, manager_name, submitted_at — a real Postgres timestamp, unlike `orders.submitted_at` which is just an `HH:MM` string). `GET /api/orders/:shopId/history` returns it newest-first. In `ManagerView.tsx`, clicking the "Точка №X" tile opens `OrderHistoryModal.tsx`, which fetches this endpoint and lets the manager drill into any past submission's full item breakdown. This is append-only and independent of the single current-order-per-shop row in `orders`.

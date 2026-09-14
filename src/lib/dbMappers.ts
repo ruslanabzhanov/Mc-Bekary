@@ -53,6 +53,7 @@ export const productToDb = (p: any) => ({
 
 export const orderFromDb = (r: any) => ({
   shopId: r.shop_id,
+  orderDate: typeof r.order_date === 'string' ? r.order_date.slice(0, 10) : r.order_date || undefined,
   items: r.items || {},
   status: r.status,
   submittedAt: r.submitted_at || undefined,
@@ -64,6 +65,7 @@ export const orderFromDb = (r: any) => ({
 });
 export const orderToDb = (o: any) => ({
   shop_id: o.shopId,
+  order_date: o.orderDate || null,
   items: o.items || {},
   status: o.status,
   submitted_at: o.submittedAt || null,

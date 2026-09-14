@@ -6,6 +6,7 @@ import { PersonnelManager } from './PersonnelManager';
 import { SalesPointsManager } from './SalesPointsManager';
 import { RolePermissionsModal } from './RolePermissionsModal';
 import { TimesheetManager } from './TimesheetManager';
+import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
 import {
   ShieldCheck,
   Send,
@@ -24,6 +25,7 @@ import {
   Printer,
   Store,
   CalendarCheck,
+  History,
   X,
   Crown
 } from 'lucide-react';
@@ -117,6 +119,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isSalesPointsModalOpen, setIsSalesPointsModalOpen] = useState(false);
   const [isCostingsModalOpen, setIsCostingsModalOpen] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
+  const [isHistoryDaysOpen, setIsHistoryDaysOpen] = useState(false);
   const [isRolePermissionsOpen, setIsRolePermissionsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -133,24 +136,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const acceptedCount = allOrdersList.filter((o) => o.status === 'accepted').length;
   const pendingCount = 27 - submittedCount;
 
-  // Total pcs & cost
-  let grandTotalPcs = 0;
-  let grandTotalSum = 0;
   let networkAnomalies = 0;
-
   allOrdersList.forEach((order) => {
-    if (order.status === 'submitted' || order.status === 'accepted') {
-      if (order.anomalies) {
-        networkAnomalies += Object.keys(order.anomalies).length;
-      }
-      Object.entries(order.items || {}).forEach(([pId, qtyVal]) => {
-        const qty = Number(qtyVal) || 0;
-        const p = products.find((prod) => prod.id === pId);
-        if (p && qty > 0) {
-          grandTotalPcs += qty;
-          grandTotalSum += qty * p.price;
-        }
-      });
+    if ((order.status === 'submitted' || order.status === 'accepted') && order.anomalies) {
+      networkAnomalies += Object.keys(order.anomalies).length;
     }
   });
 
@@ -233,18 +222,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </span>
           </div>
 
-          {/* TILE 3: ОБЩЕЕ КОЛИЧЕСТВО ПОЗИЦИЙ */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center flex flex-col items-center justify-center">
-            <span className="text-[10px] font-black uppercase text-slate-400 block tracking-widest">
-              Общее количество позиций
+          {/* TILE 3: ИСТОРИЯ ЗАЯВОК. Заменила «общее количество позиций» — те же цифры уже
+              стоят в «Заявок подано» рядом, а прошедшие дни посмотреть было негде. */}
+          <button
+            id="btn-open-order-history-days"
+            onClick={() => setIsHistoryDaysOpen(true)}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group text-center flex flex-col items-center justify-center"
+          >
+            <span className="text-[10px] font-black uppercase text-slate-400 group-hover:text-indigo-700 block tracking-widest transition-colors">
+              История заявок
             </span>
-            <div className="text-2xl font-black text-slate-900 mt-1">
-              {grandTotalPcs} <span className="text-xs text-slate-500 font-normal">шт</span>
-            </div>
-            <span className="text-[11px] text-indigo-700 font-bold block mt-1">
-              Сумма: {grandTotalSum.toLocaleString('ru-RU')} ₸
+            <History className="w-7 h-7 text-slate-900 mt-1.5" />
+            <span className="text-[11px] text-indigo-700 font-bold block mt-1.5">
+              по дням
             </span>
-          </div>
+          </button>
 
           {/* TILE 4: АНОМАЛИЯ В ЗАЯВКЕ */}
           <div className="bg-rose-50 p-4 rounded-xl border border-rose-200 shadow-sm text-center flex flex-col items-center justify-center">
@@ -600,6 +592,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
         </div>
       )}
+
+      <OrderHistoryDaysModal
+        isOpen={isHistoryDaysOpen}
+        onClose={() => setIsHistoryDaysOpen(false)}
+        shops={shops}
+        products={products}
+      />
 
       {/* MODALS */}
       <PrintChecklistsModal

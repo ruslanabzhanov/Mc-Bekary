@@ -42,6 +42,13 @@ function timeNow() {
   });
 }
 
+// Today's Kazakhstan calendar day as YYYY-MM-DD. The whole app's "day" is this, not the
+// server's — an order placed at 23:30 in Astana belongs to that day, not to whatever day it
+// already is in UTC.
+function almatyToday() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+}
+
 // UTC instant bounds [start, end) of one Kazakhstan calendar day, for querying a timestamptz
 // column by "which Almaty-local day did this fall on". Almaty is a fixed UTC+5 with no DST
 // (nationwide since 2024), so a literal offset is exact — no timezone-table lookup needed.
@@ -253,7 +260,8 @@ export function createApiApp() {
       ] = await Promise.all([
         supabase.from('shops').select('*'),
         supabase.from('products').select('*'),
-        supabase.from('orders').select('*'),
+        // Today only: yesterday's row is left in place but is not part of today's picture.
+        supabase.from('orders').select('*').eq('order_date', almatyToday()),
         supabase.from('notifications').select('*').order('created_at', { ascending: false }),
         supabase.from('raw_materials').select('*'),
         supabase.from('raw_category_defs').select('*'),
@@ -567,10 +575,11 @@ export function createApiApp() {
       const { error } = await supabase
         .from('orders')
         .update({ status: 'accepted', accepted_at: timeStr })
-        .eq('status', 'submitted');
+        .eq('status', 'submitted')
+        .eq('order_date', almatyToday());
       if (error) throw error;
 
-      const { data, error: selectError } = await supabase.from('orders').select('*');
+      const { data, error: selectError } = await supabase.from('orders').select('*').eq('order_date', almatyToday());
       if (selectError) throw selectError;
       const ordersRecord: Record<number, any> = {};
       (data || []).forEach((r) => {
@@ -609,11 +618,15 @@ export function createApiApp() {
       }
       const shop = shopFromDb(shopRow);
 
+      const today = almatyToday();
       const { data: existingOrderRow } = await supabase
         .from('orders')
         .select('*')
         .eq('shop_id', shopId)
+        .eq('order_date', today)
         .maybeSingle();
+      // A row left over from an earlier day is not carried forward — today starts clean, and
+      // the write below overwrites it (shop_id is the primary key).
       const existingOrder = existingOrderRow ? orderFromDb(existingOrderRow) : null;
 
       // Detect anomalies compared to historical average
@@ -638,6 +651,7 @@ export function createApiApp() {
       const timeStr = timeNow();
       const order = {
         shopId,
+        orderDate: today,
         items: items || {},
         status: status || 'submitted',
         submittedAt: status === 'submitted' ? timeStr : existingOrder?.submittedAt || timeStr,
@@ -678,7 +692,12 @@ export function createApiApp() {
   app.get('/api/orders/:shopId', async (req, res) => {
     try {
       const shopId = parseInt(req.params.shopId, 10);
-      const { data, error } = await supabase.from('orders').select('*').eq('shop_id', shopId).maybeSingle();
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('shop_id', shopId)
+        .eq('order_date', almatyToday())
+        .maybeSingle();
       if (error) throw error;
       res.json({ order: data ? orderFromDb(data) : null });
     } catch (e) {
@@ -703,6 +722,70 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to fetch order history:', e);
       res.status(500).json({ error: 'Failed to fetch order history' });
+    }
+  });
+
+  // The days the network actually ordered on, newest first, with each day's totals. Backs the
+  // "История заявок" screen, which opens on a list of days rather than making someone guess a
+  // date in a picker. Aggregated here because the money needs product prices.
+  app.get('/api/order-history/days', async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || '30'), 10) || 30, 1), 120);
+      // Reach back a generous window rather than trying to page by day — a day with no orders
+      // simply doesn't appear, so "last 30 days of calendar" and "last 30 ordering days" differ.
+      const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+
+      const [{ data: rows, error }, { data: productRows, error: productsError }] = await Promise.all([
+        supabase
+          .from('order_history')
+          .select('*')
+          .gte('submitted_at', since)
+          .order('submitted_at', { ascending: false }),
+        supabase.from('products').select('id, price'),
+      ]);
+      if (error) throw error;
+      if (productsError) throw productsError;
+
+      const priceById = new Map<string, number>(
+        (productRows || []).map((r: any) => [r.id, Number(r.price) || 0])
+      );
+
+      // Group by the Kazakhstan day the submission landed on, keeping only each shop's latest
+      // one — the same rule the per-date registry uses, so the totals agree with it.
+      const byDay = new Map<string, Map<number, any>>();
+      for (const row of rows || []) {
+        const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+        if (!byDay.has(day)) byDay.set(day, new Map());
+        const shops = byDay.get(day)!;
+        if (!shops.has(row.shop_id)) shops.set(row.shop_id, row);
+      }
+
+      const days = Array.from(byDay.entries())
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .slice(0, limit)
+        .map(([date, shops]) => {
+          let pcs = 0;
+          let sum = 0;
+          let accepted = 0;
+          let rejected = 0;
+          for (const row of shops.values()) {
+            if (row.status === 'accepted') accepted++;
+            if (row.status === 'rejected') rejected++;
+            Object.entries(row.items || {}).forEach(([pid, q]) => {
+              const qty = Number(q) || 0;
+              if (qty > 0) {
+                pcs += qty;
+                sum += qty * (priceById.get(pid) || 0);
+              }
+            });
+          }
+          return { date, shops: shops.size, pcs, sum, accepted, rejected };
+        });
+
+      res.json({ days });
+    } catch (e) {
+      console.error('Failed to fetch order history days:', e);
+      res.status(500).json({ error: 'Failed to fetch order history days' });
     }
   });
 
@@ -743,10 +826,12 @@ export function createApiApp() {
       const { status } = req.body;
       const timeStr = timeNow();
 
+      const today = almatyToday();
       const { data: existingOrderRow } = await supabase
         .from('orders')
         .select('*')
         .eq('shop_id', shopId)
+        .eq('order_date', today)
         .maybeSingle();
 
       let order: any;
@@ -759,12 +844,14 @@ export function createApiApp() {
         const shop = shopRow ? shopFromDb(shopRow) : null;
         order = {
           shopId,
+          orderDate: today,
           items: {},
           status: status || 'draft',
           managerName: shop?.manager || '',
           acceptedAt: status === 'accepted' ? timeStr : undefined,
         };
       }
+      order.orderDate = today;
 
       const { error } = await supabase.from('orders').upsert(orderToDb(order));
       if (error) throw error;
@@ -942,7 +1029,8 @@ export function createApiApp() {
       const timeStr = timeNow();
       const [{ data: shopRows, error: shopsError }, { data: orderRows, error: ordersError }] = await Promise.all([
         supabase.from('shops').select('*'),
-        supabase.from('orders').select('*'),
+        // "Кто ещё не подал" means today — a point that ordered yesterday is still lagging now.
+        supabase.from('orders').select('*').eq('order_date', almatyToday()),
       ]);
       if (shopsError) throw shopsError;
       if (ordersError) throw ordersError;
@@ -1081,7 +1169,7 @@ ${orderDetails.join('\n')}
   app.post('/api/ai/predictive-procurement', async (req, res) => {
     try {
       const [{ data: orderRows, error: ordersError }, { data: productRows, error: productsError }] = await Promise.all([
-        supabase.from('orders').select('*'),
+        supabase.from('orders').select('*').eq('order_date', almatyToday()),
         supabase.from('products').select('*'),
       ]);
       if (ordersError) throw ordersError;

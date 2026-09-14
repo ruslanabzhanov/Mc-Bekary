@@ -31,6 +31,12 @@ create table if not exists products (
 -- One current order per shop (matches today's single-active-order-per-shop model)
 create table if not exists orders (
   shop_id integer primary key references shops(id),
+  -- Which Kazakhstan calendar day this order belongs to. Reads ignore anything that isn't
+  -- today, so the network starts each day empty — yesterday's submissions live on in
+  -- order_history. Deliberately a stored day rather than a scheduled midnight wipe: a cron
+  -- that fails one night leaves the whole chain ordering against stale figures, whereas a
+  -- date can't drift and needs nothing to run.
+  order_date date,
   items jsonb not null default '{}',
   status text not null default 'draft',
   submitted_at text,
@@ -59,6 +65,7 @@ create table if not exists order_history (
   status text not null default 'submitted',
   decided_at timestamptz
 );
+create index if not exists orders_order_date_idx on orders(order_date);
 create index if not exists order_history_shop_id_idx on order_history(shop_id, submitted_at desc);
 alter table order_history enable row level security;
 
