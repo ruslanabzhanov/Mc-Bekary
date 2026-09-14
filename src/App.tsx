@@ -70,6 +70,9 @@ const OWNER_VIEW_STORAGE_KEY = 'mc-bekary-owner-view';
 // computed the same way in handleApproveRegistrationRequest below.
 const TERRITORIAL_ID_STORAGE_KEY = 'mc-bekary-territorial-manager-id';
 
+// How the last write to a shop's order ended, so a failure can be shown instead of logged.
+type OrderSyncEntry = { status: 'sending' | 'failed'; isSubmit: boolean; retry: () => void };
+
 // Same idea for an approved internal employee: without this the device only knew "someone
 // registered here" and fell through to the shop-ordering screen, with no way to tell whose
 // timesheet to show. Set once by grantAccess() and never changed.
@@ -392,6 +395,20 @@ export default function App() {
   const draftTimerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const pendingDraftRef = useRef<Record<number, () => void>>({});
 
+  // Outcome of the last write per shop. Before this, a failed save was a console.error and
+  // nothing else: the server's answer was never even checked, so an HTTP error read as
+  // success, and the "заявка отправлена" toast fired before the request left. A manager could
+  // be told their order went through when the bakery never received it.
+  const [orderSync, setOrderSync] = useState<Record<number, OrderSyncEntry>>({});
+
+  const clearOrderSync = (shopId: number) =>
+    setOrderSync((prev) => {
+      if (!prev[shopId]) return prev;
+      const next = { ...prev };
+      delete next[shopId];
+      return next;
+    });
+
   const cancelPendingDraft = (shopId: number) => {
     if (draftTimerRef.current[shopId]) {
       clearTimeout(draftTimerRef.current[shopId]);
@@ -461,28 +478,61 @@ export default function App() {
       },
     }));
 
-    if (status === 'submitted') {
-      showToast(`✅ Заявка для Кофейни №${shopId} (${shop.name}) успешно отправлена в производство!`);
-    }
+    const isSubmit = status === 'submitted';
+    if (isSubmit) showToast('📤 Отправляем заявку…');
+
+    const writeOnce = async () => {
+      const res = await fetch(`/api/orders/${shopId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // Lets the write finish even if the page is being torn down (app closed, Telegram
+        // swiped away) instead of being cancelled with the document.
+        keepalive: true,
+        body: JSON.stringify({
+          items,
+          status,
+          managerName,
+          submittedByTelegramId: telegramUserId ? String(telegramUserId) : undefined,
+        }),
+      });
+      // A rejected request used to slip through as success: only a dropped connection was
+      // caught, never an error the server actually answered with.
+      if (!res.ok) throw new Error(`Сервер ответил ${res.status}`);
+      return res;
+    };
 
     const sendToServer = () =>
-      queueOrderRequest(shopId, () =>
-        fetch(`/api/orders/${shopId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          // Lets the write finish even if the page is being torn down (app closed, Telegram
-          // swiped away) instead of being cancelled with the document.
-          keepalive: true,
-          body: JSON.stringify({
-            items,
-            status,
-            managerName,
-            submittedByTelegramId: telegramUserId ? String(telegramUserId) : undefined,
-          }),
-        }).catch((e) => console.error('Failed to sync order to server:', e))
-      );
+      queueOrderRequest(shopId, async () => {
+        setOrderSync((prev) => ({ ...prev, [shopId]: { status: 'sending', isSubmit, retry: sendToServer } }));
+        try {
+          await writeOnce();
+        } catch (first) {
+          // One quiet retry, so a momentary blip on a shop's connection doesn't raise an alarm.
+          await new Promise((r) => setTimeout(r, 2000));
+          try {
+            await writeOnce();
+          } catch (second) {
+            console.error('Failed to sync order to server:', second);
+            // The optimistic state said "submitted". It isn't — put it back to a draft so the
+            // screen can't claim an order was placed while the bakery has nothing.
+            if (isSubmit) {
+              setOrders((prev) => {
+                const existing = prev[shopId];
+                if (!existing || existing.status !== 'submitted') return prev;
+                return { ...prev, [shopId]: { ...existing, status: 'draft' } };
+              });
+            }
+            setOrderSync((prev) => ({ ...prev, [shopId]: { status: 'failed', isSubmit, retry: sendToServer } }));
+            return;
+          }
+        }
+        clearOrderSync(shopId);
+        if (isSubmit) {
+          showToast(`✅ Заявка для точки «${shop.district.trim() || shop.address}» отправлена в производство`);
+        }
+      });
 
-    if (status === 'submitted') {
+    if (isSubmit) {
       // A submit supersedes any draft write still waiting for this shop: drop it and go now.
       cancelPendingDraft(shopId);
       await sendToServer();
@@ -797,6 +847,27 @@ export default function App() {
   const selectedShop = shops.find((s) => s.id === selectedShopId) || shops[0];
   const currentTerritorialManager = staff.find((s) => s.id === currentTerritorialManagerId) || null;
 
+  // The failed write to shout about. A submit outranks a draft, and this device's own point
+  // outranks another one, so the banner names the thing most likely to matter right now.
+  const failedOrderSync = (() => {
+    const failures = (Object.entries(orderSync) as [string, OrderSyncEntry][])
+      .filter(([, s]) => s.status === 'failed')
+      .map(([id, sync]) => ({ shopId: Number(id), sync }));
+    if (failures.length === 0) return null;
+    const best =
+      failures.find((f) => f.sync.isSubmit && f.shopId === selectedShopId) ||
+      failures.find((f) => f.sync.isSubmit) ||
+      failures.find((f) => f.shopId === selectedShopId) ||
+      failures[0];
+    const shop = shops.find((s) => s.id === best.shopId);
+    return {
+      sync: best.sync,
+      // Naming the point only matters when it isn't the one already on screen.
+      shopLabel:
+        best.shopId === selectedShopId ? '' : shop ? shop.district.trim() || shop.address : `Точка №${best.shopId}`,
+    };
+  })();
+
   // Internal shop-floor staff — the only people the timesheet covers.
   const employees = staff.filter((s) => s.role === 'employee');
   // Whose cabinet the employee screen shows: the Owner's chosen preview, otherwise this
@@ -829,6 +900,32 @@ export default function App() {
         {toastMessage && (
           <div className="fixed top-20 right-6 z-50 bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold shadow-xl flex items-center space-x-2 animate-bounce border border-indigo-500">
             <span className="text-xs uppercase tracking-wide">{toastMessage}</span>
+          </div>
+        )}
+
+        {/* A failed write has to stay on screen until it is dealt with — a toast that fades
+            after three seconds is exactly how an unsent order goes unnoticed. */}
+        {failedOrderSync && (
+          // Above the header, not beside it: both stick to the top, and an order that never
+          // reached the bakery outranks the logo for that strip of screen.
+          <div className="sticky top-0 z-50 bg-rose-600 text-white px-4 py-3 shadow-lg">
+            <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold leading-tight">
+                  {failedOrderSync.sync.isSubmit ? 'Заявка не отправлена' : 'Заявка не сохранилась'}
+                </p>
+                <p className="text-xs text-rose-100 mt-0.5">
+                  {failedOrderSync.shopLabel ? `${failedOrderSync.shopLabel}. ` : ''}
+                  Нет связи с сервером. Всё, что вы набрали, на месте — попробуйте ещё раз.
+                </p>
+              </div>
+              <button
+                onClick={() => failedOrderSync.sync.retry()}
+                className="shrink-0 min-h-[44px] px-4 rounded-xl bg-white text-rose-700 text-xs font-black uppercase tracking-wider hover:bg-rose-50 active:bg-rose-100 transition-colors"
+              >
+                Повторить
+              </button>
+            </div>
           </div>
         )}
 
