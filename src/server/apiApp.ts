@@ -217,14 +217,35 @@ async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejecte
 
   const send = makeSender(botToken, WEB_APP_URL);
 
+  // What the point actually sent, versus what is being accepted. If someone edited the order
+  // in between, the point has to hear it — otherwise they expect one delivery and get another.
+  let changeNote = '';
+  if (status === 'accepted') {
+    const { data: lastSubmission } = await supabase
+      .from('order_history')
+      .select('items')
+      .eq('shop_id', shopId)
+      .order('submitted_at', { ascending: false })
+      .limit(1);
+    const submittedItems = lastSubmission?.[0]?.items || null;
+    if (submittedItems) {
+      const { data: productRows } = await supabase.from('products').select('id, name');
+      const nameById = new Map<string, string>((productRows || []).map((r: any) => [r.id, r.name]));
+      const changes = describeOrderChanges(submittedItems, order.items || {}, nameById);
+      if (changes) {
+        changeNote = `\n\n✏️ <b>Состав изменён перед приёмом:</b>\n${changes}`;
+      }
+    }
+  }
+
   const submitterText =
     status === 'accepted'
-      ? `✅ <b>Заявка принята</b>\n\nВаша заявка для точки «${shopLabel}» принята Управляющим Производством.\n${size}`
+      ? `✅ <b>Заявка принята</b>\n\nВаша заявка для точки «${shopLabel}» принята Управляющим Производством.\n${size}${changeNote}`
       : `❌ <b>Заявка отклонена</b>\n\nВаша заявка для точки «${shopLabel}» отклонена Управляющим Производством. Уточните детали у управляющего.\n${size}`;
 
   const teamText =
     status === 'accepted'
-      ? `✅ <b>Заявка вашей точки принята</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}`
+      ? `✅ <b>Заявка вашей точки принята</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}${changeNote}`
       : `❌ <b>Заявка вашей точки отклонена</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}\n\nУточните детали у управляющего.`;
 
   const supervisorText =
@@ -238,6 +259,110 @@ async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejecte
   // not one person's, and the next shift needs to know it was decided.
   for (const chatId of await shopAudienceIds(shopId)) await send(chatId, teamText);
   for (const chatId of supervisorRecipientIds()) await send(chatId, supervisorText);
+}
+
+// When a point is expected to have ordered by. Shown in messages and mirrored by the cron
+// schedule in vercel.json (which is in UTC — 10:30 Almaty is 05:30 UTC).
+const ORDER_DEADLINE = '10:30';
+
+// Who still hasn't ordered today, and telling the people who can do something about it.
+// Shared by the manual "Напомнить отстающим" button and the automatic deadline run, so both
+// behave identically — the button used to only write an in-app banner, which nobody sees
+// unless they happen to open the app, which is exactly the case being chased here.
+async function remindLaggingShops({ automatic }: { automatic: boolean }) {
+  const [{ data: shopRows }, { data: orderRows }, { data: staffRows }] = await Promise.all([
+    supabase.from('shops').select('*'),
+    supabase.from('orders').select('*').eq('order_date', almatyToday()),
+    supabase.from('staff').select('*'),
+  ]);
+
+  const shops = (shopRows || []).map(shopFromDb);
+  const submittedShopIds = new Set(
+    (orderRows || [])
+      .map(orderFromDb)
+      .filter((o: any) => o.status !== 'draft')
+      .map((o: any) => o.shopId)
+  );
+  const lagging = shops.filter((s: any) => !submittedShopIds.has(s.id));
+  const label = (s: any) => (s.district || '').trim() || s.address || `Точка №${s.id}`;
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (botToken && lagging.length > 0) {
+    const send = makeSender(botToken, WEB_APP_URL);
+    const staff = (staffRows || []).map(staffFromDb);
+    const opener = automatic
+      ? `⏰ <b>Дедлайн ${ORDER_DEADLINE} прошёл</b>`
+      : `🔔 <b>Напоминание о заявке</b>`;
+
+    // The points themselves — everyone who works there, since any of them can place it.
+    for (const shop of lagging) {
+      const text =
+        `${opener}\n\n🏪 ${label(shop)}\n\nЗаявка на витрину ещё не подана. ` +
+        `Откройте приложение и отправьте её.`;
+      for (const member of staff) {
+        if (member.telegramUserId && member.shopId === shop.id) {
+          await send(String(member.telegramUserId), text);
+        }
+      }
+    }
+
+    // Each territorial manager gets only their own points — a list of somebody else's
+    // shops is noise they can't act on.
+    for (const member of staff) {
+      if (!member.telegramUserId || member.role !== 'territorial_manager') continue;
+      const mine = lagging.filter((s: any) => member.assignedShopIds?.includes(s.id));
+      if (mine.length === 0) continue;
+      await send(
+        String(member.telegramUserId),
+        `${opener}\n\nПо вашим точкам не подано заявок: <b>${mine.length}</b>\n\n` +
+          mine.map((s: any) => `• ${label(s)}`).join('\n')
+      );
+    }
+
+    // Supervision sees the whole network.
+    const overview =
+      `${opener}\n\nНе подали заявку: <b>${lagging.length}</b> из ${shops.length}\n\n` +
+      lagging.slice(0, 30).map((s: any) => `• ${label(s)}`).join('\n') +
+      (lagging.length > 30 ? `\n…и ещё ${lagging.length - 30}` : '');
+    for (const chatId of supervisorRecipientIds()) await send(chatId, overview);
+  }
+
+  // Keep writing the in-app banner too — it's what a manager sees on opening the app.
+  const timeStr = timeNow();
+  const newNotifications = lagging.map((shop: any) => ({
+    id: `notif-${Date.now()}-${shop.id}`,
+    shopId: shop.id,
+    shopName: shop.name,
+    sentAt: timeStr,
+    message: `🔔 Напоминание: пожалуйста, завершите и отправьте заявку на витрину до ${ORDER_DEADLINE}!`,
+  }));
+  if (newNotifications.length > 0) {
+    const { error } = await supabase.from('notifications').insert(newNotifications.map(notificationToDb));
+    if (error) console.error('Failed to write reminder notifications:', error);
+  }
+
+  return { lagging, shops };
+}
+
+// What changed between what a point sent and what was actually accepted. Returns null when
+// nothing did, so the common case adds nothing to the message.
+function describeOrderChanges(
+  submittedItems: Record<string, any>,
+  acceptedItems: Record<string, any>,
+  productNameById: Map<string, string>
+): string | null {
+  const lines: string[] = [];
+  const ids = new Set([...Object.keys(submittedItems || {}), ...Object.keys(acceptedItems || {})]);
+  for (const id of ids) {
+    const was = Number(submittedItems?.[id]) || 0;
+    const now = Number(acceptedItems?.[id]) || 0;
+    if (was === now) continue;
+    const name = productNameById.get(id) || id;
+    if (was === 0) lines.push(`• ${name}: добавлено ${now}`);
+    else if (now === 0) lines.push(`• ${name}: убрано (было ${was})`);
+    else lines.push(`• ${name}: ${was} → ${now}`);
+  }
+  return lines.length > 0 ? lines.join('\n') : null;
 }
 
 // The applicant finally hears back. Until now approval was silent: their device discovered it
@@ -1148,45 +1273,34 @@ export function createApiApp() {
   // Send reminder notifications to all unsubmitted coffee shops. Owner-verified: this pushes
   // real Telegram messages out to every lagging point, so an open route here is a way to spam
   // the whole network from outside the app.
+  // Fired by Vercel Cron at the deadline (see vercel.json). Nobody has to remember to press
+  // anything, and it still runs on a morning when the Owner is asleep or away. Guarded by a
+  // shared secret rather than a Telegram signature — a scheduler has no Telegram identity.
+  const runDeadlineReminder = async (req: any, res: any) => {
+    try {
+      const secret = process.env.CRON_SECRET;
+      const provided =
+        (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || String(req.query?.key || '');
+      if (!secret || provided !== secret) {
+        return res.status(403).json({ error: 'Not allowed' });
+      }
+      const { lagging, shops } = await remindLaggingShops({ automatic: true });
+      res.json({ success: true, lagging: lagging.length, total: shops.length });
+    } catch (e) {
+      console.error('Deadline reminder failed:', e);
+      res.status(500).json({ error: 'Deadline reminder failed' });
+    }
+  };
+  // Vercel Cron issues a GET; POST is here so the run can be triggered by hand too.
+  app.get('/api/cron/deadline-reminder', runDeadlineReminder);
+  app.post('/api/cron/deadline-reminder', runDeadlineReminder);
+
   app.post('/api/reminders/send-all', async (req, res) => {
     try {
       if (!requireOwner(req.body?.initData)) {
         return res.status(403).json({ error: 'Not allowed to send reminders' });
       }
-      const timeStr = timeNow();
-      const [{ data: shopRows, error: shopsError }, { data: orderRows, error: ordersError }] = await Promise.all([
-        supabase.from('shops').select('*'),
-        // "Кто ещё не подал" means today — a point that ordered yesterday is still lagging now.
-        supabase.from('orders').select('*').eq('order_date', almatyToday()),
-      ]);
-      if (shopsError) throw shopsError;
-      if (ordersError) throw ordersError;
-
-      const shops = (shopRows || []).map(shopFromDb);
-      const ordersByShop: Record<number, any> = {};
-      (orderRows || []).forEach((r) => {
-        const o = orderFromDb(r);
-        ordersByShop[o.shopId] = o;
-      });
-
-      const unsubmittedShops = shops.filter(
-        (shop) => !ordersByShop[shop.id] || ordersByShop[shop.id].status === 'draft'
-      );
-
-      const newNotifications = unsubmittedShops.map((shop) => ({
-        id: `notif-${Date.now()}-${shop.id}`,
-        shopId: shop.id,
-        shopName: shop.name,
-        sentAt: timeStr,
-        message: `🔔 Напоминание: Управляющий ${shop.manager}, пожалуйста, завершите и отправьте заявку на витрину до 10:30!`,
-      }));
-
-      if (newNotifications.length > 0) {
-        const { error: insertError } = await supabase
-          .from('notifications')
-          .insert(newNotifications.map(notificationToDb));
-        if (insertError) throw insertError;
-      }
+      const { lagging } = await remindLaggingShops({ automatic: false });
 
       const { data: allNotifications, error: selectError } = await supabase
         .from('notifications')
@@ -1196,8 +1310,8 @@ export function createApiApp() {
 
       res.json({
         success: true,
-        sentCount: unsubmittedShops.length,
-        unsubmittedShops: unsubmittedShops.map((s) => s.name),
+        sentCount: lagging.length,
+        unsubmittedShops: lagging.map((s: any) => s.name),
         notifications: (allNotifications || []).map(notificationFromDb),
       });
     } catch (e) {
