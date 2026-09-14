@@ -24,6 +24,7 @@ import {
   staffToDb,
   registrationRequestFromDb,
   registrationRequestToDb,
+  shiftFromDb,
 } from '../lib/dbMappers.js';
 import { verifyTelegramInitData } from '../lib/telegramAuth.js';
 import { sendTelegramMessage } from '../lib/telegramNotify.js';
@@ -825,6 +826,108 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to delete order:', e);
       res.status(500).json({ error: 'Failed to delete order' });
+    }
+  });
+
+  // ---------------------------------------------------------------------------------------
+  // Timesheet (табель). One `shifts` row per person per day actually worked; `rate` is frozen
+  // on the row so a later raise never rewrites past months' pay.
+  // ---------------------------------------------------------------------------------------
+
+  // Calendar-month bounds as plain YYYY-MM-DD, which is what a `date` column compares against.
+  // No timezone maths needed: a date has no time, and month boundaries are the same everywhere.
+  const monthRange = (month: string) => {
+    const m = /^(\d{4})-(\d{2})$/.exec(month || '');
+    if (!m) return null;
+    const year = Number(m[1]);
+    const mon = Number(m[2]);
+    if (mon < 1 || mon > 12) return null;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+    return { from: `${year}-${pad(mon)}-01`, to: `${year}-${pad(mon)}-${pad(lastDay)}` };
+  };
+
+  // Read the month's shifts — everyone's, or one person's with ?staffId=. Deliberately open,
+  // like every other read in this app: there is no server-side identity for employees yet, and
+  // gating this would only look like protection without being any.
+  app.get('/api/timesheet', async (req, res) => {
+    try {
+      const range = monthRange(String(req.query.month || ''));
+      if (!range) return res.status(400).json({ error: 'month must be YYYY-MM' });
+
+      let query = supabase
+        .from('shifts')
+        .select('*')
+        .gte('work_date', range.from)
+        .lte('work_date', range.to)
+        .order('work_date', { ascending: true });
+
+      const staffId = req.query.staffId ? String(req.query.staffId) : null;
+      if (staffId) query = query.eq('staff_id', staffId);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      res.json({ shifts: (data || []).map(shiftFromDb) });
+    } catch (e) {
+      console.error('Failed to load timesheet:', e);
+      res.status(500).json({ error: 'Failed to load timesheet' });
+    }
+  });
+
+  // Record or correct one shift. Owner-verified: this is payroll input.
+  app.post('/api/timesheet/shift', async (req, res) => {
+    try {
+      const { initData, staffId, workDate, rate, note } = req.body || {};
+      if (!requireOwner(initData)) {
+        return res.status(403).json({ error: 'Not allowed to edit the timesheet' });
+      }
+      if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(String(workDate || ''))) {
+        return res.status(400).json({ error: 'staffId and workDate (YYYY-MM-DD) are required' });
+      }
+      const numericRate = Number(rate);
+      if (!Number.isFinite(numericRate) || numericRate < 0) {
+        return res.status(400).json({ error: 'rate must be a non-negative number' });
+      }
+
+      // Upsert on (staff_id, work_date) so re-recording the same day corrects that row rather
+      // than adding a second one — the unique constraint makes double pay impossible anyway,
+      // this just turns it into an update instead of an error.
+      const { data, error } = await supabase
+        .from('shifts')
+        .upsert(
+          { staff_id: staffId, work_date: workDate, rate: numericRate, note: note || null },
+          { onConflict: 'staff_id,work_date' }
+        )
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      res.json({ success: true, shift: data ? shiftFromDb(data) : null });
+    } catch (e) {
+      console.error('Failed to save shift:', e);
+      res.status(500).json({ error: 'Failed to save shift' });
+    }
+  });
+
+  // Remove one shift (the person didn't work that day after all).
+  app.delete('/api/timesheet/shift', async (req, res) => {
+    try {
+      const { initData, staffId, workDate } = req.body || {};
+      if (!requireOwner(initData)) {
+        return res.status(403).json({ error: 'Not allowed to edit the timesheet' });
+      }
+      if (!staffId || !workDate) {
+        return res.status(400).json({ error: 'staffId and workDate are required' });
+      }
+      const { error } = await supabase
+        .from('shifts')
+        .delete()
+        .eq('staff_id', staffId)
+        .eq('work_date', workDate);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to delete shift:', e);
+      res.status(500).json({ error: 'Failed to delete shift' });
     }
   });
 

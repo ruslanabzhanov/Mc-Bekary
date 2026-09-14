@@ -139,8 +139,32 @@ create table if not exists staff (
   phone text,
   -- Job title, only meaningful for role 'employee' — see EMPLOYEE_POSITIONS in types.ts.
   -- Descriptive only, not a separate app permission level.
-  position text
+  position text,
+  -- Current pay per shift. This is the *default* copied onto a new shift, not the figure
+  -- earnings are computed from — see the shifts table below.
+  shift_rate numeric not null default 0
 );
+
+-- One row per person per day they actually worked. The timesheet is a record of fact, not
+-- a roster of who was scheduled.
+create table if not exists shifts (
+  id bigserial primary key,
+  staff_id text not null references staff(id) on delete cascade,
+  -- A night shift belongs to the day it started on.
+  work_date date not null,
+  -- Copied from staff.shift_rate when the shift is recorded, and frozen there. Earnings are
+  -- summed from this column, never from the employee's current rate — otherwise a raise would
+  -- retroactively rewrite every past month's pay.
+  rate numeric not null default 0,
+  note text,
+  created_at timestamptz not null default now(),
+  -- One shift per person per day: makes it impossible to pay the same day twice. A double
+  -- shift is recorded as a higher rate on that day plus a note.
+  unique (staff_id, work_date)
+);
+create index if not exists shifts_work_date_idx on shifts(work_date);
+create index if not exists shifts_staff_month_idx on shifts(staff_id, work_date);
+alter table shifts enable row level security;
 
 create table if not exists registration_requests (
   id text primary key,

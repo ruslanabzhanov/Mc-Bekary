@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest, RawMaterial, ChecklistAssignments, RolePermissions } from '../types';
-import { AiProcurementModal } from './AiProcurementModal';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
 import { CostingsManager } from './CostingsManager';
 import { PersonnelManager } from './PersonnelManager';
 import { SalesPointsManager } from './SalesPointsManager';
 import { RolePermissionsModal } from './RolePermissionsModal';
+import { TimesheetManager } from './TimesheetManager';
 import {
   ShieldCheck,
   Send,
@@ -23,6 +23,7 @@ import {
   Users,
   Printer,
   Store,
+  CalendarCheck,
   X,
   Crown
 } from 'lucide-react';
@@ -62,7 +63,7 @@ interface AdminViewProps {
   onUnassignTerritorialManager: (shopId: number) => void;
   onAcceptAllOrders: () => void;
   onSendRemindersAll: () => void;
-  onSimulateAll: () => void;
+  telegramInitData: string;
   onOpenSubmittedOrdersModal?: () => void;
   isOwner?: boolean;
   permissions: RolePermissions;
@@ -104,7 +105,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onUnassignTerritorialManager,
   onAcceptAllOrders,
   onSendRemindersAll,
-  onSimulateAll,
+  telegramInitData,
   onOpenSubmittedOrdersModal,
   isOwner,
   permissions,
@@ -115,7 +116,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isPersonnelModalOpen, setIsPersonnelModalOpen] = useState(false);
   const [isSalesPointsModalOpen, setIsSalesPointsModalOpen] = useState(false);
   const [isCostingsModalOpen, setIsCostingsModalOpen] = useState(false);
-  const [isAiProcurementOpen, setIsAiProcurementOpen] = useState(false);
+  const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isRolePermissionsOpen, setIsRolePermissionsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -349,6 +350,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </button>
 
           <button
+            id="btn-open-timesheet-modal"
+            onClick={() => setIsTimesheetOpen(true)}
+            disabled={!canDo('manage_personnel')}
+            title={!canDo('manage_personnel') ? 'Отключено Владельцем' : undefined}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
+          >
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Табель
+            </span>
+            <CalendarCheck className="w-6 h-6 text-slate-900 mt-1.5" />
+          </button>
+
+          <button
             id="btn-open-sales-points-modal"
             onClick={() => setIsSalesPointsModalOpen(true)}
             disabled={!canDo('manage_sales_points')}
@@ -557,6 +571,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
               onDeleteStaffMember={onDeleteStaffMember}
               onAssignTerritorialManager={onAssignTerritorialManager}
               onUnassignTerritorialManager={onUnassignTerritorialManager}
+            />
+          </div>
+        </div>
+      )}
+
+      {isTimesheetOpen && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <CalendarCheck className="w-5 h-5 text-indigo-600" />
+              <span>Табель</span>
+            </h2>
+            <button
+              onClick={() => setIsTimesheetOpen(false)}
+              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+            <TimesheetManager
+              staff={staff}
+              telegramInitData={telegramInitData}
+              onUpdateStaffMember={onUpdateStaffMember}
             />
           </div>
         </div>

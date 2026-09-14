@@ -158,6 +158,7 @@ export const staffFromDb = (r: any) => ({
   assignedShopIds: r.assigned_shop_ids || undefined,
   phone: r.phone || undefined,
   position: r.position || undefined,
+  shiftRate: Number(r.shift_rate) || 0,
 });
 export const staffToDb = (s: any) => ({
   id: s.id,
@@ -167,6 +168,15 @@ export const staffToDb = (s: any) => ({
   assigned_shop_ids: s.assignedShopIds || null,
   phone: s.phone || null,
   position: s.position || null,
+  shift_rate: Number(s.shiftRate) || 0,
+});
+
+export const shiftFromDb = (r: any) => ({
+  id: r.id,
+  staffId: r.staff_id,
+  workDate: typeof r.work_date === 'string' ? r.work_date.slice(0, 10) : r.work_date,
+  rate: Number(r.rate) || 0,
+  note: r.note || undefined,
 });
 
 export const registrationRequestFromDb = (r: any) => ({

@@ -116,7 +116,7 @@ export interface DishCosting {
   rawIngredients: DishRawItem[];
 }
 
-export type UserRole = 'manager' | 'admin' | 'territorial' | 'owner';
+export type UserRole = 'manager' | 'admin' | 'territorial' | 'owner' | 'employee';
 
 export type Permission =
   | 'accept_reject_orders'
@@ -155,6 +155,17 @@ export interface StaffMember {
   assignedShopIds?: number[]; // for territorial managers: the points they oversee
   phone?: string;
   position?: string; // job title, only meaningful for role 'employee' — see EMPLOYEE_POSITIONS
+  shiftRate?: number; // current pay per shift; the default copied onto a new Shift, see below
+}
+
+// One recorded day of work. `rate` is frozen at the moment the shift is entered rather than
+// read from the employee's current shiftRate — a raise must not rewrite what past months paid.
+export interface Shift {
+  id: number;
+  staffId: string;
+  workDate: string; // YYYY-MM-DD, Kazakhstan calendar day
+  rate: number;
+  note?: string;
 }
 
 export type ChecklistAssignments = Record<string, string[]>; // checklist dept key -> assigned product IDs

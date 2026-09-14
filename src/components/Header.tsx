@@ -33,6 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
 
   const percentage = Math.round((submittedCount / totalShops) * 100);
 
+  const hasOwnerSwitch = currentRole === 'owner' || (currentRole === 'employee' && isOwnerVerified);
+
   return (
     <header className="bg-white text-slate-900 border-b border-slate-200 sticky top-0 z-40 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -43,9 +45,15 @@ export const Header: React.FC<HeaderProps> = ({
             <img src={masterCoffeeCroissant} alt="Master Bakery" className="w-full h-full object-contain" />
           </div>
 
-          {/* Brand Title: centered between the icon and the right-side controls */}
-          <div className="flex-1 flex items-center justify-center">
-            <h1 className="font-brand text-lg sm:text-xl tracking-[0.1em] text-center text-indigo-950">
+          {/* Brand title. The Owner's view switch takes real width, and with both on a 360px
+              phone the wordmark wrapped to two lines and pushed the controls off the edge —
+              so for the Owner it gives way on small screens. Everyone else keeps it. */}
+          <div className="flex-1 min-w-0 flex items-center justify-center">
+            <h1
+              className={`font-brand text-lg sm:text-xl tracking-[0.1em] text-center text-indigo-950 truncate ${
+                hasOwnerSwitch ? 'hidden sm:block' : ''
+              }`}
+            >
               Master Bakery
             </h1>
           </div>
@@ -102,15 +110,42 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
 
-              {currentRole === 'owner' && (
-                <div className="flex items-center space-x-1.5 bg-amber-50 border border-amber-200 p-1 rounded-xl shadow-2xs">
-                  <div className="px-1.5 text-amber-700 flex items-center gap-1" title="Владелец">
+              {/* Owner-only view switch. The Owner is a verified identity, so letting them
+                  look at the shop-floor cabinet is safe — unlike the role switching that was
+                  removed for managers, this never changes what anyone else can reach. */}
+              {hasOwnerSwitch && (
+                <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 p-1 rounded-xl shadow-2xs">
+                  <div className="hidden sm:flex px-1 text-amber-700 items-center gap-1" title="Владелец">
                     <Crown className="w-4 h-4 shrink-0" />
-                    <span className="text-[10px] font-bold hidden sm:inline whitespace-nowrap">Владелец</span>
                   </div>
+
+                  <button
+                    onClick={() => onRoleChange('owner')}
+                    className={`min-h-[36px] px-2 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+                      currentRole === 'owner'
+                        ? 'bg-white text-amber-900 border border-amber-300 shadow-2xs'
+                        : 'text-amber-700 hover:bg-amber-100'
+                    }`}
+                    title="Кабинет управляющего"
+                  >
+                    Цех
+                  </button>
+
+                  <button
+                    onClick={() => onRoleChange('employee')}
+                    className={`min-h-[36px] px-2 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+                      currentRole === 'employee'
+                        ? 'bg-white text-amber-900 border border-amber-300 shadow-2xs'
+                        : 'text-amber-700 hover:bg-amber-100'
+                    }`}
+                    title="Посмотреть кабинет сотрудника цеха"
+                  >
+                    Сотрудник
+                  </button>
+
                   <button
                     onClick={() => onRoleChange('manager')}
-                    className="p-1 text-rose-700 hover:text-rose-800 bg-white border border-rose-200 rounded-lg shadow-2xs hover:bg-rose-50 transition-colors cursor-pointer"
+                    className="w-9 h-9 shrink-0 flex items-center justify-center text-rose-700 hover:text-rose-800 bg-white border border-rose-200 rounded-lg shadow-2xs hover:bg-rose-50 transition-colors cursor-pointer"
                     title="Выйти из режима Владельца"
                   >
                     <LogOut className="w-3.5 h-3.5" />

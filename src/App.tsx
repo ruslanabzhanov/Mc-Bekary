@@ -3,6 +3,7 @@ import { Header } from './components/Header';
 import { ManagerView } from './components/ManagerView';
 import { AdminView } from './components/AdminView';
 import { TerritorialManagerView } from './components/TerritorialManagerView';
+import { EmployeeView } from './components/EmployeeView';
 import { OrderPreviewModal } from './components/OrderPreviewModal';
 import { SubmittedOrdersModal } from './components/SubmittedOrdersModal';
 import { RegistrationGate } from './components/RegistrationGate';
@@ -69,6 +70,11 @@ const OWNER_VIEW_STORAGE_KEY = 'mc-bekary-owner-view';
 // computed the same way in handleApproveRegistrationRequest below.
 const TERRITORIAL_ID_STORAGE_KEY = 'mc-bekary-territorial-manager-id';
 
+// Same idea for an approved internal employee: without this the device only knew "someone
+// registered here" and fell through to the shop-ordering screen, with no way to tell whose
+// timesheet to show. Set once by grantAccess() and never changed.
+const EMPLOYEE_ID_STORAGE_KEY = 'mc-bekary-employee-id';
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(() => !wasSplashShownThisSession());
 
@@ -76,11 +82,18 @@ export default function App() {
     if (typeof window === 'undefined') return 'manager';
     if (window.localStorage.getItem(OWNER_VIEW_STORAGE_KEY) === '1') return 'owner';
     if (window.localStorage.getItem(TERRITORIAL_ID_STORAGE_KEY)) return 'territorial';
+    if (window.localStorage.getItem(EMPLOYEE_ID_STORAGE_KEY)) return 'employee';
     return 'manager';
   });
   const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(() =>
     typeof window !== 'undefined' ? window.localStorage.getItem(TERRITORIAL_ID_STORAGE_KEY) : null
   );
+  const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(() =>
+    typeof window !== 'undefined' ? window.localStorage.getItem(EMPLOYEE_ID_STORAGE_KEY) : null
+  );
+  // Which employee's cabinet the Owner is previewing. Only ever set from the Owner's own
+  // header switch — a real employee device uses currentEmployeeId above instead.
+  const [previewEmployeeId, setPreviewEmployeeId] = useState<string | null>(null);
   const SHOP_ID_STORAGE_KEY = 'mc-bekary-selected-shop-id';
   const [selectedShopId, setSelectedShopIdRaw] = useState<number>(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem(SHOP_ID_STORAGE_KEY) : null;
@@ -119,7 +132,12 @@ export default function App() {
       setCurrentTerritorialManagerId(staffId);
       setCurrentRole('territorial');
     } else {
+      // Internal employee — same deterministic id, so this device can find its own timesheet.
+      const staffId = `staff-from-${approvedRequest.id}`;
+      window.localStorage.setItem(EMPLOYEE_ID_STORAGE_KEY, staffId);
       window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
+      setCurrentEmployeeId(staffId);
+      setCurrentRole('employee');
     }
     setHasAccess(true);
     showToast('✅ Заявка одобрена! Добро пожаловать.');
@@ -289,12 +307,15 @@ export default function App() {
   // OWNER_VIEW_STORAGE_KEY above). Only ever remembers 'owner' — every other role still
   // starts back at the Manager view on reload, same as before.
   useEffect(() => {
-    if (currentRole === 'owner') {
+    // Previewing the employee cabinet is still "the Owner is here" — dropping the flag then
+    // would bounce them out of Owner on the next reload just for having looked at it.
+    const ownerIsHere = currentRole === 'owner' || (currentRole === 'employee' && isOwnerVerified);
+    if (ownerIsHere) {
       window.localStorage.setItem(OWNER_VIEW_STORAGE_KEY, '1');
     } else {
       window.localStorage.removeItem(OWNER_VIEW_STORAGE_KEY);
     }
-  }, [currentRole]);
+  }, [currentRole, isOwnerVerified]);
 
   // When opened inside Telegram as a Mini App, expand to full height and signal readiness.
   // No-op in a regular browser, where window.Telegram is undefined.
@@ -776,9 +797,20 @@ export default function App() {
   const selectedShop = shops.find((s) => s.id === selectedShopId) || shops[0];
   const currentTerritorialManager = staff.find((s) => s.id === currentTerritorialManagerId) || null;
 
+  // Internal shop-floor staff — the only people the timesheet covers.
+  const employees = staff.filter((s) => s.role === 'employee');
+  // Whose cabinet the employee screen shows: the Owner's chosen preview, otherwise this
+  // device's own employee record.
+  const viewedEmployee =
+    employees.find((s) => s.id === (previewEmployeeId || currentEmployeeId)) ||
+    (previewEmployeeId ? null : employees.find((s) => s.id === currentEmployeeId) || null) ||
+    (isOwnerVerified ? employees[0] || null : null);
+
   const handleRoleChange = (role: UserRole) => {
     setCurrentRole(role);
     if (role !== 'territorial') setCurrentTerritorialManagerId(null);
+    // Leaving the preview entirely — don't keep pointing at someone else's cabinet.
+    if (role !== 'employee') setPreviewEmployeeId(null);
   };
 
   return (
@@ -834,8 +866,17 @@ export default function App() {
               onOpenPreview={() => setIsPreviewOpen(true)}
               notifications={notifications}
             />
+          ) : currentRole === 'employee' ? (
+            <EmployeeView
+              employee={viewedEmployee}
+              // Only the Owner previewing someone else's cabinet gets the picker; a real
+              // employee device sees exactly one person's timesheet — their own.
+              allEmployees={isOwnerVerified ? employees : undefined}
+              onPickEmployee={isOwnerVerified ? setPreviewEmployeeId : undefined}
+            />
           ) : currentRole === 'admin' || currentRole === 'owner' ? (
             <AdminView
+              telegramInitData={telegramInitData}
               isOwner={currentRole === 'owner'}
               permissions={rolePermissions}
               onUpdateRolePermissions={handleUpdateRolePermissions}
