@@ -81,6 +81,9 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || 'chicken-croissant');
   const [dishCategoryFilter, setDishCategoryFilter] = useState<string>('all');
   const [isDishCardOpen, setIsDishCardOpen] = useState(false);
+  // productId -> адрес не открывшегося фото. См. тот же приём в ManagerView: прятать элемент
+  // напрямую в DOM нельзя, React переиспользует его под следующий адрес.
+  const [failedPhotos, setFailedPhotos] = useState<Record<string, string>>({});
   const [isAddDishModalOpen, setIsAddDishModalOpen] = useState(false);
   const [newDishItem, setNewDishItem] = useState<{
     name: string;
@@ -736,15 +739,13 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                         показывается сам, когда фото нет или не загрузилось. */}
                     <span className="relative w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center">
                       <span className="text-2xl select-none">{p.imageEmoji}</span>
-                      {p.imageUrl && (
+                      {p.imageUrl && failedPhotos[p.id] !== p.imageUrl && (
                         <img
                           src={p.imageUrl}
                           alt=""
                           loading="lazy"
                           className="absolute inset-0 w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.visibility = 'hidden';
-                          }}
+                          onError={() => setFailedPhotos((prev) => ({ ...prev, [p.id]: p.imageUrl }))}
                         />
                       )}
                     </span>

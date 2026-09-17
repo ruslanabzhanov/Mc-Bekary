@@ -39,6 +39,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const [activeTab, setActiveTab] = useState<Category | 'all'>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  // productId -> адрес фото, которое не открылось. Сравниваем именно адрес: как только у
+  // блюда появится другое фото, оно будет показано, а не останется скрытым навсегда.
+  const [failedPhotos, setFailedPhotos] = useState<Record<string, string>>({});
 
   const selectedShop = useMemo(
     () => coffeeShops.find((s) => s.id === selectedShopId) || coffeeShops[0],
@@ -382,20 +385,26 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <div>
                 {/* CLEAN SQUARE PHOTO */}
                 <div className="relative aspect-square w-full overflow-hidden bg-slate-100">
-                  {/* Empty alt on purpose: a failed image used to sprawl its alt text across
-                      the card. The emoji below sits underneath and shows through instead. */}
+                  {/* Пустой alt намеренно: у неудачной картинки подпись расползалась по
+                      карточке. Значок лежит под фото и проступает сам, когда фото нет. */}
                   <span className="absolute inset-0 flex items-center justify-center text-4xl select-none">
                     {product.imageEmoji || '🍽️'}
                   </span>
-                  <img
-                    src={product.imageUrl}
-                    alt=""
-                    className="relative w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.visibility = 'hidden';
-                    }}
-                  />
+                  {product.imageUrl && failedPhotos[product.id] !== product.imageUrl && (
+                    <img
+                      src={product.imageUrl}
+                      alt=""
+                      className="relative w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      referrerPolicy="no-referrer"
+                      // Отказ запоминаем вместе с адресом, а не прячем элемент напрямую.
+                      // Раньше стиль ставился прямо в DOM, React переиспользовал тот же
+                      // элемент под новый адрес — и фото, загруженное уже с сервера,
+                      // оставалось невидимым из-за ошибки на прежних, временных данных.
+                      onError={() =>
+                        setFailedPhotos((prev) => ({ ...prev, [product.id]: product.imageUrl }))
+                      }
+                    />
+                  )}
 
                   {isFrequent && (
                     <span className="absolute top-1.5 left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-600 text-white shadow z-10">
