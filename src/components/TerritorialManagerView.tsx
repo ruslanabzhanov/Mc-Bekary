@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { CoffeeShop, ShopOrder, Product, StaffMember } from '../types';
+import { CoffeeShop, ShopOrder, Product, StaffMember, EMPLOYEE_POSITIONS } from '../types';
 import { ShopOrderHistoryTable } from './ShopOrderHistoryTable';
 import { ManagerView } from './ManagerView';
 import { OrderPreviewModal } from './OrderPreviewModal';
-import { X, MapPin, User, ShieldCheck, Clock, Compass, Send } from 'lucide-react';
+import {
+  X, MapPin, User, Clock, Compass, Send, Users, ClipboardList, Trash2,
+  CheckCircle2, XCircle, ChevronRight, ChevronLeft,
+} from 'lucide-react';
 
 interface TerritorialManagerViewProps {
   managerName: string;
@@ -17,9 +20,47 @@ interface TerritorialManagerViewProps {
   allManagers?: StaffMember[];
   selectedManagerId?: string;
   onPickManager?: (staffId: string) => void;
+  // Управление персоналом своих точек: сменить должность, убрать человека.
+  onUpdateStaffMember?: (staffId: string, updates: Partial<StaffMember>) => void;
+  onDeleteStaffMember?: (staffId: string) => void;
 }
 
 const emptyDraftOrder = (shopId: number): ShopOrder => ({ shopId, items: {}, status: 'draft' });
+
+// Как выглядит плитка точки в зависимости от того, что с её сегодняшней заявкой. Серая —
+// это «ничего не подали»: и когда заявки нет совсем, и когда она осталась черновиком.
+const statusLook = (order?: ShopOrder) => {
+  switch (order?.status) {
+    case 'accepted':
+      return {
+        label: 'Принята',
+        Icon: CheckCircle2,
+        tile: 'bg-emerald-50 border-emerald-200 hover:border-emerald-400',
+        badge: 'bg-emerald-100 text-emerald-800',
+      };
+    case 'rejected':
+      return {
+        label: 'Отклонена',
+        Icon: XCircle,
+        tile: 'bg-rose-50 border-rose-200 hover:border-rose-400',
+        badge: 'bg-rose-100 text-rose-800',
+      };
+    case 'submitted':
+      return {
+        label: 'Подана',
+        Icon: Send,
+        tile: 'bg-indigo-50 border-indigo-200 hover:border-indigo-400',
+        badge: 'bg-indigo-100 text-indigo-800',
+      };
+    default:
+      return {
+        label: 'Не подана',
+        Icon: Clock,
+        tile: 'bg-white border-slate-200 hover:border-slate-400',
+        badge: 'bg-slate-100 text-slate-600',
+      };
+  }
+};
 
 export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   managerName,
@@ -30,9 +71,13 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   onUpdateOrder,
   allManagers,
   selectedManagerId,
-  onPickManager
+  onPickManager,
+  onUpdateStaffMember,
+  onDeleteStaffMember
 }) => {
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
+  // Какой раздел точки открыт: null — меню из трёх плиток.
+  const [shopPanel, setShopPanel] = useState<'staff' | 'orders' | null>(null);
   const selectedShop = shops.find((s) => s.id === selectedShopId) || null;
 
   // Which shop's order this territorial manager is currently filling in on that shop's behalf
@@ -43,6 +88,9 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
 
   const getShopManagers = (shop: CoffeeShop) =>
     staff.filter((s) => s.role === 'shop_manager' && s.shopId === shop.id);
+
+  // Весь персонал точки, а не только менеджеры: бариста и заготовщики тоже её люди.
+  const getShopStaff = (shop: CoffeeShop) => staff.filter((s) => s.shopId === shop.id);
 
   const getShopManagersLabel = (shop: CoffeeShop) => {
     const managers = getShopManagers(shop);
@@ -89,7 +137,8 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
         )}
       </div>
 
-      {/* Shops grid (read-only) */}
+      {/* Плитки точек. Цвет — это статус заявки за сегодня, чтобы отстающую точку было
+          видно, не открывая её: серая значит, что заявки нет вовсе. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {shops.length === 0 ? (
           <div className="col-span-full bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-400 italic text-sm">
@@ -97,30 +146,26 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
           </div>
         ) : (
           shops.map((shop) => {
-            const order = orders[shop.id];
+            const look = statusLook(orders[shop.id]);
             return (
               <button
                 key={shop.id}
                 onClick={() => setSelectedShopId(shop.id)}
-                className="text-left bg-white border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40 rounded-xl p-4 shadow-sm transition-all"
+                className={`text-left rounded-xl p-4 shadow-sm border transition-all ${look.tile}`}
               >
-                <div className="flex items-center justify-end mb-1.5">
-                  <span
-                    className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                      order?.status === 'accepted'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : order?.status === 'submitted'
-                        ? 'bg-indigo-100 text-indigo-700'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
-                  >
-                    {order?.status === 'accepted' ? 'Принято' : order?.status === 'submitted' ? 'Отправлено' : 'Черновик'}
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${look.badge}`}>
+                    <look.Icon className="w-3 h-3" />
+                    {look.label}
                   </span>
+                  <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
                 </div>
-                <div className="font-bold text-slate-900 text-sm truncate">{shop.district}</div>
+                <div className="font-bold text-slate-900 text-sm truncate">
+                  {shop.district.trim() || shop.address}
+                </div>
                 <div className="text-[11px] text-slate-500 truncate">{shop.address}</div>
-                <div className="text-[11px] text-slate-600 mt-1.5 flex items-center gap-1">
-                  <User className="w-3 h-3 text-slate-400" />
+                <div className="text-[11px] text-slate-600 mt-1.5 flex items-center gap-1 truncate">
+                  <User className="w-3 h-3 text-slate-400 shrink-0" />
                   {getShopManagersLabel(shop)}
                 </div>
               </button>
@@ -131,77 +176,181 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
 
       {/* SHOP DETAIL MODAL (read-only info + сan submit an order on the shop's behalf) */}
       {selectedShop && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xl space-y-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">
-                  {selectedShop.district}
-                </h3>
-                <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                  {selectedShop.address}
-                </p>
-              </div>
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 shadow-sm">
+            <div className="min-w-0">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">
+                {selectedShop.district.trim() || selectedShop.address}
+              </h3>
+              <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5 truncate">
+                <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                {selectedShop.address}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {shopPanel && (
+                <button
+                  onClick={() => setShopPanel(null)}
+                  className="min-h-[44px] px-3 rounded-lg text-xs font-bold uppercase tracking-wider text-indigo-700 hover:bg-indigo-50 flex items-center gap-1"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Назад
+                </button>
+              )}
               <button
-                onClick={() => setSelectedShopId(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 shrink-0"
+                onClick={() => {
+                  setSelectedShopId(null);
+                  setShopPanel(null);
+                }}
+                className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+          </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <span className="text-[9px] font-black uppercase text-slate-400 flex items-center gap-1 mb-1">
-                  <User className="w-3 h-3" />
-                  Менеджеры ({getShopManagers(selectedShop).length})
-                </span>
-                {getShopManagers(selectedShop).length === 0 ? (
-                  <span className="font-bold text-slate-900 text-sm">{selectedShop.manager}</span>
+          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+            {/* Управление точкой: три вещи, которые территориальный реально делает */}
+            {!shopPanel && (
+              <>
+                <div className={`rounded-xl border px-4 py-3 mb-4 ${statusLook(orders[selectedShop.id]).tile}`}>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Заявка на сегодня
+                  </span>
+                  <p className="text-base font-extrabold text-slate-900 mt-0.5">
+                    {statusLook(orders[selectedShop.id]).label}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setShopPanel('staff')}
+                    className="bg-slate-50 hover:bg-indigo-50/60 active:bg-indigo-100 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all text-center flex flex-col items-center justify-center min-h-[104px]"
+                  >
+                    <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest">
+                      Персонал
+                    </span>
+                    <Users className="w-6 h-6 text-slate-900 mt-1.5" />
+                    <span className="text-[11px] text-slate-500 mt-1">
+                      {getShopStaff(selectedShop).length} чел.
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setShopPanel('orders')}
+                    className="bg-slate-50 hover:bg-indigo-50/60 active:bg-indigo-100 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all text-center flex flex-col items-center justify-center min-h-[104px]"
+                  >
+                    <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest">
+                      Реестр заявок
+                    </span>
+                    <ClipboardList className="w-6 h-6 text-slate-900 mt-1.5" />
+                    <span className="text-[11px] text-slate-500 mt-1">только просмотр</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setOrderingShopId(selectedShop.id);
+                      setSelectedShopId(null);
+                    }}
+                    className="col-span-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white p-4 rounded-xl transition-all text-center flex flex-col items-center justify-center min-h-[92px] shadow-sm"
+                  >
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      {orders[selectedShop.id]?.status === 'draft' || !orders[selectedShop.id]
+                        ? 'Подать заявку'
+                        : 'Изменить заявку'}
+                    </span>
+                    <Send className="w-6 h-6 mt-1.5" />
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Персонал точки: видно всех, можно поменять должность или убрать человека */}
+            {shopPanel === 'staff' && (
+              <>
+                <h4 className="text-sm font-extrabold text-slate-900 mb-1">Персонал точки</h4>
+                <p className="text-xs text-slate-500 mb-4">
+                  Здесь только те, кто закреплён за этой точкой.
+                </p>
+
+                {getShopStaff(selectedShop).length === 0 ? (
+                  <div className="text-center py-10 px-4 border border-dashed border-slate-300 rounded-xl">
+                    <Users className="w-7 h-7 mx-auto text-slate-300 mb-2" />
+                    <p className="text-sm font-bold text-slate-700">За точкой никто не закреплён</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Люди появляются здесь после того, как их заявку на регистрацию одобрят.
+                    </p>
+                  </div>
                 ) : (
-                  <div className="space-y-0.5">
-                    {getShopManagers(selectedShop).map((m) => (
-                      <div key={m.id} className="font-bold text-slate-900 text-sm">
-                        {m.name}
+                  <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
+                    {getShopStaff(selectedShop).map((member) => (
+                      <div key={member.id} className="p-3 space-y-2.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900 leading-tight">{member.name}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {member.phone || 'телефон не указан'}
+                            </p>
+                          </div>
+                          {onDeleteStaffMember && (
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Убрать «${member.name}» из персонала?`)) {
+                                  onDeleteStaffMember(member.id);
+                                }
+                              }}
+                              className="w-11 h-11 shrink-0 flex items-center justify-center text-rose-600 hover:text-rose-700 hover:bg-rose-50 active:bg-rose-100 rounded-lg transition-colors"
+                              title="Убрать из персонала"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        {onUpdateStaffMember && (
+                          <div>
+                            <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                              Должность
+                            </label>
+                            <select
+                              value={member.role === 'employee' ? member.position || '' : member.role}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v === 'shop_manager' || v === 'territorial_manager') {
+                                  onUpdateStaffMember(member.id, { role: v, position: undefined });
+                                } else {
+                                  onUpdateStaffMember(member.id, { role: 'employee', position: v });
+                                }
+                              }}
+                              className="w-full px-2.5 min-h-[44px] text-sm border border-slate-300 rounded-lg bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                              <option value="shop_manager">Менеджер точки</option>
+                              <option value="territorial_manager">Территориальный управляющий</option>
+                              {EMPLOYEE_POSITIONS.map((p) => (
+                                <option key={p} value={p}>{p}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <span className="text-[9px] font-black uppercase text-slate-400 flex items-center gap-1 mb-1">
-                  <ShieldCheck className="w-3 h-3" />
-                  Территориальный управляющий
-                </span>
-                <span className="font-bold text-slate-900 text-sm">{managerName}</span>
-              </div>
-            </div>
+              </>
+            )}
 
-            <button
-              onClick={() => {
-                setOrderingShopId(selectedShop.id);
-                setSelectedShopId(null);
-              }}
-              className="w-full flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs uppercase tracking-wider shadow-sm transition-all"
-            >
-              <Send className="w-4 h-4" />
-              <span>
-                {orders[selectedShop.id]?.status === 'draft' || !orders[selectedShop.id]
-                  ? 'Подать заявку за точку'
-                  : 'Изменить заявку этой точки'}
-              </span>
-            </button>
-
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center space-x-2">
-                <Clock className="w-4 h-4 text-indigo-600" />
-                <span>История продаж:</span>
-              </h4>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <ShopOrderHistoryTable shopId={selectedShop.id} products={products} />
-              </div>
-            </div>
+            {/* Реестр заявок точки — только смотреть, менять нельзя */}
+            {shopPanel === 'orders' && (
+              <>
+                <h4 className="text-sm font-extrabold text-slate-900 mb-1">Реестр заявок точки</h4>
+                <p className="text-xs text-slate-500 mb-4">
+                  Кто и когда подал заявку. Изменить её отсюда нельзя — только посмотреть состав.
+                </p>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <ShopOrderHistoryTable shopId={selectedShop.id} products={products} />
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
