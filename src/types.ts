@@ -135,6 +135,12 @@ export type StaffRole = 'employee' | 'territorial_manager' | 'shop_manager';
 // staff (shop_manager/territorial_manager) vs internal employees, who then also pick a specific
 // job title from this list — purely descriptive (HR/org-chart labeling), not a separate app
 // permission level; every position here is still the 'employee' StaffRole.
+// Должности категории «Сотрудники кофейни», работающие на самой точке. Бариста подаёт
+// заявки за свою точку наравне с менеджером, поэтому роль у них одна — shop_manager — и
+// права тем самым совпадают сами собой. Различаются только должностью, которая видна в
+// персонале, в табеле и в оповещениях.
+export const SHOP_STAFF_POSITIONS = ['Менеджер точки', 'Бариста'] as const;
+
 export const EMPLOYEE_POSITIONS = [
   'Шеф-пекарь',
   'Пекарь',
@@ -147,6 +153,26 @@ export const EMPLOYEE_POSITIONS = [
   'Заготовщик полуфабрикатов',
   'Кухонная рабочая'
 ] as const;
+
+// Единый список должностей для всех мест, где сотруднику её меняют: «Персонал» у
+// управляющего и персонал точки у территориального. Держим в одном месте, чтобы списки
+// не разъезжались. Должность несёт с собой роль — от неё зависят права.
+export type PositionOption = { value: string; role: StaffRole; position?: string; label: string };
+
+export const POSITION_OPTIONS: PositionOption[] = [
+  ...SHOP_STAFF_POSITIONS.map((p) => ({ value: p, role: 'shop_manager' as StaffRole, position: p, label: p })),
+  { value: 'territorial_manager', role: 'territorial_manager', label: 'Территориальный управляющий' },
+  ...EMPLOYEE_POSITIONS.map((p) => ({ value: p, role: 'employee' as StaffRole, position: p, label: p })),
+];
+
+// Какому пункту списка отвечает текущая пара роль+должность у сотрудника.
+export const positionValueOf = (role: StaffRole, position?: string): string => {
+  if (role === 'territorial_manager') return 'territorial_manager';
+  const known = POSITION_OPTIONS.find((o) => o.role === role && o.position === position);
+  if (known) return known.value;
+  // Должность не заполнена или из другой категории — берём первую подходящую по роли.
+  return role === 'employee' ? EMPLOYEE_POSITIONS[0] : SHOP_STAFF_POSITIONS[0];
+};
 
 export interface StaffMember {
   id: string;

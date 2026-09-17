@@ -1,10 +1,15 @@
 import React from 'react';
-import { CoffeeShop, StaffRole, MAX_TERRITORIAL_SHOPS, EMPLOYEE_POSITIONS } from '../types';
+import {
+  CoffeeShop,
+  StaffRole,
+  MAX_TERRITORIAL_SHOPS,
+  EMPLOYEE_POSITIONS,
+  SHOP_STAFF_POSITIONS,
+} from '../types';
 
-// Registration is a two-step pick: first which of the two staff categories, then a more
-// specific role/position within it. "Сотрудники кофейни" covers the two point-facing roles;
-// "Внутренние сотрудники" is always StaffRole 'employee', further described by a job title
-// (EMPLOYEE_POSITIONS) — that title is descriptive only, not a separate app permission level.
+// При регистрации выбирают дважды: сначала категорию, потом должность внутри неё.
+// «Сотрудники кофейни» — те, кто связан с точкой; «Внутренние сотрудники» — всегда роль
+// employee, а их должность (EMPLOYEE_POSITIONS) — просто подпись, не уровень прав.
 type StaffCategory = 'shop' | 'internal';
 const categoryOf = (role: StaffRole): StaffCategory => (role === 'employee' ? 'internal' : 'shop');
 
@@ -13,10 +18,19 @@ const CATEGORY_OPTIONS: { value: StaffCategory; label: string }[] = [
   { value: 'internal', label: 'Внутренние сотрудники' },
 ];
 
-const SHOP_ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
-  { value: 'shop_manager', label: 'Менеджер точки' },
-  { value: 'territorial_manager', label: 'Территориальный управляющий' },
+// Должности категории «Сотрудники кофейни». Менеджер точки и бариста делят одну роль
+// shop_manager — значит и права у них одни, без отдельной ветки в коде, — и различаются
+// только должностью. Территориальный управляющий это другая роль: другой экран и участок.
+const SHOP_ROLE_OPTIONS: { value: string; role: StaffRole; position?: string; label: string }[] = [
+  ...SHOP_STAFF_POSITIONS.map((p) => ({ value: p, role: 'shop_manager' as StaffRole, position: p, label: p })),
+  { value: 'territorial_manager', role: 'territorial_manager', label: 'Территориальный управляющий' },
 ];
+
+// Какой пункт списка соответствует текущей паре роль+должность.
+const shopOptionValue = (role: StaffRole, position: string) => {
+  if (role === 'territorial_manager') return 'territorial_manager';
+  return SHOP_STAFF_POSITIONS.includes(position as any) ? position : SHOP_STAFF_POSITIONS[0];
+};
 
 interface RoleShopFieldsProps {
   shops: CoffeeShop[];
@@ -63,7 +77,13 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Категория</label>
         <select
           value={category}
-          onChange={(e) => onRoleChange(e.target.value === 'internal' ? 'employee' : 'shop_manager')}
+          onChange={(e) => {
+            const internal = e.target.value === 'internal';
+            onRoleChange(internal ? 'employee' : 'shop_manager');
+            // Должность сбрасываем на первую из новой категории, иначе за сменой категории
+            // тянулась бы чужая — например «Пекарь» у менеджера точки.
+            onPositionChange(internal ? EMPLOYEE_POSITIONS[0] : SHOP_STAFF_POSITIONS[0]);
+          }}
           className="w-full px-2.5 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
         >
           {CATEGORY_OPTIONS.map((c) => (
@@ -76,8 +96,13 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
         <div>
           <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Должность</label>
           <select
-            value={role}
-            onChange={(e) => onRoleChange(e.target.value as StaffRole)}
+            value={shopOptionValue(role, position)}
+            onChange={(e) => {
+              const picked = SHOP_ROLE_OPTIONS.find((o) => o.value === e.target.value);
+              if (!picked) return;
+              onRoleChange(picked.role);
+              onPositionChange(picked.position || '');
+            }}
             className="w-full px-2 min-h-[48px] text-[13px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
           >
             {SHOP_ROLE_OPTIONS.map((r) => (

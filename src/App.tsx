@@ -691,7 +691,7 @@ export default function App() {
       shopId: isTerritorial ? null : request.requestedShopId,
       assignedShopIds: isTerritorial ? request.requestedShopIds : undefined,
       phone: request.phone,
-      position: request.requestedRole === 'employee' ? request.requestedPosition : undefined,
+      position: request.requestedRole === 'territorial_manager' ? undefined : request.requestedPosition,
       telegramUserId: request.telegramUserId
     };
     setStaff((prev) => [...prev, newStaffMember]);

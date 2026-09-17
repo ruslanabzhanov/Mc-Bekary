@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CoffeeShop, StaffRole, RegistrationRequest } from '../types';
+import { CoffeeShop, StaffRole, RegistrationRequest, EMPLOYEE_POSITIONS } from '../types';
 import { UserPlus, X, CheckCircle2 } from 'lucide-react';
 import { RoleShopFields } from './RoleShopFields';
 
@@ -21,7 +21,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
   const [shopId, setShopId] = useState<number>(shops[0]?.id || 1);
   const [shopIds, setShopIds] = useState<number[]>([]);
   const [role, setRole] = useState<StaffRole>('employee');
-  const [position, setPosition] = useState('');
+  const [position, setPosition] = useState<string>(EMPLOYEE_POSITIONS[0]);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   if (!isOpen) return null;
@@ -32,7 +32,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
       setName('');
       setPhone('');
       setRole('employee');
-      setPosition('');
+      setPosition(EMPLOYEE_POSITIONS[0]);
       setShopIds([]);
       setIsSubmitted(false);
     }, 200);
@@ -48,7 +48,9 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
       requestedShopId: shopId,
       requestedShopIds: role === 'territorial_manager' ? shopIds : undefined,
       requestedRole: role,
-      requestedPosition: role === 'employee' ? position : undefined,
+      // Должность нужна и сотрудникам кофейни: бариста и менеджер точки делят одну роль
+      // и различаются только ею. Не передаём её лишь у территориального управляющего.
+      requestedPosition: role === 'territorial_manager' ? undefined : position || undefined,
     });
     setIsSubmitted(true);
   };

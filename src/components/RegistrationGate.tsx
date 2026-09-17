@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { UserPlus, Clock, CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
-import { CoffeeShop, StaffRole, RegistrationRequest } from '../types';
+import { CoffeeShop, StaffRole, RegistrationRequest, SHOP_STAFF_POSITIONS } from '../types';
 import { RoleShopFields } from './RoleShopFields';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
 
@@ -56,7 +56,9 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
       requestedShopId: shopId,
       requestedShopIds: role === 'territorial_manager' ? shopIds : undefined,
       requestedRole: role,
-      requestedPosition: role === 'employee' ? position : undefined,
+      // Должность нужна и сотрудникам кофейни: бариста и менеджер точки делят одну роль
+      // и различаются только ею. Не передаём её лишь у территориального управляющего.
+      requestedPosition: role === 'territorial_manager' ? undefined : position || undefined,
     });
     window.localStorage.setItem(PENDING_ID_KEY, newId);
     setPendingId(newId);
@@ -119,9 +121,9 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
             <div>
               <span className="text-slate-400">Должность:</span>{' '}
               <span className="font-bold text-slate-800">
-                {myRequest.requestedRole === 'employee' && myRequest.requestedPosition
-                  ? myRequest.requestedPosition
-                  : ROLE_LABELS[myRequest.requestedRole]}
+                {/* Должность точнее роли: бариста и менеджер точки делят роль shop_manager,
+                    и без этого бариста видел бы здесь «Менеджер точки». */}
+                {myRequest.requestedPosition || ROLE_LABELS[myRequest.requestedRole]}
               </span>
             </div>
             <div>

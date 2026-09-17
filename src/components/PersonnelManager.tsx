@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { CoffeeShop, StaffMember, StaffRole, RegistrationRequest } from '../types';
+import {
+  CoffeeShop, StaffMember, StaffRole, RegistrationRequest, POSITION_OPTIONS, positionValueOf,
+} from '../types';
 import { Users, UserCheck, CheckCircle2, XCircle, ClipboardList } from 'lucide-react';
 
 interface PersonnelManagerProps {
@@ -138,13 +140,18 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                           <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
                             <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Должность</span>
                             <select
-                              value={member.role}
-                              onChange={(e) => onUpdateStaffMember(member.id, { role: e.target.value as StaffRole })}
+                              value={positionValueOf(member.role, member.position)}
+                              onChange={(e) => {
+                                const picked = POSITION_OPTIONS.find((o) => o.value === e.target.value);
+                                if (picked) {
+                                  onUpdateStaffMember(member.id, { role: picked.role, position: picked.position });
+                                }
+                              }}
                               className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
                             >
-                              {ROLE_GROUPS.map((g) => (
-                                <option key={g.key} value={g.key}>
-                                  {g.label}
+                              {POSITION_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
                                 </option>
                               ))}
                             </select>

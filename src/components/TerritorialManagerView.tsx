@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { CoffeeShop, ShopOrder, Product, StaffMember, EMPLOYEE_POSITIONS } from '../types';
+import {
+  CoffeeShop, ShopOrder, Product, StaffMember, POSITION_OPTIONS, positionValueOf,
+} from '../types';
 import { ShopOrderHistoryTable } from './ShopOrderHistoryTable';
 import { ManagerView } from './ManagerView';
 import { OrderPreviewModal } from './OrderPreviewModal';
@@ -313,21 +315,17 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                               Должность
                             </label>
                             <select
-                              value={member.role === 'employee' ? member.position || '' : member.role}
+                              value={positionValueOf(member.role, member.position)}
                               onChange={(e) => {
-                                const v = e.target.value;
-                                if (v === 'shop_manager' || v === 'territorial_manager') {
-                                  onUpdateStaffMember(member.id, { role: v, position: undefined });
-                                } else {
-                                  onUpdateStaffMember(member.id, { role: 'employee', position: v });
+                                const picked = POSITION_OPTIONS.find((o) => o.value === e.target.value);
+                                if (picked) {
+                                  onUpdateStaffMember(member.id, { role: picked.role, position: picked.position });
                                 }
                               }}
                               className="w-full px-2.5 min-h-[44px] text-sm border border-slate-300 rounded-lg bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                             >
-                              <option value="shop_manager">Менеджер точки</option>
-                              <option value="territorial_manager">Территориальный управляющий</option>
-                              {EMPLOYEE_POSITIONS.map((p) => (
-                                <option key={p} value={p}>{p}</option>
+                              {POSITION_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
                               ))}
                             </select>
                           </div>
