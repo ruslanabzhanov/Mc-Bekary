@@ -25,9 +25,14 @@ interface ManagerViewProps {
   onUpdateOrder: (shopId: number, items: Record<string, number>, status?: 'draft' | 'submitted') => void;
   onOpenPreview: () => void;
   notifications: Array<{ id: string; sentAt: string; message: string }>;
-  // Заполняется только для Владельца, который смотрит этот экран со стороны. У настоящего
-  // менеджера точка закреплена при одобрении регистрации и с устройства не меняется.
+  // Выбор точки. Заполняется только тем, у кого он вообще есть: Владельцу, который смотрит
+  // экран со стороны, и территориальному управляющему — но ему список уже ограничен его
+  // точками через coffeeShops. У настоящего менеджера точка закреплена при одобрении
+  // регистрации и с устройства не меняется.
   onSelectShop?: (shopId: number) => void;
+  shopPickerLabel?: string;
+  // Кто фактически заполняет заявку, если это не менеджер точки.
+  actingAs?: { name: string; roleLabel: string };
 }
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
@@ -39,6 +44,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   onOpenPreview,
   notifications,
   onSelectShop,
+  shopPickerLabel = 'Чью точку смотрим',
+  actingAs,
 }) => {
   const [activeTab, setActiveTab] = useState<Category | 'all'>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -178,7 +185,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       {onSelectShop && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3">
           <label className="block text-xs font-bold uppercase tracking-wider text-amber-800 mb-1.5">
-            Чью точку смотрим
+            {shopPickerLabel}
           </label>
           <select
             value={selectedShopId}
@@ -221,12 +228,19 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </span>
           </button>
 
-          {/* Tile 2: Менеджер */}
+          {/* Плитка 2: кто подаёт заявку. Когда её заполняет не менеджер точки, а кто-то за
+              неё — территориальный управляющий, — здесь должен стоять он, а не человек,
+              который к этой заявке отношения не имеет. */}
           <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between">
-            <span className="font-bold text-slate-800 text-xs truncate" title={selectedShop.manager}>
-              {selectedShop.manager}
+            <span
+              className="font-bold text-slate-800 text-xs truncate"
+              title={actingAs ? actingAs.name : selectedShop.manager}
+            >
+              {actingAs ? actingAs.name : selectedShop.manager}
             </span>
-            <span className="text-[10px] font-black uppercase text-slate-400 block mt-1">Менеджер точки</span>
+            <span className="text-[10px] font-black uppercase text-slate-400 block mt-1">
+              {actingAs ? actingAs.roleLabel : 'Менеджер точки'}
+            </span>
           </div>
 
           {/* Tile 3: Статус заявки */}

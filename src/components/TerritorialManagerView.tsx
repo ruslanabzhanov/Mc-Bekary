@@ -374,6 +374,8 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
             <ManagerView
+              // Только его точки: coffeeShops уже отфильтрованы по участку, поэтому
+              // переключаться он может лишь между своими. Стартует с той, с которой нажал.
               coffeeShops={shops}
               products={products}
               selectedShopId={orderingShop.id}
@@ -381,6 +383,9 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
               onUpdateOrder={onUpdateOrder}
               onOpenPreview={() => setIsOrderPreviewOpen(true)}
               notifications={[]}
+              onSelectShop={setOrderingShopId}
+              shopPickerLabel="За какую точку подаём"
+              actingAs={{ name: managerName, roleLabel: 'Территориальный управляющий' }}
             />
           </div>
 
