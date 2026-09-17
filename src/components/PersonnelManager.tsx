@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   CoffeeShop, StaffMember, StaffRole, RegistrationRequest, POSITION_OPTIONS, positionValueOf,
 } from '../types';
-import { Users, UserCheck, CheckCircle2, XCircle, ClipboardList } from 'lucide-react';
+import { Users, UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle } from 'lucide-react';
 
 interface PersonnelManagerProps {
   shops: CoffeeShop[];
@@ -14,11 +14,12 @@ interface PersonnelManagerProps {
   onRejectRegistrationRequest: (requestId: string) => void;
 }
 
-const ROLE_GROUPS: { key: StaffRole; label: string }[] = [
-  { key: 'employee', label: 'Внутренние сотрудники' },
-  { key: 'territorial_manager', label: 'Территориальные управляющие' },
-  { key: 'shop_manager', label: 'Менеджеры точек' }
-];
+// Fallback wording for a request saved before positions existed, which has only a role.
+const ROLE_GROUP_LABELS: Record<StaffRole, string> = {
+  employee: 'Внутренний сотрудник',
+  territorial_manager: 'Территориальный управляющий',
+  shop_manager: 'Менеджер точки',
+};
 
 // The staff list toggles between two views instead of stacking three separate groups:
 // "internal" (employees, not tied to a shop) and "shop" (territorial managers + shop
@@ -40,6 +41,14 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
   const [activeTab, setActiveTab] = useState<'staff' | 'requests'>('staff');
   const [staffView, setStaffView] = useState<'internal' | 'shop'>('shop');
   const pendingRequests = registrationRequests.filter((r) => r.status === 'pending');
+
+  // Other people waiting on the same point. A territorial manager asks for several points at
+  // once, so both sides are compared as sets.
+  const pointsOf = (r: RegistrationRequest) => r.requestedShopIds || [r.requestedShopId];
+  const duplicatesFor = (req: RegistrationRequest) =>
+    pendingRequests.filter(
+      (other) => other.id !== req.id && pointsOf(other).some((id) => pointsOf(req).includes(id))
+    );
 
   return (
     <div className="space-y-6">
@@ -186,6 +195,19 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                     {req.phone && <>{req.phone} · </>}
                     Подано в {req.submittedAt}
                   </div>
+                  {/* Точка может нанимать несколько человек, поэтому это подсказка, а не запрет:
+                      она нужна, чтобы один и тот же человек не был заведён дважды. */}
+                  {duplicatesFor(req).length > 0 && (
+                    <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                      <span>
+                        На эту точку уже есть заявка:{' '}
+                        {duplicatesFor(req)
+                          .map((d) => `${d.name} (${d.requestedPosition || ROLE_GROUP_LABELS[d.requestedRole]}, ${d.submittedAt})`)
+                          .join('; ')}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 sm:w-64 shrink-0">
@@ -215,16 +237,26 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                   </div>
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
                     <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Должность</span>
+                    {/* Настоящая должность, а не группа роли: раньше здесь стоял список из трёх
+                        ролей, поэтому «Бариста» выглядел как «Менеджеры точек», а смена этого
+                        списка меняла роль, оставляя старую должность — так и появились записи
+                        вроде «менеджер точки» с должностью «Ночной заготовщик кухни». */}
                     <select
-                      value={req.requestedRole}
-                      onChange={(e) =>
-                        onUpdateRegistrationRequest(req.id, { requestedRole: e.target.value as StaffRole })
-                      }
+                      value={positionValueOf(req.requestedRole, req.requestedPosition)}
+                      onChange={(e) => {
+                        const picked = POSITION_OPTIONS.find((o) => o.value === e.target.value);
+                        if (picked) {
+                          onUpdateRegistrationRequest(req.id, {
+                            requestedRole: picked.role,
+                            requestedPosition: picked.position,
+                          });
+                        }
+                      }}
                       className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
                     >
-                      {ROLE_GROUPS.map((g) => (
-                        <option key={g.key} value={g.key}>
-                          {g.label}
+                      {POSITION_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
                         </option>
                       ))}
                     </select>

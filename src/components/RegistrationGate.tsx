@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { UserPlus, Clock, CheckCircle2, XCircle, RotateCcw, Phone } from 'lucide-react';
+import { UserPlus, Clock, CheckCircle2, XCircle, RotateCcw, Phone, AlertTriangle } from 'lucide-react';
 import { CoffeeShop, StaffRole, StaffMember, RegistrationRequest, SHOP_STAFF_POSITIONS } from '../types';
 import { RoleShopFields } from './RoleShopFields';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
@@ -64,6 +64,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   // Phone is no longer typed in — it's confirmed by Telegram itself before the rest of the
   // form ever shows up (see CONTACT_POLL_* above and the state machine below).
   const [contactState, setContactState] = useState<ContactState>('checking');
+  const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const myRequest = pendingId ? registrationRequests.find((r) => r.id === pendingId) : null;
@@ -191,10 +192,17 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
     return () => clearInterval(id);
   }, [pendingId, myRequest?.status]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    if (role === 'territorial_manager' && shopIds.length === 0) return;
+  // Кто ещё ждёт решения по этой же точке. Территориальный просит сразу несколько точек,
+  // поэтому сравниваем наборы, а не одно число.
+  const requestedPoints = role === 'territorial_manager' ? shopIds : [shopId];
+  const sameShopRequests = registrationRequests.filter(
+    (r) =>
+      r.status === 'pending' &&
+      r.id !== pendingId &&
+      (r.requestedShopIds || [r.requestedShopId]).some((id) => requestedPoints.includes(id))
+  );
+
+  const submitRequest = () => {
     const newId = onSubmit({
       name: name.trim(),
       phone: phone.trim() || undefined,
@@ -207,6 +215,19 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
     });
     window.localStorage.setItem(PENDING_ID_KEY, newId);
     setPendingId(newId);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    if (role === 'territorial_manager' && shopIds.length === 0) return;
+    // На точку законно устраиваются несколько человек, поэтому это подтверждение, а не
+    // запрет: показываем, кто уже подал, чтобы один и тот же человек не подался дважды.
+    if (sameShopRequests.length > 0) {
+      setShowDuplicateWarning(true);
+      return;
+    }
+    submitRequest();
   };
 
   const handleRetry = () => {
@@ -346,6 +367,59 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
           className="mt-5 w-full min-h-[52px] text-sm font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-xl shadow-md transition-all"
         >
           {contactState === 'waiting' ? 'Ждём подтверждение…' : 'Поделиться номером'}
+        </button>
+      </Shell>
+    );
+  }
+
+  // Tapped "Отправить" for a point somebody else is already waiting on.
+  if (showDuplicateWarning) {
+    return (
+      <Shell>
+        <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mb-3 border border-amber-200">
+          <AlertTriangle className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-extrabold text-slate-900">
+          На эту точку уже подана заявка
+        </h3>
+        <p className="text-xs text-slate-500 mt-1">
+          Проверьте, не подали ли вы её раньше сами. Если это ваш коллега — подавайте свою,
+          на точке может работать несколько человек.
+        </p>
+
+        <div className="w-full mt-4 space-y-2">
+          {sameShopRequests.map((r) => (
+            <div
+              key={r.id}
+              className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left text-xs space-y-1"
+            >
+              <div className="font-bold text-slate-900">{r.name}</div>
+              <div className="text-slate-600">
+                {r.requestedPosition || ROLE_LABELS[r.requestedRole]}
+              </div>
+              <div className="text-slate-500">
+                Точка{' '}
+                {(r.requestedShopIds || [r.requestedShopId]).map((id) => `№${id}`).join(', ')} ·
+                подана в {r.submittedAt}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={() => {
+            setShowDuplicateWarning(false);
+            submitRequest();
+          }}
+          className="mt-5 w-full min-h-[52px] text-sm font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all"
+        >
+          Всё равно подать
+        </button>
+        <button
+          onClick={() => setShowDuplicateWarning(false)}
+          className="mt-2 w-full min-h-[48px] text-sm font-bold uppercase text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-all"
+        >
+          Вернуться к анкете
         </button>
       </Shell>
     );
