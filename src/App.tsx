@@ -102,6 +102,8 @@ export default function App() {
   // Which employee's cabinet the Owner is previewing. Only ever set from the Owner's own
   // header switch — a real employee device uses currentEmployeeId above instead.
   const [previewEmployeeId, setPreviewEmployeeId] = useState<string | null>(null);
+  // То же для кабинета территориального: чей именно участок смотрит Владелец.
+  const [previewTerritorialId, setPreviewTerritorialId] = useState<string | null>(null);
   const SHOP_ID_STORAGE_KEY = 'mc-bekary-selected-shop-id';
   const [selectedShopId, setSelectedShopIdRaw] = useState<number>(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem(SHOP_ID_STORAGE_KEY) : null;
@@ -317,9 +319,10 @@ export default function App() {
   // OWNER_VIEW_STORAGE_KEY above). Only ever remembers 'owner' — every other role still
   // starts back at the Manager view on reload, same as before.
   useEffect(() => {
-    // Previewing the employee cabinet is still "the Owner is here" — dropping the flag then
-    // would bounce them out of Owner on the next reload just for having looked at it.
-    const ownerIsHere = currentRole === 'owner' || (currentRole === 'employee' && isOwnerVerified);
+    // Владелец может смотреть любой из четырёх экранов — это по-прежнему «здесь Владелец».
+    // Снимать признак на время просмотра нельзя: после перезагрузки его выкинуло бы из
+    // режима Владельца просто за то, что он заглянул в чужой кабинет.
+    const ownerIsHere = currentRole === 'owner' || !!isOwnerVerified;
     if (ownerIsHere) {
       window.localStorage.setItem(OWNER_VIEW_STORAGE_KEY, '1');
     } else {
@@ -871,7 +874,12 @@ export default function App() {
   ).length;
 
   const selectedShop = shops.find((s) => s.id === selectedShopId) || shops[0];
-  const currentTerritorialManager = staff.find((s) => s.id === currentTerritorialManagerId) || null;
+  const territorialManagers = staff.filter((s) => s.role === 'territorial_manager');
+  // Обычное устройство закреплено за своим управляющим; Владелец, который смотрит этот
+  // кабинет со стороны, выбирает, чей участок открыть.
+  const currentTerritorialManager =
+    staff.find((s) => s.id === (previewTerritorialId || currentTerritorialManagerId)) ||
+    (isOwnerVerified && !currentTerritorialManagerId ? territorialManagers[0] || null : null);
 
   // The failed write to shout about. A submit outranks a draft, and this device's own point
   // outranks another one, so the banner names the thing most likely to matter right now.
@@ -906,8 +914,9 @@ export default function App() {
   const handleRoleChange = (role: UserRole) => {
     setCurrentRole(role);
     if (role !== 'territorial') setCurrentTerritorialManagerId(null);
-    // Leaving the preview entirely — don't keep pointing at someone else's cabinet.
+    // Ушли из чужого кабинета — не держим указатель на конкретного человека.
     if (role !== 'employee') setPreviewEmployeeId(null);
+    if (role !== 'territorial') setPreviewTerritorialId(null);
   };
 
   return (
@@ -988,6 +997,10 @@ export default function App() {
               onUpdateOrder={handleUpdateOrder}
               onOpenPreview={() => setIsPreviewOpen(true)}
               notifications={notifications}
+              // Выбор точки — только Владельцу, который смотрит этот экран со стороны.
+              // У настоящего менеджера точка закреплена при одобрении регистрации, менять
+              // её с устройства нельзя (см. CLAUDE.md, «Shop selection»).
+              onSelectShop={isOwnerVerified ? setSelectedShopIdRaw : undefined}
             />
           ) : currentRole === 'employee' ? (
             <EmployeeView
@@ -1047,6 +1060,10 @@ export default function App() {
               products={products}
               staff={staff}
               onUpdateOrder={handleUpdateOrder}
+              // Выбор участка — только когда кабинет смотрит Владелец со стороны.
+              allManagers={isOwnerVerified ? territorialManagers : undefined}
+              selectedManagerId={currentTerritorialManager?.id}
+              onPickManager={isOwnerVerified ? setPreviewTerritorialId : undefined}
             />
           )}
         </main>

@@ -12,6 +12,11 @@ interface TerritorialManagerViewProps {
   products: Product[];
   staff: StaffMember[];
   onUpdateOrder: (shopId: number, items: Record<string, number>, status?: 'draft' | 'submitted') => void;
+  // Заполняется только когда кабинет открыл Владелец: выбрать, чей участок смотреть.
+  // У самого территориального управляющего выбора нет — его участок закреплён.
+  allManagers?: StaffMember[];
+  selectedManagerId?: string;
+  onPickManager?: (staffId: string) => void;
 }
 
 const emptyDraftOrder = (shopId: number): ShopOrder => ({ shopId, items: {}, status: 'draft' });
@@ -22,7 +27,10 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   orders,
   products,
   staff,
-  onUpdateOrder
+  onUpdateOrder,
+  allManagers,
+  selectedManagerId,
+  onPickManager
 }) => {
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   const selectedShop = shops.find((s) => s.id === selectedShopId) || null;
@@ -54,6 +62,31 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
         <p className="text-xs text-slate-500 mt-1">
           {managerName} · Точки под управлением: {shops.length}
         </p>
+
+        {allManagers && onPickManager && (
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+              Чей участок смотрим
+            </label>
+            {allManagers.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                Территориальных управляющих пока нет — их добавляют через «Персонал».
+              </p>
+            ) : (
+              <select
+                value={selectedManagerId || ''}
+                onChange={(e) => onPickManager(e.target.value)}
+                className="w-full px-2.5 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {allManagers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} — точек: {m.assignedShopIds?.length || 0}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Shops grid (read-only) */}

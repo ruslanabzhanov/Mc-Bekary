@@ -25,6 +25,9 @@ interface ManagerViewProps {
   onUpdateOrder: (shopId: number, items: Record<string, number>, status?: 'draft' | 'submitted') => void;
   onOpenPreview: () => void;
   notifications: Array<{ id: string; sentAt: string; message: string }>;
+  // Заполняется только для Владельца, который смотрит этот экран со стороны. У настоящего
+  // менеджера точка закреплена при одобрении регистрации и с устройства не меняется.
+  onSelectShop?: (shopId: number) => void;
 }
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
@@ -35,6 +38,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   onUpdateOrder,
   onOpenPreview,
   notifications,
+  onSelectShop,
 }) => {
   const [activeTab, setActiveTab] = useState<Category | 'all'>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -168,6 +172,25 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <h4 className="font-semibold text-sm text-amber-950">Уведомление от Администрации сети:</h4>
             <p className="text-xs text-amber-900 mt-0.5">{shopNotifications[0].message}</p>
           </div>
+        </div>
+      )}
+
+      {onSelectShop && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3">
+          <label className="block text-xs font-bold uppercase tracking-wider text-amber-800 mb-1.5">
+            Чью точку смотрим
+          </label>
+          <select
+            value={selectedShopId}
+            onChange={(e) => onSelectShop(Number(e.target.value))}
+            className="w-full px-2.5 min-h-[48px] text-base border border-amber-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          >
+            {coffeeShops.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.district.trim() || s.address}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
