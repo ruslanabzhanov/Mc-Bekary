@@ -578,6 +578,72 @@ export function createApiApp() {
     }
   });
 
+  // Telegram calls this itself (configured once via the Bot API's setWebhook, not from our
+  // code) whenever the bot receives a message — in particular, the contact a person shares
+  // via the "Поделиться номером" button in the registration flow. Authenticated by a shared
+  // secret Telegram echoes back in a header, not by anything in the request body — anyone
+  // could otherwise POST a fake phone number here.
+  app.post('/api/telegram/webhook', async (req, res) => {
+    // Telegram retries on anything but 200, so failures are logged and swallowed rather than
+    // surfaced — a malformed/unexpected update should never turn into a retry storm.
+    try {
+      const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+      const provided = req.headers['x-telegram-bot-api-secret-token'];
+      if (!expected || provided !== expected) {
+        return res.status(401).json({ ok: false });
+      }
+      const message = req.body?.message;
+      const contact = message?.contact;
+      // Telegram's "share phone number" button can only ever share the sender's own number —
+      // this check is just belt-and-suspenders against a differently-shaped update.
+      if (contact?.phone_number && contact?.user_id != null && String(message?.from?.id) === String(contact.user_id)) {
+        const { error } = await supabase.from('telegram_contacts').upsert({
+          telegram_user_id: String(contact.user_id),
+          phone_number: String(contact.phone_number),
+          first_name: contact.first_name || null,
+          last_name: contact.last_name || null,
+          received_at: new Date().toISOString(),
+        });
+        if (error) console.error('Failed to store Telegram contact:', error);
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('Telegram webhook error:', e);
+      res.json({ ok: true });
+    }
+  });
+
+  // Polled by the registration screen after it asks Telegram for the user's phone number —
+  // the actual number arrives asynchronously via the webhook above (a normal chat message to
+  // the bot, not a response to this request), so the client has to ask "did it arrive yet?".
+  app.post('/api/registration/contact-status', async (req, res) => {
+    try {
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      const { initData } = req.body || {};
+      if (!botToken) return res.json({ ready: false });
+      const { valid, userId } = verifyTelegramInitData(initData, botToken);
+      if (!valid || userId == null) {
+        return res.status(400).json({ ready: false, error: 'invalid initData' });
+      }
+      const { data, error } = await supabase
+        .from('telegram_contacts')
+        .select('*')
+        .eq('telegram_user_id', String(userId))
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return res.json({ ready: false });
+      res.json({
+        ready: true,
+        phone: data.phone_number,
+        firstName: data.first_name || undefined,
+        lastName: data.last_name || undefined,
+      });
+    } catch (e) {
+      console.error('Failed to check contact status:', e);
+      res.status(500).json({ ready: false });
+    }
+  });
+
   // Persist the raw materials catalog (add/edit/delete raw ingredients)
   app.post('/api/raw-materials', async (req, res) => {
     try {

@@ -1,10 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { UserPlus, Clock, CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { UserPlus, Clock, CheckCircle2, XCircle, RotateCcw, Phone } from 'lucide-react';
 import { CoffeeShop, StaffRole, RegistrationRequest, SHOP_STAFF_POSITIONS } from '../types';
 import { RoleShopFields } from './RoleShopFields';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
 
 const PENDING_ID_KEY = 'mc-bekary-pending-registration-id';
+
+// How long to keep polling after the person taps "Поделиться номером" before giving up and
+// offering a retry — the contact itself arrives asynchronously via a Telegram webhook, not as
+// a direct response to anything we call, so there's no other way to bound the wait.
+const CONTACT_POLL_INTERVAL_MS = 2000;
+const CONTACT_POLL_MAX_ATTEMPTS = 60; // ~2 minutes
+
+type ContactState = 'checking' | 'blocked-no-telegram' | 'need-contact' | 'waiting' | 'timeout' | 'unsupported' | 'confirmed';
 
 interface RegistrationGateProps {
   shops: CoffeeShop[];
@@ -37,7 +45,82 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   const [role, setRole] = useState<StaffRole>('shop_manager');
   const [position, setPosition] = useState('');
 
+  // Phone is no longer typed in — it's confirmed by Telegram itself before the rest of the
+  // form ever shows up (see CONTACT_POLL_* above and the state machine below).
+  const [contactState, setContactState] = useState<ContactState>('checking');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const myRequest = pendingId ? registrationRequests.find((r) => r.id === pendingId) : null;
+
+  const checkContactStatus = async (): Promise<boolean> => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (!tg?.initData) return false;
+    try {
+      const res = await fetch('/api/registration/contact-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: tg.initData }),
+      });
+      const data = await res.json();
+      if (data?.ready && data?.phone) {
+        setPhone(data.phone);
+        if (data.firstName) {
+          setName((prev) => prev || [data.firstName, data.lastName].filter(Boolean).join(' '));
+        }
+        setContactState('confirmed');
+        return true;
+      }
+    } catch (e) {
+      console.error('Failed to check contact status:', e);
+    }
+    return false;
+  };
+
+  // Runs once whenever we're about to show the mandatory form (fresh device, or right after
+  // "Подать заявку заново") — re-checks first, so someone who already shared their number once
+  // before doesn't have to tap the button again.
+  useEffect(() => {
+    if (pendingId) return;
+    const tg = (window as any).Telegram?.WebApp;
+    if (!tg || !tg.initData) {
+      setContactState('blocked-no-telegram');
+      return;
+    }
+    setContactState('checking');
+    checkContactStatus().then((ready) => {
+      if (!ready) setContactState('need-contact');
+    });
+  }, [pendingId]);
+
+  useEffect(() => {
+    if (contactState !== 'waiting') return;
+    let attempts = 0;
+    pollRef.current = setInterval(async () => {
+      attempts += 1;
+      const ready = await checkContactStatus();
+      if (ready && pollRef.current) {
+        clearInterval(pollRef.current);
+      } else if (attempts >= CONTACT_POLL_MAX_ATTEMPTS) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        setContactState('timeout');
+      }
+    }, CONTACT_POLL_INTERVAL_MS);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [contactState]);
+
+  const handleShareContact = () => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (!tg || typeof tg.requestContact !== 'function') {
+      setContactState('unsupported');
+      return;
+    }
+    setContactState('waiting');
+    tg.requestContact((shared: boolean) => {
+      if (!shared) setContactState('need-contact');
+    });
+  };
 
   useEffect(() => {
     if (myRequest?.status === 'approved') {
@@ -144,6 +227,68 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
     );
   }
 
+  // Opened outside Telegram (e.g. a preview link in a plain browser) — there's no way to
+  // confirm a phone number without Telegram's own contact-share button, so registration can't
+  // proceed at all here.
+  if (contactState === 'blocked-no-telegram') {
+    return (
+      <Shell>
+        <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mb-3 border border-amber-200">
+          <Phone className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-extrabold text-slate-900">Откройте через Telegram</h3>
+        <p className="text-xs text-slate-500 mt-1">
+          Регистрация возможна только внутри Telegram — так мы можем подтвердить ваш номер
+          телефона. Откройте приложение через бота.
+        </p>
+      </Shell>
+    );
+  }
+
+  if (contactState === 'checking') {
+    return (
+      <Shell>
+        <div className="w-12 h-12 bg-slate-100 text-slate-500 rounded-2xl flex items-center justify-center mb-3 border border-slate-200">
+          <Phone className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-extrabold text-slate-900">Проверяем номер…</h3>
+      </Shell>
+    );
+  }
+
+  // Number not confirmed yet — the mandatory form below doesn't even render until it is.
+  if (contactState !== 'confirmed') {
+    return (
+      <Shell>
+        <div className="w-12 h-12 bg-indigo-100 text-indigo-700 rounded-2xl flex items-center justify-center mb-3 border border-indigo-200">
+          <Phone className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-extrabold text-slate-900">Подтвердите номер телефона</h3>
+        <p className="text-xs text-slate-500 mt-1">
+          Нажмите «Поделиться номером» — Telegram сам подтвердит, что номер ваш. Вводить его
+          вручную не нужно.
+        </p>
+
+        {contactState === 'unsupported' && (
+          <p className="text-xs text-rose-600 mt-3 font-bold">
+            Ваша версия Telegram это не поддерживает. Обновите Telegram и попробуйте снова.
+          </p>
+        )}
+        {contactState === 'timeout' && (
+          <p className="text-xs text-rose-600 mt-3 font-bold">Номер не пришёл. Попробуйте ещё раз.</p>
+        )}
+
+        <button
+          onClick={handleShareContact}
+          disabled={contactState === 'waiting'}
+          className="mt-5 w-full min-h-[52px] text-sm font-bold uppercase text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-xl shadow-md transition-all"
+        >
+          {contactState === 'waiting' ? 'Ждём подтверждение…' : 'Поделиться номером'}
+        </button>
+      </Shell>
+    );
+  }
+
   // No request yet — mandatory registration form
   return (
     <Shell>
@@ -170,14 +315,13 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Телефон (необязательно)</label>
-          <input
-            type="tel"
-            placeholder="+7 707 000 00 00"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
-          />
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Телефон</label>
+          {/* Подтверждён Telegram-ом на предыдущем шаге — руками уже не вводится и не
+              редактируется, чтобы номер нельзя было подменить. */}
+          <div className="w-full px-3 min-h-[48px] flex items-center justify-between text-base border border-emerald-200 bg-emerald-50 rounded-xl text-slate-900 font-medium">
+            <span>{phone}</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+          </div>
         </div>
 
         <RoleShopFields

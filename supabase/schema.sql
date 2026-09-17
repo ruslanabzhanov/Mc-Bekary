@@ -188,3 +188,15 @@ create table if not exists registration_requests (
   submitted_at text not null,
   status text not null default 'pending'
 );
+
+-- Phone numbers Telegram itself has vouched for, captured via the bot's "share my contact"
+-- button (see POST /api/telegram/webhook). Populated *before* a registration request even
+-- exists — the registration form reads from here instead of a free-typed phone field, so a
+-- number can't be typo'd or faked. One row per Telegram account; a re-share just overwrites it.
+create table if not exists telegram_contacts (
+  telegram_user_id text primary key,
+  phone_number text not null,
+  first_name text,
+  last_name text,
+  received_at timestamptz not null default now()
+);

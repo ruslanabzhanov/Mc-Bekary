@@ -8,7 +8,7 @@ import crypto from 'crypto';
 export function verifyTelegramInitData(
   initData: string,
   botToken: string
-): { valid: boolean; userId?: number } {
+): { valid: boolean; userId?: number; firstName?: string; lastName?: string } {
   if (!initData || !botToken) return { valid: false };
 
   const params = new URLSearchParams(initData);
@@ -34,7 +34,12 @@ export function verifyTelegramInitData(
   if (!userJson) return { valid: true };
   try {
     const user = JSON.parse(userJson);
-    return { valid: true, userId: typeof user.id === 'number' ? user.id : undefined };
+    return {
+      valid: true,
+      userId: typeof user.id === 'number' ? user.id : undefined,
+      firstName: typeof user.first_name === 'string' ? user.first_name : undefined,
+      lastName: typeof user.last_name === 'string' ? user.last_name : undefined,
+    };
   } catch {
     return { valid: true };
   }
