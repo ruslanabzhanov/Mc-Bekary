@@ -717,7 +717,10 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
             {filteredDishProducts.map((p) => {
               const costing = dishCostings[p.id] || { productId: p.id, semiFinishedItems: [], rawIngredients: [] };
               const prime = calculateDishPrimeCost(costing, semiMap);
-              const fc = Math.round((prime / p.price) * 100);
+              // Цена продажи может быть не проставлена — тогда себестоимость делится на ноль
+              // и в карточке появлялось «FC: Infinity%». Считаем процент только когда есть
+              // на что делить, иначе честно показываем, что цены нет.
+              const fc = p.price > 0 ? Math.round((prime / p.price) * 100) : null;
 
               return (
                 <button
@@ -728,9 +731,24 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                   }}
                   className="w-full p-3 rounded-lg border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/40 text-left transition-all flex items-center justify-between group shadow-sm"
                 >
-                  <div className="flex items-center space-x-3">
-                    <span className="text-2xl">{p.imageEmoji}</span>
-                    <div>
+                  <div className="flex items-center space-x-3 min-w-0">
+                    {/* Загруженное фото блюда, если оно есть. Значок остаётся под ним и
+                        показывается сам, когда фото нет или не загрузилось. */}
+                    <span className="relative w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center">
+                      <span className="text-2xl select-none">{p.imageEmoji}</span>
+                      {p.imageUrl && (
+                        <img
+                          src={p.imageUrl}
+                          alt=""
+                          loading="lazy"
+                          className="absolute inset-0 w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.visibility = 'hidden';
+                          }}
+                        />
+                      )}
+                    </span>
+                    <div className="min-w-0">
                       <div className="font-bold text-slate-900 text-sm group-hover:text-indigo-600">
                         {p.name}
                       </div>
@@ -744,10 +762,15 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
                     <div className="text-xs font-black text-indigo-900">{prime} ₸</div>
                     <div
                       className={`text-[10px] font-bold px-1.5 py-0.5 rounded inline-block mt-0.5 ${
-                        fc > 40 ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
+                        fc === null
+                          ? 'bg-slate-100 text-slate-500'
+                          : fc > 40
+                          ? 'bg-amber-100 text-amber-900'
+                          : 'bg-emerald-100 text-emerald-900'
                       }`}
+                      title={fc === null ? 'Не указана цена продажи' : undefined}
                     >
-                      FC: {fc}%
+                      {fc === null ? 'Цена не указана' : `FC: ${fc}%`}
                     </div>
                   </div>
                 </button>
