@@ -10,7 +10,7 @@ import { RegistrationGate } from './components/RegistrationGate';
 import { SplashScreen, wasSplashShownThisSession, markSplashShown } from './components/SplashScreen';
 import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
-import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
+import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, StaffRole, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
 
 // A useState that also fires-and-forgets a POST to persist every update to the Express backend,
 // so the value survives a full page reload (not just re-opening a modal within the same session).
@@ -130,22 +130,27 @@ export default function App() {
       !!window.localStorage.getItem(REGISTERED_STORAGE_KEY)
     );
   });
-  const grantAccess = (approvedRequest: RegistrationRequest) => {
+  // Who this device turned out to be. Normally read off the approved request; if that row was
+  // lost, off the staff record the approval created — which is the durable record of the two.
+  const grantAccess = (identity: {
+    requestId: string;
+    role: StaffRole;
+    shopId: number | null;
+    assignedShopIds?: number[];
+  }) => {
     // Same deterministic id handleApproveRegistrationRequest gives the new staff record.
-    window.localStorage.setItem(STAFF_ID_STORAGE_KEY, `staff-from-${approvedRequest.id}`);
-    if (approvedRequest.requestedRole === 'shop_manager') {
-      setSelectedShopId(approvedRequest.requestedShopId);
-    } else if (approvedRequest.requestedRole === 'territorial_manager') {
-      // Matches the id handleApproveRegistrationRequest gives the new staff record, so this
-      // device can identify (and stay locked to) exactly that territorial manager.
-      const staffId = `staff-from-${approvedRequest.id}`;
+    const staffId = `staff-from-${identity.requestId}`;
+    window.localStorage.setItem(STAFF_ID_STORAGE_KEY, staffId);
+    if (identity.role === 'shop_manager') {
+      if (identity.shopId != null) setSelectedShopId(identity.shopId);
+    } else if (identity.role === 'territorial_manager') {
+      // Lets this device identify (and stay locked to) exactly that territorial manager.
       window.localStorage.setItem(TERRITORIAL_ID_STORAGE_KEY, staffId);
       window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
       setCurrentTerritorialManagerId(staffId);
       setCurrentRole('territorial');
     } else {
       // Internal employee — same deterministic id, so this device can find its own timesheet.
-      const staffId = `staff-from-${approvedRequest.id}`;
       window.localStorage.setItem(EMPLOYEE_ID_STORAGE_KEY, staffId);
       window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
       setCurrentEmployeeId(staffId);
@@ -214,12 +219,14 @@ export default function App() {
     '/api/checklist-assignments',
     'checklistAssignments'
   );
-  const [staff, setStaff, hydrateStaff] = useSyncedState<StaffMember[]>(INITIAL_STAFF, '/api/staff', 'staff');
-  const [registrationRequests, setRegistrationRequests, hydrateRegistrationRequests] = useSyncedState<RegistrationRequest[]>(
-    INITIAL_REGISTRATION_REQUESTS,
-    '/api/registration-requests',
-    'registrationRequests'
-  );
+  // Deliberately plain state, unlike the catalogs above: these two are written from many
+  // devices at once during hiring, and a setter that posts the whole array would have each
+  // phone overwrite the table with the list it loaded on open, deleting everyone who
+  // registered since. Every change below writes its own row through a dedicated endpoint.
+  const [staff, hydrateStaff] = useState<StaffMember[]>(INITIAL_STAFF);
+  const [registrationRequests, hydrateRegistrationRequests] =
+    useState<RegistrationRequest[]>(INITIAL_REGISTRATION_REQUESTS);
+  const [serverDataLoaded, setServerDataLoaded] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -275,6 +282,9 @@ export default function App() {
         if (data.rolePermissions) setRolePermissions(data.rolePermissions);
         if (data.staff) hydrateStaff(data.staff);
         if (data.registrationRequests) hydrateRegistrationRequests(data.registrationRequests);
+        // Only now is what we hold the server's answer rather than the bundled demo rows —
+        // the registration gate must not judge a missing request until this is true.
+        setServerDataLoaded(true);
       })
       .catch((err) => {
         console.log('Using local fallback state:', err);
@@ -644,9 +654,28 @@ export default function App() {
     });
   };
 
+  // Writes the given people and nobody else. Local state moves first so the screen stays
+  // responsive; the request carries only the rows that actually changed.
+  const saveStaffMembers = (members: StaffMember[]) => {
+    if (members.length === 0) return;
+    const byId = new Map(members.map((m) => [m.id, m]));
+    hydrateStaff((prev) => {
+      const updated = prev.map((s) => byId.get(s.id) || s);
+      const added = members.filter((m) => !prev.some((s) => s.id === m.id));
+      return [...updated, ...added];
+    });
+    fetch('/api/staff/upsert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staff: members }),
+    }).catch((e) => console.error('Failed to save staff:', e));
+  };
+
   // Personnel: update an existing staff member's point/role
   const handleUpdateStaffMember = (staffId: string, updates: Partial<StaffMember>) => {
-    setStaff((prev) => prev.map((s) => (s.id === staffId ? { ...s, ...updates } : s)));
+    const current = staff.find((s) => s.id === staffId);
+    if (!current) return;
+    saveStaffMembers([{ ...current, ...updates }]);
   };
 
   // Personnel: anyone can submit a registration request specifying their point and desired role.
@@ -666,13 +695,30 @@ export default function App() {
       submittedAt: timeStr,
       status: 'pending',
     };
-    setRegistrationRequests((prev) => [...prev, newRequest]);
+    hydrateRegistrationRequests((prev) => [...prev, newRequest]);
+    fetch('/api/registration-requests/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request: newRequest }),
+    }).catch((e) => console.error('Failed to submit registration request:', e));
     return newRequest.id;
+  };
+
+  // Changes one request and notifies nobody else's row out of existence.
+  const saveRegistrationRequest = (requestId: string, updates: Partial<RegistrationRequest>) => {
+    hydrateRegistrationRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, ...updates } : r))
+    );
+    fetch(`/api/registration-requests/${encodeURIComponent(requestId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    }).catch((e) => console.error('Failed to update registration request:', e));
   };
 
   // Personnel: edit a pending request's point/role before approving it
   const handleUpdateRegistrationRequest = (requestId: string, updates: Partial<RegistrationRequest>) => {
-    setRegistrationRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, ...updates } : r)));
+    saveRegistrationRequest(requestId, updates);
   };
 
   // Personnel: approve a pending request into the staff roster. Keeps the request around
@@ -694,53 +740,54 @@ export default function App() {
       position: request.requestedRole === 'territorial_manager' ? undefined : request.requestedPosition,
       telegramUserId: request.telegramUserId
     };
-    setStaff((prev) => [...prev, newStaffMember]);
-    setRegistrationRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r))
-    );
+    // The staff record is written before the status flips: it is what the applicant's device
+    // falls back to if its own request row is ever lost, so it must exist first.
+    saveStaffMembers([newStaffMember]);
+    saveRegistrationRequest(requestId, { status: 'approved' });
   };
 
   // Personnel: reject a pending request (kept, not deleted — see approve above)
   const handleRejectRegistrationRequest = (requestId: string) => {
-    setRegistrationRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r))
-    );
+    saveRegistrationRequest(requestId, { status: 'rejected' });
   };
 
   // Personnel: manually add a new staff member (e.g. a point manager, added directly from the shop card)
   const handleAddStaffMember = (member: Omit<StaffMember, 'id'>) => {
-    const newMember: StaffMember = { ...member, id: `staff-${Date.now()}` };
-    setStaff((prev) => [...prev, newMember]);
+    saveStaffMembers([{ ...member, id: `staff-${Date.now()}` }]);
   };
 
   // Personnel: remove a staff member entirely
   const handleDeleteStaffMember = (staffId: string) => {
-    setStaff((prev) => prev.filter((s) => s.id !== staffId));
+    hydrateStaff((prev) => prev.filter((s) => s.id !== staffId));
+    fetch(`/api/staff/${encodeURIComponent(staffId)}`, { method: 'DELETE' }).catch((e) =>
+      console.error('Failed to delete staff member:', e)
+    );
   };
 
   // Personnel: a point can only have one territorial manager — reassigning removes it from whoever had it before
   const handleAssignTerritorialManager = (shopId: number, staffId: string) => {
-    setStaff((prev) =>
-      prev.map((s) => {
-        if (s.role !== 'territorial_manager') return s;
+    // Only the manager gaining the point and whoever is losing it are rewritten.
+    const touched = staff
+      .filter(
+        (s) =>
+          s.role === 'territorial_manager' &&
+          (s.id === staffId || (s.assignedShopIds || []).includes(shopId))
+      )
+      .map((s) => {
         const withoutShop = (s.assignedShopIds || []).filter((id) => id !== shopId);
-        if (s.id === staffId) {
-          return { ...s, assignedShopIds: [...withoutShop, shopId] };
-        }
-        return { ...s, assignedShopIds: withoutShop };
-      })
-    );
+        return s.id === staffId
+          ? { ...s, assignedShopIds: [...withoutShop, shopId] }
+          : { ...s, assignedShopIds: withoutShop };
+      });
+    saveStaffMembers(touched);
   };
 
   // Personnel: remove whichever territorial manager currently covers this point, without assigning a new one
   const handleUnassignTerritorialManager = (shopId: number) => {
-    setStaff((prev) =>
-      prev.map((s) =>
-        s.role === 'territorial_manager'
-          ? { ...s, assignedShopIds: (s.assignedShopIds || []).filter((id) => id !== shopId) }
-          : s
-      )
-    );
+    const touched = staff
+      .filter((s) => s.role === 'territorial_manager' && (s.assignedShopIds || []).includes(shopId))
+      .map((s) => ({ ...s, assignedShopIds: (s.assignedShopIds || []).filter((id) => id !== shopId) }));
+    saveStaffMembers(touched);
   };
 
   // Sales Points: add a new point of sale
@@ -983,6 +1030,8 @@ export default function App() {
           {currentRole === 'manager' && !hasAccess && !isOwnerVerified ? (
             <RegistrationGate
               shops={shops}
+              staff={staff}
+              serverDataLoaded={serverDataLoaded}
               registrationRequests={registrationRequests}
               onSubmit={handleAddRegistrationRequest}
               onApproved={grantAccess}

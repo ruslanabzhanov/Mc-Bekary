@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { UserPlus, Clock, CheckCircle2, XCircle, RotateCcw, Phone } from 'lucide-react';
-import { CoffeeShop, StaffRole, RegistrationRequest, SHOP_STAFF_POSITIONS } from '../types';
+import { CoffeeShop, StaffRole, StaffMember, RegistrationRequest, SHOP_STAFF_POSITIONS } from '../types';
 import { RoleShopFields } from './RoleShopFields';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
 
@@ -14,11 +14,25 @@ const CONTACT_POLL_MAX_ATTEMPTS = 60; // ~2 minutes
 
 type ContactState = 'checking' | 'blocked-no-telegram' | 'need-contact' | 'waiting' | 'timeout' | 'unsupported' | 'confirmed';
 
+// How often the waiting screen re-checks its own request. The screen promises the app will
+// open by itself the moment the manager approves — without this it only ever found out on a
+// manual tap or a restart, while the person sat looking at "на рассмотрении".
+const STATUS_POLL_INTERVAL_MS = 10000;
+
 interface RegistrationGateProps {
   shops: CoffeeShop[];
+  staff: StaffMember[];
+  // False until /api/initial-data has answered. Until then the lists are the bundled demo
+  // rows, and "my request isn't there" would be a lie.
+  serverDataLoaded: boolean;
   registrationRequests: RegistrationRequest[];
   onSubmit: (request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>) => string;
-  onApproved: (approvedRequest: RegistrationRequest) => void;
+  onApproved: (identity: {
+    requestId: string;
+    role: StaffRole;
+    shopId: number | null;
+    assignedShopIds?: number[];
+  }) => void;
   onRefresh: () => void;
 }
 
@@ -30,6 +44,8 @@ const ROLE_LABELS: Record<StaffRole, string> = {
 
 export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   shops,
+  staff,
+  serverDataLoaded,
   registrationRequests,
   onSubmit,
   onApproved,
@@ -122,12 +138,58 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
     });
   };
 
+  // The staff record an approval creates, found by the id derived from the request. This is
+  // the fallback identity when the request row itself is missing.
+  const myStaffRecord = pendingId ? staff.find((s) => s.id === `staff-from-${pendingId}`) : undefined;
+
   useEffect(() => {
     if (myRequest?.status === 'approved') {
       window.localStorage.removeItem(PENDING_ID_KEY);
-      onApproved(myRequest);
+      onApproved({
+        requestId: myRequest.id,
+        role: myRequest.requestedRole,
+        shopId: myRequest.requestedShopId,
+        assignedShopIds: myRequest.requestedShopIds,
+      });
     }
   }, [myRequest?.status]);
+
+  // The request is gone from the server but this device is still waiting on it. Either it was
+  // approved and the row was lost afterwards — the staff record proves it, so let them in — or
+  // it was lost before anyone saw it, in which case nobody is coming and the only way out is to
+  // submit again. Without this the person waits on "на рассмотрении" forever, invisible to the
+  // manager, which is exactly what happened to several people on 2026-09-17.
+  useEffect(() => {
+    if (!pendingId || myRequest || !serverDataLoaded) return;
+    if (myStaffRecord) {
+      window.localStorage.removeItem(PENDING_ID_KEY);
+      onApproved({
+        requestId: pendingId,
+        role: myStaffRecord.role,
+        shopId: myStaffRecord.shopId ?? null,
+        assignedShopIds: myStaffRecord.assignedShopIds,
+      });
+      return;
+    }
+    window.localStorage.removeItem(PENDING_ID_KEY);
+    setPendingId(null);
+  }, [pendingId, myRequest, myStaffRecord, serverDataLoaded]);
+
+  // Waiting screen: ask about this one request rather than refetching all eleven tables, and
+  // only pull the full state once something has actually changed.
+  useEffect(() => {
+    if (!pendingId || myRequest?.status !== 'pending') return;
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/registration-requests/${encodeURIComponent(pendingId)}`);
+        const data = await res.json();
+        if (!data || data.request === null || data.request?.status !== 'pending') onRefresh();
+      } catch (e) {
+        console.error('Failed to check registration status:', e);
+      }
+    }, STATUS_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [pendingId, myRequest?.status]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

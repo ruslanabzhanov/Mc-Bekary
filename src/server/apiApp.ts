@@ -794,7 +794,11 @@ export function createApiApp() {
     }
   });
 
-  // Persist the staff roster
+  // Persist the staff roster.
+  // Replaces the WHOLE table with what the caller sends — so it must only ever be used by a
+  // caller holding a complete, fresh list. The app itself no longer uses it: every add/edit
+  // goes through /api/staff/upsert below, because two devices writing whole arrays silently
+  // delete each other's rows (that is what cost several people their records on 2026-09-17).
   app.post('/api/staff', async (req, res) => {
     try {
       if (Array.isArray(req.body?.staff)) {
@@ -806,6 +810,42 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to save staff:', e);
       res.status(500).json({ error: 'Failed to save staff' });
+    }
+  });
+
+  // Add or change specific people without touching anyone else. Takes one member or several
+  // (reassigning a point's territorial manager moves it between two records at once).
+  app.post('/api/staff/upsert', async (req, res) => {
+    try {
+      const incoming = Array.isArray(req.body?.staff)
+        ? req.body.staff
+        : req.body?.staff
+        ? [req.body.staff]
+        : null;
+      if (!incoming || incoming.length === 0) {
+        return res.status(400).json({ error: 'staff is required' });
+      }
+      const { error } = await supabase.from('staff').upsert(incoming.map(staffToDb));
+      if (error) throw error;
+      const { data, error: readError } = await supabase.from('staff').select('*');
+      if (readError) throw readError;
+      res.json({ success: true, staff: (data || []).map(staffFromDb) });
+    } catch (e) {
+      console.error('Failed to upsert staff:', e);
+      res.status(500).json({ error: 'Failed to upsert staff' });
+    }
+  });
+
+  app.delete('/api/staff/:staffId', async (req, res) => {
+    try {
+      const { error } = await supabase.from('staff').delete().eq('id', String(req.params.staffId));
+      if (error) throw error;
+      const { data, error: readError } = await supabase.from('staff').select('*');
+      if (readError) throw readError;
+      res.json({ success: true, staff: (data || []).map(staffFromDb) });
+    } catch (e) {
+      console.error('Failed to delete a staff member:', e);
+      res.status(500).json({ error: 'Failed to delete staff member' });
     }
   });
 
@@ -831,7 +871,99 @@ export function createApiApp() {
     }
   });
 
-  // Persist pending registration requests
+  // One person submits their own registration. Writes exactly their row: during a hiring push
+  // a dozen phones register within minutes, each holding a list loaded when it opened the app,
+  // and a whole-table write from any of them erases everyone who registered since. That is what
+  // stranded several people on 2026-09-17 — their request vanished while their phone kept
+  // showing "заявка на рассмотрении" and the Owner never saw them at all.
+  app.post('/api/registration-requests/submit', async (req, res) => {
+    try {
+      const request = req.body?.request;
+      if (!request?.id || !request?.name) {
+        return res.status(400).json({ error: 'request with id and name is required' });
+      }
+      const { error } = await supabase
+        .from('registration_requests')
+        .upsert(registrationRequestToDb({ ...request, status: request.status || 'pending' }));
+      if (error) throw error;
+
+      notifyNewRegistrationRequests([request]).catch((e) =>
+        console.error('Failed to send registration notifications:', e)
+      );
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to submit a registration request:', e);
+      res.status(500).json({ error: 'Failed to submit registration request' });
+    }
+  });
+
+  // The decision on one request (approve/reject), or an edit to its point/role before deciding.
+  // Reads the stored status first so the applicant is notified exactly once, on the real
+  // pending -> decided transition, however many times the screen re-saves afterwards.
+  app.patch('/api/registration-requests/:requestId', async (req, res) => {
+    try {
+      const requestId = String(req.params.requestId);
+      const { data: existing, error: readError } = await supabase
+        .from('registration_requests')
+        .select('*')
+        .eq('id', requestId)
+        .maybeSingle();
+      if (readError) throw readError;
+      if (!existing) return res.status(404).json({ error: 'Registration request not found' });
+
+      const updates = req.body?.updates || {};
+      const patch: Record<string, unknown> = {};
+      if (updates.status !== undefined) patch.status = updates.status;
+      if (updates.requestedShopId !== undefined) patch.requested_shop_id = updates.requestedShopId;
+      if (updates.requestedShopIds !== undefined) patch.requested_shop_ids = updates.requestedShopIds;
+      if (updates.requestedRole !== undefined) patch.requested_role = updates.requestedRole;
+      if (updates.requestedPosition !== undefined) patch.requested_position = updates.requestedPosition;
+      if (updates.name !== undefined) patch.name = updates.name;
+      if (updates.phone !== undefined) patch.phone = updates.phone;
+      if (Object.keys(patch).length === 0) {
+        return res.status(400).json({ error: 'updates is required' });
+      }
+
+      const { data: updated, error } = await supabase
+        .from('registration_requests')
+        .update(patch)
+        .eq('id', requestId)
+        .select('*')
+        .maybeSingle();
+      if (error) throw error;
+
+      const decided =
+        existing.status === 'pending' && (patch.status === 'approved' || patch.status === 'rejected');
+      if (decided) {
+        notifyRegistrationDecision(registrationRequestFromDb(updated), patch.status as any).catch((e) =>
+          console.error('Failed to notify about a registration decision:', e)
+        );
+      }
+      res.json({ success: true, request: registrationRequestFromDb(updated) });
+    } catch (e) {
+      console.error('Failed to update a registration request:', e);
+      res.status(500).json({ error: 'Failed to update registration request' });
+    }
+  });
+
+  // One request by id — what the waiting screen polls, instead of refetching all 11 tables.
+  app.get('/api/registration-requests/:requestId', async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('registration_requests')
+        .select('*')
+        .eq('id', String(req.params.requestId))
+        .maybeSingle();
+      if (error) throw error;
+      res.json({ request: data ? registrationRequestFromDb(data) : null });
+    } catch (e) {
+      console.error('Failed to read a registration request:', e);
+      res.status(500).json({ error: 'Failed to read registration request' });
+    }
+  });
+
+  // Whole-table replace — same hazard as /api/staff above, kept only for bulk restores.
+  // The app writes single rows through the three routes above instead.
   app.post('/api/registration-requests', async (req, res) => {
     try {
       const incoming = Array.isArray(req.body?.registrationRequests) ? req.body.registrationRequests : null;
