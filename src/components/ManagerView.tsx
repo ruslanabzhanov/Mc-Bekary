@@ -1,5 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { CoffeeShop, Product, ShopOrder, Category } from '../types';
+
+// Отклонения от ИИ-нормы дня отключены вместе с «Заявкой в один клик» — сама норма
+// ещё не готова к запуску, показывать по ней предупреждения преждевременно.
+const ANOMALY_DETECTION_ENABLED = false;
 import {
   Sparkles,
   AlertTriangle,
@@ -144,7 +148,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         sum += qty * p.price;
 
         const avg = selectedShop?.historicalAvg[pId] || 10;
-        if (avg > 0) {
+        if (ANOMALY_DETECTION_ENABLED && avg > 0) {
           const ratio = qty / avg;
           if ((ratio >= 2.0 && qty > 10) || (ratio <= 0.3 && qty > 0)) {
             anomalies++;
@@ -264,21 +268,19 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             )}
           </div>
 
-          {/* Tile 4: Заявка в один клик */}
-          <button
-            id="btn-apply-ai-all"
-            onClick={handleApplyAllAiRecommendations}
-            className="bg-slate-50 hover:bg-indigo-50 p-3 rounded-xl border border-slate-200 hover:border-indigo-300 flex items-center justify-between transition-all cursor-pointer group shadow-2xs text-left"
-            title="Заявка в один клик: заполнить все товары на основе ИИ-норм дня"
+          {/* Tile 4: Заявка в один клик — временно отключена, ИИ-нормы дня ещё не готовы к запуску */}
+          <div
+            className="bg-rose-500/10 p-3 rounded-xl border border-rose-300 flex items-center justify-between text-left cursor-not-allowed"
+            title="Скоро будет работать"
           >
             <div>
-              <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Заявка</span>
-              <span className="font-bold uppercase tracking-wider text-xs text-indigo-700 group-hover:text-indigo-900">
-                В один клик
+              <span className="text-[10px] font-black uppercase text-rose-400 block mb-1">Заявка</span>
+              <span className="font-bold uppercase tracking-wider text-xs text-rose-600">
+                Скоро будет работать
               </span>
             </div>
-            <Zap className="w-5 h-5 text-indigo-600 flex-shrink-0" />
-          </button>
+            <Zap className="w-5 h-5 text-rose-400 flex-shrink-0" />
+          </div>
         </div>
       </div>
 
@@ -395,7 +397,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           let anomalyType: 'high' | 'low' | null = null;
           let anomalyText = '';
 
-          if (currentQty > 0 && avgQty > 0) {
+          if (ANOMALY_DETECTION_ENABLED && currentQty > 0 && avgQty > 0) {
             const ratio = currentQty / avgQty;
             if (ratio >= 2.0 && currentQty > 10) {
               anomalyType = 'high';
