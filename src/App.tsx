@@ -740,13 +740,17 @@ export default function App() {
     const request = registrationRequests.find((r) => r.id === requestId);
     if (!request) return;
     const isTerritorial = request.requestedRole === 'territorial_manager';
+    const isInternal = request.requestedRole === 'employee';
     // Deterministic (not Date.now()) so an approved territorial manager's own device can
     // compute this same id independently and lock itself to it — see grantAccess().
     const newStaffMember: StaffMember = {
       id: `staff-from-${request.id}`,
       name: request.name,
       role: request.requestedRole,
-      shopId: isTerritorial ? null : request.requestedShopId,
+      // Production staff aren't tied to a shop any more than a territorial manager is —
+      // requestedShopId is just PRODUCTION_SHOP_ID (0) for them, a form placeholder, not a
+      // real point.
+      shopId: isTerritorial || isInternal ? null : request.requestedShopId,
       assignedShopIds: isTerritorial ? request.requestedShopIds : undefined,
       phone: request.phone,
       position: request.requestedRole === 'territorial_manager' ? undefined : request.requestedPosition,

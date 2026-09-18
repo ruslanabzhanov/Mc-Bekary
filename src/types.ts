@@ -215,3 +215,9 @@ export interface RegistrationRequest {
 
 export const MAX_TERRITORIAL_SHOPS = 5;
 
+// Internal ("cex"/production) staff aren't tied to any shop, but requestedShopId is a required
+// column — no real shop uses this id, it just means "production" wherever a shop id is read for
+// an employee-role request. The staff record itself gets shopId: null on approval instead, same
+// as a territorial manager, since production staff have no single-shop meaning at all.
+export const PRODUCTION_SHOP_ID = 0;
+

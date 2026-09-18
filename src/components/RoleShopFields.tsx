@@ -5,6 +5,7 @@ import {
   MAX_TERRITORIAL_SHOPS,
   EMPLOYEE_POSITIONS,
   SHOP_STAFF_POSITIONS,
+  PRODUCTION_SHOP_ID,
 } from '../types';
 
 // При регистрации выбирают дважды: сначала категорию, потом должность внутри неё.
@@ -83,6 +84,10 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
             // Должность сбрасываем на первую из новой категории, иначе за сменой категории
             // тянулась бы чужая — например «Пекарь» у менеджера точки.
             onPositionChange(internal ? EMPLOYEE_POSITIONS[0] : SHOP_STAFF_POSITIONS[0]);
+            // Внутренние сотрудники работают в цеху, а не на конкретной точке — выбирать
+            // точку им незачем; предыдущий выбор (если переключались туда-обратно) сбрасываем.
+            if (internal) onShopIdChange(PRODUCTION_SHOP_ID);
+            else if (shopId === PRODUCTION_SHOP_ID) onShopIdChange(shops[0]?.id || 1);
           }}
           className="w-full px-2.5 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
         >
@@ -166,6 +171,14 @@ export const RoleShopFields: React.FC<RoleShopFieldsProps> = ({
               Выбрано максимум {MAX_TERRITORIAL_SHOPS} точек. Чтобы выбрать другую, снимите галочку с одной из отмеченных.
             </p>
           )}
+        </div>
+      ) : role === 'employee' ? (
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Точка</label>
+          {/* Внутренние сотрудники — цех, не конкретная точка продаж; выбирать здесь нечего. */}
+          <div className="w-full px-3 min-h-[48px] flex items-center text-base border border-slate-200 rounded-xl bg-slate-50 text-slate-700 font-medium">
+            Производство
+          </div>
         </div>
       ) : (
         <div>

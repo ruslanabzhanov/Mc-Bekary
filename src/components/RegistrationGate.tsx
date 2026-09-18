@@ -193,14 +193,21 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
   }, [pendingId, myRequest?.status]);
 
   // Кто ещё ждёт решения по этой же точке. Территориальный просит сразу несколько точек,
-  // поэтому сравниваем наборы, а не одно число.
+  // поэтому сравниваем наборы, а не одно число. Внутренних сотрудников не сравниваем вовсе —
+  // все они формально «на производстве», и предупреждать одного заявителя-цеховика про
+  // другого только потому, что у обоих один и тот же служебный шифр точки, было бы ложным
+  // срабатыванием: на производстве закономерно работает много разных людей.
   const requestedPoints = role === 'territorial_manager' ? shopIds : [shopId];
-  const sameShopRequests = registrationRequests.filter(
-    (r) =>
-      r.status === 'pending' &&
-      r.id !== pendingId &&
-      (r.requestedShopIds || [r.requestedShopId]).some((id) => requestedPoints.includes(id))
-  );
+  const sameShopRequests =
+    role === 'employee'
+      ? []
+      : registrationRequests.filter(
+          (r) =>
+            r.status === 'pending' &&
+            r.id !== pendingId &&
+            r.requestedRole !== 'employee' &&
+            (r.requestedShopIds || [r.requestedShopId]).some((id) => requestedPoints.includes(id))
+        );
 
   const submitRequest = () => {
     const newId = onSubmit({
@@ -295,7 +302,11 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
             <div>
               <span className="text-slate-400">{myRequest.requestedShopIds ? 'Точки:' : 'Точка:'}</span>{' '}
               <span className="font-bold text-slate-800">
-                {myRequest.requestedShopIds ? myRequest.requestedShopIds.map((id) => `№${id}`).join(', ') : `№${myRequest.requestedShopId}`}
+                {myRequest.requestedRole === 'employee'
+                  ? 'Производство'
+                  : myRequest.requestedShopIds
+                  ? myRequest.requestedShopIds.map((id) => `№${id}`).join(', ')
+                  : `№${myRequest.requestedShopId}`}
               </span>
             </div>
           </div>

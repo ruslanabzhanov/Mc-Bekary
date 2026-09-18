@@ -43,12 +43,19 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
   const pendingRequests = registrationRequests.filter((r) => r.status === 'pending');
 
   // Other people waiting on the same point. A territorial manager asks for several points at
-  // once, so both sides are compared as sets.
+  // once, so both sides are compared as sets. Internal staff never compared — every one of
+  // them formally shares the same placeholder "point" (production), so this would flag every
+  // pair of them as duplicates even though many different people legitimately work there.
   const pointsOf = (r: RegistrationRequest) => r.requestedShopIds || [r.requestedShopId];
   const duplicatesFor = (req: RegistrationRequest) =>
-    pendingRequests.filter(
-      (other) => other.id !== req.id && pointsOf(other).some((id) => pointsOf(req).includes(id))
-    );
+    req.requestedRole === 'employee'
+      ? []
+      : pendingRequests.filter(
+          (other) =>
+            other.id !== req.id &&
+            other.requestedRole !== 'employee' &&
+            pointsOf(other).some((id) => pointsOf(req).includes(id))
+        );
 
   return (
     <div className="space-y-6">
@@ -215,7 +222,11 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                     <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">
                       {req.requestedShopIds ? 'Точки' : 'Точка'}
                     </span>
-                    {req.requestedShopIds ? (
+                    {req.requestedRole === 'employee' ? (
+                      <span className="block font-bold text-indigo-900 text-xs leading-tight py-1.5">
+                        Производство
+                      </span>
+                    ) : req.requestedShopIds ? (
                       <span className="block font-bold text-indigo-900 text-[10px] leading-tight">
                         {req.requestedShopIds.map((id) => `№${id}`).join(', ')}
                       </span>
