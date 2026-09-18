@@ -488,8 +488,14 @@ export default function App() {
     const shop = shops.find((s) => s.id === shopId);
     if (!shop) return;
 
-    // Prefer the actual registered manager for this point over the shop's generic fallback name
-    const shopManager = staff.find((s) => s.role === 'shop_manager' && s.shopId === shopId);
+    // Who is actually holding this device, if it went through registration — a point can have
+    // several managers (plus a barista), and picking "the" shop_manager for the point used to
+    // mean whichever one happened to be first in the array, so every submission from that point
+    // showed the same name regardless of who really pressed the button. Falls back to the old
+    // guess only for a device that never registered (grandfathered pre-registration-gate).
+    const myStaffId = window.localStorage.getItem(STAFF_ID_STORAGE_KEY);
+    const myself = myStaffId ? staff.find((s) => s.id === myStaffId) : undefined;
+    const shopManager = myself || staff.find((s) => s.role === 'shop_manager' && s.shopId === shopId);
     const managerName = shopManager?.name || shop.manager;
 
     // Captured client-side (only meaningful inside real Telegram) so an accept/reject decision
