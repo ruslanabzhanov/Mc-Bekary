@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   CoffeeShop, StaffMember, StaffRole, RegistrationRequest, POSITION_OPTIONS, positionValueOf,
 } from '../types';
-import { Users, UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle } from 'lucide-react';
+import { UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle, Search } from 'lucide-react';
 
 interface PersonnelManagerProps {
   shops: CoffeeShop[];
@@ -40,7 +40,24 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'staff' | 'requests'>('staff');
   const [staffView, setStaffView] = useState<'internal' | 'shop'>('shop');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterShopId, setFilterShopId] = useState<'all' | number>('all');
+  const [filterPosition, setFilterPosition] = useState<string>('all');
   const pendingRequests = registrationRequests.filter((r) => r.status === 'pending');
+
+  // Toggle buttons and the category filter below drive the same state on purpose — two ways
+  // to reach it, never two contradicting states.
+  const switchStaffView = (view: 'internal' | 'shop') => {
+    setStaffView(view);
+    setFilterShopId('all');
+    setFilterPosition('all');
+  };
+
+  // Which positions the "Должность" filter offers depends on the category shown — internal
+  // staff and shop-facing staff draw from disjoint parts of POSITION_OPTIONS.
+  const positionFilterOptions = POSITION_OPTIONS.filter((o) =>
+    staffView === 'internal' ? o.role === 'employee' : o.role !== 'employee'
+  );
 
   // Other people waiting on the same point. A territorial manager asks for several points at
   // once, so both sides are compared as sets. Internal staff never compared — every one of
@@ -57,58 +74,57 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
             pointsOf(other).some((id) => pointsOf(req).includes(id))
         );
 
-  return (
-    <div className="space-y-6">
-      {/* Sub-header / tab toggle */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <Users className="w-6 h-6 text-indigo-600" />
-            <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">Персонал</h3>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Внутренние сотрудники, территориальные управляющие и менеджеры точек
-          </p>
-        </div>
+  const currentViewMembers = staff.filter((s) =>
+    STAFF_VIEWS.find((v) => v.key === staffView)!.roles.includes(s.role)
+  );
+  const q = searchQuery.trim().toLowerCase();
+  const filteredMembers = currentViewMembers.filter((m) => {
+    if (filterShopId !== 'all' && m.shopId !== filterShopId) return false;
+    if (filterPosition !== 'all' && positionValueOf(m.role, m.position) !== filterPosition) return false;
+    if (q && !m.name.toLowerCase().includes(q) && !(m.phone || '').includes(q)) return false;
+    return true;
+  });
 
-        <div className="flex flex-wrap bg-slate-100 p-1 rounded-lg border border-slate-200">
-          <button
-            onClick={() => setActiveTab('staff')}
-            className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
-              activeTab === 'staff'
-                ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>Сотрудники ({staff.length})</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('requests')}
-            className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
-              activeTab === 'requests'
-                ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <ClipboardList className="w-3.5 h-3.5" />
-            <span>Заявки на регистрацию ({pendingRequests.length})</span>
-          </button>
-        </div>
+  return (
+    <div className="space-y-4">
+      {/* Сотрудники / Заявки на регистрацию — всегда в одну строку */}
+      <div className="flex gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200">
+        <button
+          onClick={() => setActiveTab('staff')}
+          className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded text-[11px] font-bold uppercase tracking-wide transition-all whitespace-nowrap overflow-hidden ${
+            activeTab === 'staff'
+              ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <UserCheck className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Сотрудники ({staff.length})</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('requests')}
+          className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded text-[11px] font-bold uppercase tracking-wide transition-all whitespace-nowrap overflow-hidden ${
+            activeTab === 'requests'
+              ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <ClipboardList className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Заявки ({pendingRequests.length})</span>
+        </button>
       </div>
 
       {/* STAFF TAB */}
       {activeTab === 'staff' && (
-        <div className="space-y-4">
-          {/* Internal employees vs. point-facing staff — one list at a time, not three stacked */}
-          <div className="flex flex-wrap bg-slate-100 p-1 rounded-lg border border-slate-200 w-fit">
+        <div className="space-y-3">
+          {/* Сотрудники кофейни / Внутренние сотрудники — тоже в одну строку */}
+          <div className="flex gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200">
             {STAFF_VIEWS.map((view) => {
               const count = staff.filter((s) => view.roles.includes(s.role)).length;
               return (
                 <button
                   key={view.key}
-                  onClick={() => setStaffView(view.key)}
-                  className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all ${
+                  onClick={() => switchStaffView(view.key)}
+                  className={`flex-1 min-w-0 px-1 py-2.5 rounded text-[9.5px] leading-tight font-bold uppercase transition-all whitespace-nowrap overflow-hidden text-ellipsis ${
                     staffView === view.key
                       ? 'bg-white text-indigo-900 border border-slate-200 shadow-sm'
                       : 'text-slate-500 hover:text-slate-900'
@@ -120,66 +136,105 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
             })}
           </div>
 
-          {STAFF_VIEWS.filter((view) => view.key === staffView).map((view) => {
-            const members = staff.filter((s) => view.roles.includes(s.role));
-            return (
-              <div key={view.key} className="space-y-3">
-                {members.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">Пока никого нет в этой группе.</p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {members.map((member) => (
-                      <div key={member.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-2">
-                        <div className="font-bold text-slate-900 text-sm">{member.name}</div>
-                        {member.phone && <div className="text-[11px] text-slate-500">{member.phone}</div>}
+          {/* Общий поиск */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Поиск по имени или телефону"
+              className="w-full pl-9 pr-3 min-h-[44px] text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
+            />
+          </div>
 
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-                            <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Точка</span>
-                            <select
-                              value={member.shopId ?? ''}
-                              onChange={(e) =>
-                                onUpdateStaffMember(member.id, {
-                                  shopId: e.target.value ? Number(e.target.value) : null
-                                })
-                              }
-                              className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
-                            >
-                              <option value="">Без точки</option>
-                              {shops.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                  {s.district.trim() || s.address}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-                            <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Должность</span>
-                            <select
-                              value={positionValueOf(member.role, member.position)}
-                              onChange={(e) => {
-                                const picked = POSITION_OPTIONS.find((o) => o.value === e.target.value);
-                                if (picked) {
-                                  onUpdateStaffMember(member.id, { role: picked.role, position: picked.position });
-                                }
-                              }}
-                              className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
-                            >
-                              {POSITION_OPTIONS.map((o) => (
-                                <option key={o.value} value={o.value}>
-                                  {o.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+          {/* Фильтры: категория / точка / должность */}
+          <div className="grid grid-cols-3 gap-2">
+            <select
+              value={staffView}
+              onChange={(e) => switchStaffView(e.target.value as 'internal' | 'shop')}
+              className="w-full px-1.5 min-h-[40px] text-[10px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+            >
+              {STAFF_VIEWS.map((v) => (
+                <option key={v.key} value={v.key}>{v.label}</option>
+              ))}
+            </select>
+            <select
+              value={filterShopId}
+              onChange={(e) => setFilterShopId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              disabled={staffView === 'internal'}
+              className="w-full px-1.5 min-h-[40px] text-[10px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="all">Все точки</option>
+              {shops.map((s) => (
+                <option key={s.id} value={s.id}>{s.district.trim() || s.address}</option>
+              ))}
+            </select>
+            <select
+              value={filterPosition}
+              onChange={(e) => setFilterPosition(e.target.value)}
+              className="w-full px-1.5 min-h-[40px] text-[10px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium bg-white"
+            >
+              <option value="all">Все должности</option>
+              {positionFilterOptions.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {filteredMembers.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">Никого не нашлось по этим условиям.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredMembers.map((member) => (
+                <div key={member.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-2">
+                  <div className="font-bold text-slate-900 text-sm">{member.name}</div>
+                  {member.phone && <div className="text-[11px] text-slate-500">{member.phone}</div>}
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+                      <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Точка</span>
+                      <select
+                        value={member.shopId ?? ''}
+                        onChange={(e) =>
+                          onUpdateStaffMember(member.id, {
+                            shopId: e.target.value ? Number(e.target.value) : null
+                          })
+                        }
+                        className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
+                      >
+                        <option value="">Без точки</option>
+                        {shops.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.district.trim() || s.address}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+                      <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">Должность</span>
+                      <select
+                        value={positionValueOf(member.role, member.position)}
+                        onChange={(e) => {
+                          const picked = POSITION_OPTIONS.find((o) => o.value === e.target.value);
+                          if (picked) {
+                            onUpdateStaffMember(member.id, { role: picked.role, position: picked.position });
+                          }
+                        }}
+                        className="w-full bg-transparent font-bold text-indigo-900 text-xs leading-tight min-h-[32px] focus:outline-none cursor-pointer"
+                      >
+                        {POSITION_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                )}
-              </div>
-            );
-          })}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
