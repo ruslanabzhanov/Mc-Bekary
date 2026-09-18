@@ -1026,6 +1026,53 @@ export default function App() {
     }
   }, [serverDataLoaded, staff, currentRole, currentTerritorialManagerId, currentEmployeeId, currentAdminId]);
 
+  // A registered device's role can change after the fact — Владелец edits someone's role or
+  // position in «Персонал», or (as actually happened) a request was approved with a role and a
+  // position that didn't agree with each other in the first place (shop_manager assigned a shop,
+  // labelled "Заведующий производством" — grantAccess only ever runs once, at approval, so
+  // fixing the staff record alone doesn't move that person's own device to the right cabinet.
+  // This re-derives which cabinet the device's own staff record calls for, every time fresh
+  // staff data arrives, and switches to it if that differs from what's currently showing —
+  // the same precedence grantAccess uses, so a shop_manager row always wins the point screen
+  // regardless of what position label happens to be attached to it.
+  useEffect(() => {
+    if (!serverDataLoaded) return;
+    const myStaffId = window.localStorage.getItem(STAFF_ID_STORAGE_KEY);
+    if (!myStaffId) return;
+    const me = staff.find((s) => s.id === myStaffId);
+    if (!me) return; // handled by the effect above instead
+
+    const shouldBe: UserRole =
+      me.role === 'shop_manager' ? 'manager' :
+      me.role === 'territorial_manager' ? 'territorial' :
+      me.position === 'Заведующий производством' ? 'admin' :
+      'employee';
+
+    if (currentRole === shouldBe) return;
+    // Only ever resync a device sitting in one of its own four locked-in roles — never touch
+    // an Owner's session (real Owner identity, not a stored role) or a mid-preview state.
+    if (!(['manager', 'territorial', 'employee', 'admin'] as UserRole[]).includes(currentRole)) return;
+
+    window.localStorage.removeItem(TERRITORIAL_ID_STORAGE_KEY);
+    window.localStorage.removeItem(EMPLOYEE_ID_STORAGE_KEY);
+    window.localStorage.removeItem(ADMIN_ID_STORAGE_KEY);
+    if (shouldBe === 'territorial') {
+      window.localStorage.setItem(TERRITORIAL_ID_STORAGE_KEY, myStaffId);
+      setCurrentTerritorialManagerId(myStaffId);
+    } else if (shouldBe === 'employee') {
+      window.localStorage.setItem(EMPLOYEE_ID_STORAGE_KEY, myStaffId);
+      setCurrentEmployeeId(myStaffId);
+    } else if (shouldBe === 'admin') {
+      window.localStorage.setItem(ADMIN_ID_STORAGE_KEY, myStaffId);
+      setCurrentAdminId(myStaffId);
+    } else if (me.shopId != null) {
+      setSelectedShopId(me.shopId);
+    }
+    window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
+    setCurrentRole(shouldBe);
+    showToast('Ваш доступ обновлён управляющим — открыт новый экран.');
+  }, [serverDataLoaded, staff, currentRole]);
+
   return (
     <>
       {showSplash && (
