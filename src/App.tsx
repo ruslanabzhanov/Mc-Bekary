@@ -689,23 +689,17 @@ export default function App() {
     saveStaffMembers([{ ...current, ...updates }]);
   };
 
-  // Personnel: anyone can submit a registration request specifying their point and desired role.
-  // Returns the new request's id so a caller (the mandatory registration gate) can track its status.
-  // `selfRegistration` is true only for the mandatory gate, where whoever is filling the form
-  // out really is the applicant — capturing this device's own Telegram id there is correct.
-  // The "➕" header button (Header.tsx / RegistrationRequestModal.tsx) is the opposite case: an
-  // already-registered person filling this out *for someone else* (a new hire). Auto-capturing
-  // the submitter's own id there stamped the new hire's request — and later their staff record
-  // and every notification about them — with the wrong person's Telegram account. That's how a
-  // territorial manager registering a colleague ended up owning that colleague's notifications.
+  // The only way to register is the mandatory gate on a fresh device — whoever fills this form
+  // out is the applicant, so capturing this device's own Telegram id here is always correct.
+  // (There used to also be a "➕" header button letting an already-registered person submit a
+  // request *for* someone else; it's gone — that path stamped the new hire's request, and every
+  // later notification about them, with the submitter's own Telegram account instead of theirs.)
+  // Returns the new request's id so the gate can track its status.
   const handleAddRegistrationRequest = (
-    request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>,
-    selfRegistration: boolean = true
+    request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>
   ) => {
     const timeStr = timeNowAlmaty();
-    const telegramUserId = selfRegistration
-      ? (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id
-      : undefined;
+    const telegramUserId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
     const newRequest: RegistrationRequest = {
       ...request,
       telegramUserId: telegramUserId ? String(telegramUserId) : request.telegramUserId,
@@ -1056,10 +1050,6 @@ export default function App() {
           totalShops={27}
           selectedShopName={selectedShop?.name}
           onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
-          shops={shops}
-          // "➕" в шапке — регистрация чужого человека, а не себя; см. комментарий у
-          // handleAddRegistrationRequest про то, чей Telegram-id тут нельзя подставлять.
-          onSubmitRegistrationRequest={(request) => handleAddRegistrationRequest(request, false)}
           currentTerritorialManagerName={currentTerritorialManager?.name}
           isOwnerVerified={isOwnerVerified}
         />

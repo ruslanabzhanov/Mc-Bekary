@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Clock, UserPlus, Compass, Crown, ChevronDown, ShieldCheck, Store, Map, HardHat } from 'lucide-react';
+import { Clock, Compass, Crown, ChevronDown, ShieldCheck, Store, Map, HardHat } from 'lucide-react';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
-import { CoffeeShop, RegistrationRequest, UserRole } from '../types';
-import { RegistrationRequestModal } from './RegistrationRequestModal';
+import { UserRole } from '../types';
 
 // Экраны, между которыми переключается Владелец. Он — единственная по-настоящему
 // подтверждённая личность в приложении, поэтому ему можно смотреть любой кабинет; у
@@ -46,8 +45,6 @@ interface HeaderProps {
   totalShops: number;
   selectedShopName?: string;
   onOpenSubmittedOrdersModal?: () => void;
-  shops: CoffeeShop[];
-  onSubmitRegistrationRequest: (request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>) => void;
   currentTerritorialManagerName?: string;
   isOwnerVerified?: boolean;
 }
@@ -59,12 +56,9 @@ export const Header: React.FC<HeaderProps> = ({
   totalShops,
   selectedShopName,
   onOpenSubmittedOrdersModal,
-  shops,
-  onSubmitRegistrationRequest,
   currentTerritorialManagerName,
   isOwnerVerified,
 }) => {
-  const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
 
   const percentage = Math.round((submittedCount / totalShops) * 100);
@@ -118,16 +112,6 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               </button>
             </div>
-
-            {/* Registration Request Entry Point */}
-            <button
-              id="btn-open-registration-request"
-              onClick={() => setIsRegistrationModalOpen(true)}
-              className="w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-indigo-600 hover:text-indigo-900 transition-all shadow-2xs cursor-pointer"
-              title="Подать заявку на регистрацию"
-            >
-              <UserPlus className="w-5 h-5" />
-            </button>
 
             {/* Executive Access Button / Executive Active State */}
             <div className="flex items-center space-x-2">
@@ -209,14 +193,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         </div>
       </div>
-
-      {/* Registration Request Modal */}
-      <RegistrationRequestModal
-        isOpen={isRegistrationModalOpen}
-        onClose={() => setIsRegistrationModalOpen(false)}
-        shops={shops}
-        onSubmit={onSubmitRegistrationRequest}
-      />
     </header>
   );
 };
