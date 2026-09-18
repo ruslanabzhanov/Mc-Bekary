@@ -691,14 +691,21 @@ export default function App() {
 
   // Personnel: anyone can submit a registration request specifying their point and desired role.
   // Returns the new request's id so a caller (the mandatory registration gate) can track its status.
+  // `selfRegistration` is true only for the mandatory gate, where whoever is filling the form
+  // out really is the applicant — capturing this device's own Telegram id there is correct.
+  // The "➕" header button (Header.tsx / RegistrationRequestModal.tsx) is the opposite case: an
+  // already-registered person filling this out *for someone else* (a new hire). Auto-capturing
+  // the submitter's own id there stamped the new hire's request — and later their staff record
+  // and every notification about them — with the wrong person's Telegram account. That's how a
+  // territorial manager registering a colleague ended up owning that colleague's notifications.
   const handleAddRegistrationRequest = (
-    request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>
+    request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>,
+    selfRegistration: boolean = true
   ) => {
     const timeStr = timeNowAlmaty();
-    // Captured here so the approve/reject decision can be pushed back to this person, and so
-    // that once they're staff we know where to send everything else — this is the only moment
-    // their Telegram id is reliably in front of us.
-    const telegramUserId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    const telegramUserId = selfRegistration
+      ? (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id
+      : undefined;
     const newRequest: RegistrationRequest = {
       ...request,
       telegramUserId: telegramUserId ? String(telegramUserId) : request.telegramUserId,
@@ -977,6 +984,25 @@ export default function App() {
     if (role !== 'territorial') setPreviewTerritorialId(null);
   };
 
+  // Устройство привязано к территориальному/внутреннему сотруднику, которого больше нет в
+  // персонале (например, управляющий удалил дубль или понизил роль через «Персонал»). Без
+  // этого экран остаётся пустым и нерабочим — человек не поймёт, что делать. Откатываем на
+  // обычный экран заказа, как у только что одобренного менеджера; проверяем только после
+  // того, как реальные данные точно пришли с сервера, а не по демо-заглушке при старте.
+  useEffect(() => {
+    if (!serverDataLoaded) return;
+    if (currentRole === 'territorial' && currentTerritorialManagerId && !staff.some((s) => s.id === currentTerritorialManagerId)) {
+      window.localStorage.removeItem(TERRITORIAL_ID_STORAGE_KEY);
+      setCurrentTerritorialManagerId(null);
+      setCurrentRole('manager');
+    }
+    if (currentRole === 'employee' && currentEmployeeId && !staff.some((s) => s.id === currentEmployeeId)) {
+      window.localStorage.removeItem(EMPLOYEE_ID_STORAGE_KEY);
+      setCurrentEmployeeId(null);
+      setCurrentRole('manager');
+    }
+  }, [serverDataLoaded, staff, currentRole, currentTerritorialManagerId, currentEmployeeId]);
+
   return (
     <>
       {showSplash && (
@@ -1031,7 +1057,9 @@ export default function App() {
           selectedShopName={selectedShop?.name}
           onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
           shops={shops}
-          onSubmitRegistrationRequest={handleAddRegistrationRequest}
+          // "➕" в шапке — регистрация чужого человека, а не себя; см. комментарий у
+          // handleAddRegistrationRequest про то, чей Telegram-id тут нельзя подставлять.
+          onSubmitRegistrationRequest={(request) => handleAddRegistrationRequest(request, false)}
           currentTerritorialManagerName={currentTerritorialManager?.name}
           isOwnerVerified={isOwnerVerified}
         />
