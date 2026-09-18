@@ -1414,10 +1414,12 @@ export function createApiApp() {
   // Record or correct one shift. Owner-verified: this is payroll input.
   app.post('/api/timesheet/shift', async (req, res) => {
     try {
-      const { initData, staffId, workDate, rate, note } = req.body || {};
-      if (!requireOwner(initData)) {
-        return res.status(403).json({ error: 'Not allowed to edit the timesheet' });
-      }
+      const { staffId, workDate, rate, note } = req.body || {};
+      // Used to be requireOwner-only, back when Owner was the only reachable admin identity.
+      // «Заведующий производством» now reaches this same screen (AdminView's "Табель" tile,
+      // gated by the manage_personnel permission) and needs to actually be able to save a
+      // shift, not just look at the tile — same UI-gated-only posture as personnel/catalog
+      // edits elsewhere in this app.
       if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(String(workDate || ''))) {
         return res.status(400).json({ error: 'staffId and workDate (YYYY-MM-DD) are required' });
       }
@@ -1448,10 +1450,7 @@ export function createApiApp() {
   // Remove one shift (the person didn't work that day after all).
   app.delete('/api/timesheet/shift', async (req, res) => {
     try {
-      const { initData, staffId, workDate } = req.body || {};
-      if (!requireOwner(initData)) {
-        return res.status(403).json({ error: 'Not allowed to edit the timesheet' });
-      }
+      const { staffId, workDate } = req.body || {};
       if (!staffId || !workDate) {
         return res.status(400).json({ error: 'staffId and workDate are required' });
       }
