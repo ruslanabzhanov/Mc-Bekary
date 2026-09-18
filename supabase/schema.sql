@@ -176,6 +176,37 @@ create index if not exists shifts_work_date_idx on shifts(work_date);
 create index if not exists shifts_staff_month_idx on shifts(staff_id, work_date);
 alter table shifts enable row level security;
 
+-- One row per change to a shift (set or delete) — the shifts table itself only ever shows the
+-- current state, so without this there's no way to answer "who changed this person's pay and
+-- when". staff_name is denormalized (copied at write time, not joined) so the entry still
+-- reads correctly even if the staff record is later renamed or removed.
+create table if not exists shift_changes (
+  id bigserial primary key,
+  staff_id text not null,
+  staff_name text not null,
+  work_date date not null,
+  action text not null check (action in ('set', 'delete')),
+  rate numeric,
+  actor_name text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists shift_changes_work_date_idx on shift_changes(work_date);
+
+-- A shop-floor employee's request to be paid part of what the timesheet already shows as
+-- earned, ahead of the normal payday. staff_name is denormalized, same reasoning as
+-- shift_changes.staff_name above.
+create table if not exists advance_requests (
+  id text primary key,
+  staff_id text not null references staff(id) on delete cascade,
+  staff_name text not null,
+  amount numeric not null,
+  kaspi_phone text not null,
+  status text not null default 'pending',
+  submitted_at text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists advance_requests_staff_idx on advance_requests(staff_id);
+
 create table if not exists registration_requests (
   id text primary key,
   name text not null,

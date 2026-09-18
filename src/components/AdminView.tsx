@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest, RawMaterial, ChecklistAssignments, RolePermissions } from '../types';
+import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest, AdvanceRequest, RawMaterial, ChecklistAssignments, RolePermissions } from '../types';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
 import { CostingsManager } from './CostingsManager';
 import { PersonnelManager } from './PersonnelManager';
@@ -27,7 +27,8 @@ import {
   CalendarCheck,
   History,
   X,
-  Crown
+  Crown,
+  HandCoins
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -53,10 +54,12 @@ interface AdminViewProps {
   onUpdateChecklistAssignments: (next: ChecklistAssignments) => void;
   staff: StaffMember[];
   registrationRequests: RegistrationRequest[];
+  advanceRequests: AdvanceRequest[];
   onUpdateStaffMember: (staffId: string, updates: Partial<StaffMember>) => void;
   onUpdateRegistrationRequest: (requestId: string, updates: Partial<RegistrationRequest>) => void;
   onApproveRegistrationRequest: (requestId: string) => void;
   onRejectRegistrationRequest: (requestId: string) => void;
+  onDecideAdvanceRequest: (requestId: string, status: 'approved' | 'rejected') => void;
   onAddShop: (data: { address: string; manager: string; district: string }) => void;
   onUpdateShop: (shopId: number, updates: Partial<Pick<CoffeeShop, 'district' | 'address'>>) => void;
   onAddStaffMember: (member: Omit<StaffMember, 'id'>) => void;
@@ -68,6 +71,7 @@ interface AdminViewProps {
   telegramInitData: string;
   onOpenSubmittedOrdersModal?: () => void;
   isOwner?: boolean;
+  actorName: string;
   permissions: RolePermissions;
   onUpdateRolePermissions: (permissions: RolePermissions) => void;
 }
@@ -95,10 +99,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onUpdateChecklistAssignments,
   staff,
   registrationRequests,
+  advanceRequests,
   onUpdateStaffMember,
   onUpdateRegistrationRequest,
   onApproveRegistrationRequest,
   onRejectRegistrationRequest,
+  onDecideAdvanceRequest,
   onAddShop,
   onUpdateShop,
   onAddStaffMember,
@@ -110,6 +116,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   telegramInitData,
   onOpenSubmittedOrdersModal,
   isOwner,
+  actorName,
   permissions,
   onUpdateRolePermissions,
 }) => {
@@ -119,6 +126,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isSalesPointsModalOpen, setIsSalesPointsModalOpen] = useState(false);
   const [isCostingsModalOpen, setIsCostingsModalOpen] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
+  const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [isHistoryDaysOpen, setIsHistoryDaysOpen] = useState(false);
   const [isRolePermissionsOpen, setIsRolePermissionsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -127,6 +135,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // the Owner configures (defaults to "everything on", matching pre-existing behavior).
   const canDo = (key: keyof RolePermissions['admin']) => !!isOwner || permissions.admin[key];
   const pendingRequestsCount = registrationRequests.filter((r) => r.status === 'pending').length;
+  const pendingAdvanceCount = advanceRequests.filter((r) => r.status === 'pending').length;
 
   // Compute stats
   const allOrdersList = Object.values(orders) as ShopOrder[];
@@ -352,6 +361,24 @@ export const AdminView: React.FC<AdminViewProps> = ({
               Табель
             </span>
             <CalendarCheck className="w-6 h-6 text-slate-900 mt-1.5" />
+          </button>
+
+          <button
+            id="btn-open-advance-modal"
+            onClick={() => setIsAdvanceModalOpen(true)}
+            disabled={!canDo('manage_personnel')}
+            title={!canDo('manage_personnel') ? 'Отключено Владельцем' : undefined}
+            className="relative bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
+          >
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Авансы
+            </span>
+            <HandCoins className="w-6 h-6 text-slate-900 mt-1.5" />
+            {pendingAdvanceCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-sm">
+                {pendingAdvanceCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -587,8 +614,86 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <TimesheetManager
               staff={staff}
               telegramInitData={telegramInitData}
+              actorName={actorName}
               onUpdateStaffMember={onUpdateStaffMember}
             />
+          </div>
+        </div>
+      )}
+
+      {isAdvanceModalOpen && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <HandCoins className="w-5 h-5 text-indigo-600" />
+              <span>Авансы</span>
+            </h2>
+            <button
+              onClick={() => setIsAdvanceModalOpen(false)}
+              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-3">
+            {advanceRequests.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-400 italic text-sm">
+                Заявок на аванс ещё не было.
+              </div>
+            ) : (
+              advanceRequests.map((req) => (
+                <div
+                  key={req.id}
+                  className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-slate-900 text-sm">{req.staffName}</div>
+                    <div className="text-[11px] text-slate-500">
+                      Kaspi {req.kaspiPhone} · Подано в {req.submittedAt}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 text-lg font-black text-slate-900 tabular-nums">
+                    {Math.round(req.amount).toLocaleString('ru-RU')} ₸
+                  </div>
+
+                  {req.status === 'pending' ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => onDecideAdvanceRequest(req.id, 'approved')}
+                        className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-lg text-xs uppercase tracking-wider transition-all shadow-sm"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Одобрить</span>
+                      </button>
+                      <button
+                        onClick={() => onDecideAdvanceRequest(req.id, 'rejected')}
+                        className="flex items-center justify-center p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
+                        title="Отклонить"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <span
+                      className={`shrink-0 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg ${
+                        req.status === 'approved'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-rose-50 text-rose-700'
+                      }`}
+                    >
+                      {req.status === 'approved' ? (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <X className="w-3.5 h-3.5" />
+                      )}
+                      {req.status === 'approved' ? 'Одобрено' : 'Отклонено'}
+                    </span>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}

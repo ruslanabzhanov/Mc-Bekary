@@ -185,6 +185,25 @@ export const shiftFromDb = (r: any) => ({
   note: r.note || undefined,
 });
 
+export const advanceRequestFromDb = (r: any) => ({
+  id: r.id,
+  staffId: r.staff_id,
+  staffName: r.staff_name,
+  amount: Number(r.amount) || 0,
+  kaspiPhone: r.kaspi_phone,
+  status: r.status || 'pending',
+  submittedAt: r.submitted_at,
+});
+export const advanceRequestToDb = (r: any) => ({
+  id: r.id,
+  staff_id: r.staffId,
+  staff_name: r.staffName,
+  amount: r.amount,
+  kaspi_phone: r.kaspiPhone,
+  status: r.status || 'pending',
+  submitted_at: r.submittedAt,
+});
+
 export const registrationRequestFromDb = (r: any) => ({
   id: r.id,
   name: r.name,

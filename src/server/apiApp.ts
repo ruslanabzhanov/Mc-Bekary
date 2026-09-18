@@ -25,6 +25,8 @@ import {
   registrationRequestFromDb,
   registrationRequestToDb,
   shiftFromDb,
+  advanceRequestFromDb,
+  advanceRequestToDb,
 } from '../lib/dbMappers.js';
 import { verifyTelegramInitData } from '../lib/telegramAuth.js';
 import { sendTelegramMessage } from '../lib/telegramNotify.js';
@@ -465,6 +467,7 @@ export function createApiApp() {
         staff,
         registrationRequests,
         rolePermissions,
+        advanceRequests,
       ] = await Promise.all([
         supabase.from('shops').select('*'),
         supabase.from('products').select('*'),
@@ -481,12 +484,13 @@ export function createApiApp() {
         supabase.from('staff').select('*'),
         supabase.from('registration_requests').select('*'),
         supabase.from('role_permissions').select('*'),
+        supabase.from('advance_requests').select('*').order('created_at', { ascending: false }),
       ]);
 
       for (const r of [
         shops, products, orders, notifications, rawMaterials, rawCategoryDefs,
         semiFinished, semiCategoryDefs, dishCostings, dishCategoryDefs, checklistAssignments, staff,
-        registrationRequests, rolePermissions,
+        registrationRequests, rolePermissions, advanceRequests,
       ]) {
         if (r.error) throw r.error;
       }
@@ -523,6 +527,7 @@ export function createApiApp() {
         staff: (staff.data || []).map(staffFromDb),
         registrationRequests: (registrationRequests.data || []).map(registrationRequestFromDb),
         rolePermissions: buildRolePermissions(rolePermissions.data || []),
+        advanceRequests: (advanceRequests.data || []).map(advanceRequestFromDb),
       });
     } catch (e) {
       console.error('Failed to load initial data:', e);
@@ -882,12 +887,16 @@ export function createApiApp() {
       if (!request?.id || !request?.name) {
         return res.status(400).json({ error: 'request with id and name is required' });
       }
+      // Trusting the client's timestamp is how this already worked (it always sends one) —
+      // stamped here too so a caller that doesn't (a test, a future client change) gets a
+      // real row instead of a 500 from the not-null column.
+      const withDefaults = { ...request, submittedAt: request.submittedAt || timeNow(), status: request.status || 'pending' };
       const { error } = await supabase
         .from('registration_requests')
-        .upsert(registrationRequestToDb({ ...request, status: request.status || 'pending' }));
+        .upsert(registrationRequestToDb(withDefaults));
       if (error) throw error;
 
-      notifyNewRegistrationRequests([request]).catch((e) =>
+      notifyNewRegistrationRequests([withDefaults]).catch((e) =>
         console.error('Failed to send registration notifications:', e)
       );
       res.json({ success: true });
@@ -959,6 +968,101 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to read a registration request:', e);
       res.status(500).json({ error: 'Failed to read registration request' });
+    }
+  });
+
+  // A shop-floor employee asking to be paid part of what the timesheet already shows them as
+  // having earned, ahead of the normal payday. Same row-level-write shape as registration
+  // requests above — one person's own submission, never a whole-table replace.
+  async function notifyNewAdvanceRequest(request: any) {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) return;
+    const recipientIds = supervisorRecipientIds();
+    if (recipientIds.size === 0) return;
+    const text =
+      `💸 <b>Заявка на аванс</b>\n\n` +
+      `👤 ${request.staffName}\n` +
+      `💰 ${Number(request.amount).toLocaleString('ru-RU')} ₸\n` +
+      `📱 Kaspi: ${request.kaspiPhone}\n\n` +
+      `Одобрить или отклонить — в разделе «Авансы».`;
+    for (const chatId of recipientIds) {
+      await sendTelegramMessage(botToken, chatId, text, WEB_APP_URL);
+    }
+  }
+
+  async function notifyAdvanceDecision(request: any, status: 'approved' | 'rejected') {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) return;
+    const { data: staffRow } = await supabase
+      .from('staff')
+      .select('telegram_user_id')
+      .eq('id', request.staffId)
+      .maybeSingle();
+    const chatId = staffRow?.telegram_user_id;
+    if (!chatId) return;
+    const text =
+      status === 'approved'
+        ? `✅ <b>Аванс одобрен</b>\n\n${Number(request.amount).toLocaleString('ru-RU')} ₸ переведут на Kaspi ${request.kaspiPhone}.`
+        : `❌ <b>Заявка на аванс отклонена</b>\n\nУточните детали у управляющего.`;
+    await sendTelegramMessage(botToken, chatId, text, WEB_APP_URL);
+  }
+
+  app.post('/api/advance-requests/submit', async (req, res) => {
+    try {
+      const request = req.body?.request;
+      if (!request?.id || !request?.staffId || !request?.amount || !request?.kaspiPhone) {
+        return res.status(400).json({ error: 'staffId, amount and kaspiPhone are required' });
+      }
+      const withDefaults = { ...request, submittedAt: request.submittedAt || timeNow(), status: 'pending' };
+      const { error } = await supabase
+        .from('advance_requests')
+        .upsert(advanceRequestToDb(withDefaults));
+      if (error) throw error;
+      notifyNewAdvanceRequest(withDefaults).catch((e) =>
+        console.error('Failed to notify about a new advance request:', e)
+      );
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to submit an advance request:', e);
+      res.status(500).json({ error: 'Failed to submit advance request' });
+    }
+  });
+
+  // The decision on one advance request. Reads the stored status first so the employee is
+  // notified exactly once, on the real pending -> decided transition.
+  app.patch('/api/advance-requests/:id', async (req, res) => {
+    try {
+      const id = String(req.params.id);
+      const { data: existing, error: readError } = await supabase
+        .from('advance_requests')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (readError) throw readError;
+      if (!existing) return res.status(404).json({ error: 'Advance request not found' });
+
+      const status = req.body?.updates?.status;
+      if (status !== 'approved' && status !== 'rejected') {
+        return res.status(400).json({ error: 'updates.status must be approved or rejected' });
+      }
+
+      const { data: updated, error } = await supabase
+        .from('advance_requests')
+        .update({ status })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+
+      if (existing.status === 'pending') {
+        notifyAdvanceDecision(advanceRequestFromDb(updated), status).catch((e) =>
+          console.error('Failed to notify about an advance decision:', e)
+        );
+      }
+      res.json({ success: true, request: advanceRequestFromDb(updated) });
+    } catch (e) {
+      console.error('Failed to update an advance request:', e);
+      res.status(500).json({ error: 'Failed to update advance request' });
     }
   });
 
@@ -1411,10 +1515,11 @@ export function createApiApp() {
     }
   });
 
-  // Record or correct one shift. Owner-verified: this is payroll input.
+  // Record or correct one shift. Reachable by the Owner or «Заведующий производством» — see
+  // the comment above the endpoint definitions removed from requireOwner, below.
   app.post('/api/timesheet/shift', async (req, res) => {
     try {
-      const { staffId, workDate, rate, note } = req.body || {};
+      const { staffId, workDate, rate, note, actorName } = req.body || {};
       // Used to be requireOwner-only, back when Owner was the only reachable admin identity.
       // «Заведующий производством» now reaches this same screen (AdminView's "Табель" tile,
       // gated by the manage_personnel permission) and needs to actually be able to save a
@@ -1440,6 +1545,21 @@ export function createApiApp() {
         .select()
         .maybeSingle();
       if (error) throw error;
+
+      // Fire-and-forget: who touched this person's pay, and when — see shift_changes in
+      // schema.sql. Never blocks the write itself on the log succeeding.
+      const { data: staffRow } = await supabase.from('staff').select('name').eq('id', staffId).maybeSingle();
+      supabase.from('shift_changes').insert({
+        staff_id: staffId,
+        staff_name: staffRow?.name || staffId,
+        work_date: workDate,
+        action: 'set',
+        rate: numericRate,
+        actor_name: actorName || 'Неизвестно',
+      }).then(({ error: logError }) => {
+        if (logError) console.error('Failed to log a shift change:', logError);
+      });
+
       res.json({ success: true, shift: data ? shiftFromDb(data) : null });
     } catch (e) {
       console.error('Failed to save shift:', e);
@@ -1450,7 +1570,7 @@ export function createApiApp() {
   // Remove one shift (the person didn't work that day after all).
   app.delete('/api/timesheet/shift', async (req, res) => {
     try {
-      const { staffId, workDate } = req.body || {};
+      const { staffId, workDate, actorName } = req.body || {};
       if (!staffId || !workDate) {
         return res.status(400).json({ error: 'staffId and workDate are required' });
       }
@@ -1460,10 +1580,54 @@ export function createApiApp() {
         .eq('staff_id', staffId)
         .eq('work_date', workDate);
       if (error) throw error;
+
+      const { data: staffRow } = await supabase.from('staff').select('name').eq('id', staffId).maybeSingle();
+      supabase.from('shift_changes').insert({
+        staff_id: staffId,
+        staff_name: staffRow?.name || staffId,
+        work_date: workDate,
+        action: 'delete',
+        rate: null,
+        actor_name: actorName || 'Неизвестно',
+      }).then(({ error: logError }) => {
+        if (logError) console.error('Failed to log a shift change:', logError);
+      });
+
       res.json({ success: true });
     } catch (e) {
       console.error('Failed to delete shift:', e);
       res.status(500).json({ error: 'Failed to delete shift' });
+    }
+  });
+
+  // The change log for one month — who set or removed a shift, and when. Read-only, same
+  // openness as the rest of the timesheet reads.
+  app.get('/api/timesheet/log', async (req, res) => {
+    try {
+      const range = monthRange(String(req.query.month || ''));
+      if (!range) return res.status(400).json({ error: 'month must be YYYY-MM' });
+      const { data, error } = await supabase
+        .from('shift_changes')
+        .select('*')
+        .gte('work_date', range.from)
+        .lte('work_date', range.to)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      res.json({
+        entries: (data || []).map((r) => ({
+          id: r.id,
+          staffId: r.staff_id,
+          staffName: r.staff_name,
+          workDate: r.work_date,
+          action: r.action,
+          rate: r.rate,
+          actorName: r.actor_name,
+          createdAt: r.created_at,
+        })),
+      });
+    } catch (e) {
+      console.error('Failed to load shift change log:', e);
+      res.status(500).json({ error: 'Failed to load shift change log' });
     }
   });
 

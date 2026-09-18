@@ -196,6 +196,21 @@ export interface Shift {
   note?: string;
 }
 
+export type AdvanceRequestStatus = 'pending' | 'approved' | 'rejected';
+
+// A shop-floor employee's request to be paid part of what the timesheet already shows them
+// as having earned, ahead of the normal payday. staffName is denormalized — the request still
+// reads correctly even if the person's own staff record is later renamed or removed.
+export interface AdvanceRequest {
+  id: string;
+  staffId: string;
+  staffName: string;
+  amount: number;
+  kaspiPhone: string;
+  status: AdvanceRequestStatus;
+  submittedAt: string; // HH:MM, Kazakhstan time — same convention as RegistrationRequest
+}
+
 export type ChecklistAssignments = Record<string, string[]>; // checklist dept key -> assigned product IDs
 
 export type RegistrationRequestStatus = 'pending' | 'approved' | 'rejected';

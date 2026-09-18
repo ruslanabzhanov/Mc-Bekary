@@ -10,7 +10,7 @@ import { RegistrationGate } from './components/RegistrationGate';
 import { SplashScreen, wasSplashShownThisSession, markSplashShown } from './components/SplashScreen';
 import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
-import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, StaffRole, RegistrationRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
+import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, StaffRole, RegistrationRequest, AdvanceRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
 
 // A useState that also fires-and-forgets a POST to persist every update to the Express backend,
 // so the value survives a full page reload (not just re-opening a modal within the same session).
@@ -246,6 +246,7 @@ export default function App() {
   const [staff, hydrateStaff] = useState<StaffMember[]>(INITIAL_STAFF);
   const [registrationRequests, hydrateRegistrationRequests] =
     useState<RegistrationRequest[]>(INITIAL_REGISTRATION_REQUESTS);
+  const [advanceRequests, hydrateAdvanceRequests] = useState<AdvanceRequest[]>([]);
   const [serverDataLoaded, setServerDataLoaded] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
@@ -302,6 +303,7 @@ export default function App() {
         if (data.rolePermissions) setRolePermissions(data.rolePermissions);
         if (data.staff) hydrateStaff(data.staff);
         if (data.registrationRequests) hydrateRegistrationRequests(data.registrationRequests);
+        if (data.advanceRequests) hydrateAdvanceRequests(data.advanceRequests);
         // Only now is what we hold the server's answer rather than the bundled demo rows —
         // the registration gate must not judge a missing request until this is true.
         setServerDataLoaded(true);
@@ -787,6 +789,35 @@ export default function App() {
     saveRegistrationRequest(requestId, { status: 'rejected' });
   };
 
+  // Employee: ask to be paid part of what the timesheet already shows as earned, ahead of
+  // payday. One row-level write, same shape as registration requests above.
+  const handleSubmitAdvanceRequest = (request: Omit<AdvanceRequest, 'id' | 'status' | 'submittedAt'>) => {
+    const newRequest: AdvanceRequest = {
+      ...request,
+      id: `adv-${Date.now()}`,
+      submittedAt: timeNowAlmaty(),
+      status: 'pending',
+    };
+    hydrateAdvanceRequests((prev) => [newRequest, ...prev]);
+    fetch('/api/advance-requests/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request: newRequest }),
+    }).catch((e) => console.error('Failed to submit advance request:', e));
+  };
+
+  // Personnel: approve/reject an advance request
+  const handleDecideAdvanceRequest = (requestId: string, status: 'approved' | 'rejected') => {
+    hydrateAdvanceRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, status } : r))
+    );
+    fetch(`/api/advance-requests/${encodeURIComponent(requestId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates: { status } }),
+    }).catch((e) => console.error('Failed to update advance request:', e));
+  };
+
   // Personnel: manually add a new staff member (e.g. a point manager, added directly from the shop card)
   const handleAddStaffMember = (member: Omit<StaffMember, 'id'>) => {
     saveStaffMembers([{ ...member, id: `staff-${Date.now()}` }]);
@@ -1163,11 +1194,21 @@ export default function App() {
               // employee device sees exactly one person's timesheet — their own.
               allEmployees={isOwnerVerified ? employees : undefined}
               onPickEmployee={isOwnerVerified ? setPreviewEmployeeId : undefined}
+              advanceRequests={advanceRequests}
+              onSubmitAdvanceRequest={handleSubmitAdvanceRequest}
             />
           ) : currentRole === 'admin' || currentRole === 'owner' ? (
             <AdminView
               telegramInitData={telegramInitData}
               isOwner={currentRole === 'owner'}
+              // Who's actually at the keyboard right now — attributed on the timesheet's
+              // change log, since neither role is server-verified enough to log anything
+              // stronger than "whichever name this device is currently showing".
+              actorName={
+                currentRole === 'owner'
+                  ? 'Владелец'
+                  : staff.find((s) => s.id === currentAdminId)?.name || 'Управляющий производством'
+              }
               permissions={rolePermissions}
               onUpdateRolePermissions={handleUpdateRolePermissions}
               shops={shops}
@@ -1192,10 +1233,12 @@ export default function App() {
               onUpdateChecklistAssignments={setChecklistAssignments}
               staff={staff}
               registrationRequests={registrationRequests}
+              advanceRequests={advanceRequests}
               onUpdateStaffMember={handleUpdateStaffMember}
               onUpdateRegistrationRequest={handleUpdateRegistrationRequest}
               onApproveRegistrationRequest={handleApproveRegistrationRequest}
               onRejectRegistrationRequest={handleRejectRegistrationRequest}
+              onDecideAdvanceRequest={handleDecideAdvanceRequest}
               onAddShop={handleAddShop}
               onUpdateShop={handleUpdateShop}
               onAddStaffMember={handleAddStaffMember}

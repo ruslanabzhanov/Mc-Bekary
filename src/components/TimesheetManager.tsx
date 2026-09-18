@@ -1,14 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Users, Check, X, Wallet } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, Users, Check, X, Wallet, Printer, History } from 'lucide-react';
 import { StaffMember, Shift } from '../types';
+import { PrintTimesheetModal } from './PrintTimesheetModal';
 
 interface TimesheetManagerProps {
   staff: StaffMember[];
   telegramInitData: string;
+  actorName: string;
   onUpdateStaffMember: (staffId: string, updates: Partial<StaffMember>) => void;
 }
 
-type Mode = 'day' | 'person';
+interface ShiftChangeEntry {
+  id: number;
+  staffId: string;
+  staffName: string;
+  workDate: string;
+  action: 'set' | 'delete';
+  rate: number | null;
+  actorName: string;
+  createdAt: string;
+}
+
+type Mode = 'day' | 'person' | 'log';
 
 const MONTHS = [
   'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -32,6 +45,7 @@ const shiftWord = (n: number) => (n === 1 ? 'смена' : n >= 2 && n <= 4 ? '�
 export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   staff,
   telegramInitData,
+  actorName,
   onUpdateStaffMember,
 }) => {
   const [mode, setMode] = useState<Mode>('day');
@@ -42,6 +56,9 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isPrintOpen, setIsPrintOpen] = useState(false);
+  const [logEntries, setLogEntries] = useState<ShiftChangeEntry[]>([]);
+  const [isLogLoading, setIsLogLoading] = useState(false);
 
   // Only internal employees are on the timesheet — point managers and territorial managers
   // are not paid per shift through this screen.
@@ -71,6 +88,17 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
 
   useEffect(loadMonth, [month]);
 
+  // Only fetched when the log tab is actually opened — nobody reads it most of the time.
+  useEffect(() => {
+    if (mode !== 'log') return;
+    setIsLogLoading(true);
+    fetch(`/api/timesheet/log?month=${month}`)
+      .then((r) => r.json())
+      .then((data) => setLogEntries(data.entries || []))
+      .catch((e) => console.error('Failed to load shift change log:', e))
+      .finally(() => setIsLogLoading(false));
+  }, [mode, month]);
+
   const shiftAt = (staffId: string, day: string) =>
     shifts.find((s) => s.staffId === staffId && s.workDate === day);
 
@@ -81,7 +109,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       const res = await fetch(path, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, initData: telegramInitData }),
+        body: JSON.stringify({ ...body, initData: telegramInitData, actorName }),
       });
       if (!res.ok) {
         setError(
@@ -197,6 +225,14 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
           </p>
         </div>
         <button
+          onClick={() => setIsPrintOpen(true)}
+          className="w-11 h-11 shrink-0 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 flex items-center justify-center"
+          aria-label="Печать табеля"
+          title="Печать табеля за месяц"
+        >
+          <Printer className="w-5 h-5" />
+        </button>
+        <button
           onClick={() => moveMonth(1)}
           disabled={month >= monthKey(almatyToday())}
           className="w-11 h-11 shrink-0 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 border border-slate-200 text-slate-700 flex items-center justify-center"
@@ -211,11 +247,12 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
         {([
           { key: 'day' as Mode, label: 'По дню', icon: CalendarDays },
           { key: 'person' as Mode, label: 'По сотруднику', icon: Users },
+          { key: 'log' as Mode, label: 'Журнал', icon: History },
         ]).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setMode(key)}
-            className={`flex-1 min-h-[44px] px-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 min-h-[44px] px-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
               mode === key
                 ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900'
@@ -401,6 +438,61 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
             })}
           </div>
         </>
+      )}
+
+      {/* ---- Log mode: who touched whose pay, and when ---- */}
+      {mode === 'log' && (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+          {isLogLoading ? (
+            <p className="text-center text-sm text-slate-400 py-6">Загружаем журнал…</p>
+          ) : logEntries.length === 0 ? (
+            <p className="text-center text-sm text-slate-400 italic py-6">
+              В этом месяце изменений табеля ещё не было.
+            </p>
+          ) : (
+            logEntries.map((entry) => (
+              <div key={entry.id} className="px-3 py-3 flex items-start gap-3">
+                <span
+                  className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${
+                    entry.action === 'delete' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'
+                  }`}
+                >
+                  {entry.action === 'delete' ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-900 leading-tight">{entry.staffName}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {entry.action === 'set'
+                      ? `Смена проставлена — ${formatMoney(entry.rate || 0)}`
+                      : 'Смена снята'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1 tabular-nums">
+                    {weekdayOf(entry.workDate)} {entry.workDate.slice(8)}.{entry.workDate.slice(5, 7)}
+                    {' · '}
+                    {entry.actorName}
+                    {' · '}
+                    {new Date(entry.createdAt).toLocaleString('ru-RU', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {isPrintOpen && (
+        <PrintTimesheetModal
+          month={month}
+          monthLabel={`${MONTHS[monthNum - 1]} ${yearNum}`}
+          employees={employees}
+          shifts={shifts}
+          onClose={() => setIsPrintOpen(false)}
+        />
       )}
     </div>
   );

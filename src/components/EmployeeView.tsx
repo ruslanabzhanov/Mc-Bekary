@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Wallet, ChevronLeft, ChevronRight, BadgeCheck } from 'lucide-react';
-import { StaffMember, Shift } from '../types';
+import { CalendarDays, Wallet, ChevronLeft, ChevronRight, BadgeCheck, HandCoins, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { StaffMember, Shift, AdvanceRequest } from '../types';
 
 interface EmployeeViewProps {
   employee: StaffMember | null;
@@ -8,6 +8,8 @@ interface EmployeeViewProps {
   // their own — the screen then also offers a picker for whose timesheet to look at.
   allEmployees?: StaffMember[];
   onPickEmployee?: (staffId: string) => void;
+  advanceRequests: AdvanceRequest[];
+  onSubmitAdvanceRequest: (request: { staffId: string; staffName: string; amount: number; kaspiPhone: string }) => void;
 }
 
 const MONTHS = [
@@ -35,10 +37,14 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   employee,
   allEmployees,
   onPickEmployee,
+  advanceRequests,
+  onSubmitAdvanceRequest,
 }) => {
   const [month, setMonth] = useState<string>(() => monthKey(almatyToday()));
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [kaspiPhone, setKaspiPhone] = useState('');
 
   const staffId = employee?.id;
 
@@ -70,6 +76,30 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
     }),
     [shifts]
   );
+
+  // Kaspi number defaults to whatever's on file, but stays editable — a payout number isn't
+  // always the same as the contact number registration captured.
+  useEffect(() => {
+    setKaspiPhone((prev) => prev || employee?.phone || '');
+  }, [employee?.id]);
+
+  const myAdvanceRequests = useMemo(
+    () =>
+      advanceRequests
+        .filter((r) => r.staffId === employee?.id)
+        .sort((a, b) => b.id.localeCompare(a.id)),
+    [advanceRequests, employee?.id]
+  );
+  const pendingAdvance = myAdvanceRequests.find((r) => r.status === 'pending');
+  const lastDecidedAdvance = myAdvanceRequests.find((r) => r.status !== 'pending');
+
+  const handleAdvanceSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = Number(advanceAmount);
+    if (!employee || !Number.isFinite(amount) || amount <= 0 || !kaspiPhone.trim()) return;
+    onSubmitAdvanceRequest({ staffId: employee.id, staffName: employee.name, amount, kaspiPhone: kaspiPhone.trim() });
+    setAdvanceAmount('');
+  };
 
   const shiftMonth = (delta: number) => {
     const [y, m] = month.split('-').map(Number);
@@ -227,6 +257,87 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Advance request — only for a real employee looking at their own cabinet, not the
+          Owner previewing someone else's (see allEmployees on the props). */}
+      {!allEmployees && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+          <div className="flex items-center gap-1.5 text-slate-700 mb-3">
+            <HandCoins className="w-4 h-4" />
+            <h3 className="text-xs font-black uppercase tracking-wider">Аванс</h3>
+          </div>
+
+          {pendingAdvance ? (
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-sm">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-900">Заявка на рассмотрении</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  {formatMoney(pendingAdvance.amount)} на Kaspi {pendingAdvance.kaspiPhone}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleAdvanceSubmit} className="space-y-2.5">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Сумма
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="500"
+                  value={advanceAmount}
+                  onChange={(e) => setAdvanceAmount(e.target.value)}
+                  placeholder="Например, 20000"
+                  className="w-full px-3 min-h-[44px] text-base border border-slate-300 rounded-xl bg-white font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Уже заработано в этом месяце: {formatMoney(earned)}
+                </p>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Номер Kaspi
+                </label>
+                <input
+                  type="tel"
+                  value={kaspiPhone}
+                  onChange={(e) => setKaspiPhone(e.target.value)}
+                  placeholder="+7 707 000 00 00"
+                  className="w-full px-3 min-h-[44px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full min-h-[48px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all shadow-sm"
+              >
+                Запросить аванс
+              </button>
+            </form>
+          )}
+
+          {!pendingAdvance && lastDecidedAdvance && (
+            <div
+              className={`mt-3 flex items-center gap-2 text-xs rounded-lg px-3 py-2 ${
+                lastDecidedAdvance.status === 'approved'
+                  ? 'bg-emerald-50 text-emerald-800'
+                  : 'bg-rose-50 text-rose-800'
+              }`}
+            >
+              {lastDecidedAdvance.status === 'approved' ? (
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              ) : (
+                <XCircle className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span>
+                Последняя заявка ({formatMoney(lastDecidedAdvance.amount)}) —{' '}
+                {lastDecidedAdvance.status === 'approved' ? 'одобрена' : 'отклонена'}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       <p className="text-xs text-slate-400 text-center px-4">
         Табель ведёт управляющий. Если в нём чего-то не хватает — скажите ему.
