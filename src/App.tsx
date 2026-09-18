@@ -496,7 +496,12 @@ export default function App() {
     const myStaffId = window.localStorage.getItem(STAFF_ID_STORAGE_KEY);
     const myself = myStaffId ? staff.find((s) => s.id === myStaffId) : undefined;
     const shopManager = myself || staff.find((s) => s.role === 'shop_manager' && s.shopId === shopId);
-    const managerName = shopManager?.name || shop.manager;
+    // shop.manager is a separate, admin-edited "nobody's formally assigned to this point yet"
+    // field (see SalesPointsManager) — it's near-never empty ("Не назначен" is its own default),
+    // so chaining it on as a submission-attribution fallback never actually triggers the honest
+    // text below; it silently reused "Не назначен" instead, which reads as "nobody submitted
+    // this" in a notification when someone plainly did — we just couldn't identify who.
+    const managerName = shopManager?.name || 'Сотрудник точки (не определён)';
 
     // Captured client-side (only meaningful inside real Telegram) so an accept/reject decision
     // can be pushed back to whoever actually submitted this order — see submittedByTelegramId.
