@@ -78,6 +78,13 @@ type OrderSyncEntry = { status: 'sending' | 'failed'; isSubmit: boolean; retry: 
 // timesheet to show. Set once by grantAccess() and never changed.
 const EMPLOYEE_ID_STORAGE_KEY = 'mc-bekary-employee-id';
 
+// «Заведующий производством» is an internal-staff position (EMPLOYEE_POSITIONS), but the
+// person holding it runs production — they get the same cabinet as Owner's "Цех" view
+// (AdminView), gated by the same role_permissions matrix everyone else already has (see
+// role_permissions in apiApp.ts — this was built and ready, just never reachable by anyone
+// but the real Owner). Set once by grantAccess() on approval, same pattern as the two above.
+const ADMIN_ID_STORAGE_KEY = 'mc-bekary-admin-id';
+
 // Which staff record this device belongs to, whatever the role. A point can have several
 // managers plus a barista; without this, a shop_manager device knew only its point and could
 // not say which of those people it was — so there was no way to notify the others.
@@ -89,10 +96,14 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>(() => {
     if (typeof window === 'undefined') return 'manager';
     if (window.localStorage.getItem(OWNER_VIEW_STORAGE_KEY) === '1') return 'owner';
+    if (window.localStorage.getItem(ADMIN_ID_STORAGE_KEY)) return 'admin';
     if (window.localStorage.getItem(TERRITORIAL_ID_STORAGE_KEY)) return 'territorial';
     if (window.localStorage.getItem(EMPLOYEE_ID_STORAGE_KEY)) return 'employee';
     return 'manager';
   });
+  const [currentAdminId, setCurrentAdminId] = useState<string | null>(() =>
+    typeof window !== 'undefined' ? window.localStorage.getItem(ADMIN_ID_STORAGE_KEY) : null
+  );
   const [currentTerritorialManagerId, setCurrentTerritorialManagerId] = useState<string | null>(() =>
     typeof window !== 'undefined' ? window.localStorage.getItem(TERRITORIAL_ID_STORAGE_KEY) : null
   );
@@ -137,6 +148,7 @@ export default function App() {
     role: StaffRole;
     shopId: number | null;
     assignedShopIds?: number[];
+    position?: string;
   }) => {
     // Same deterministic id handleApproveRegistrationRequest gives the new staff record.
     const staffId = `staff-from-${identity.requestId}`;
@@ -149,6 +161,14 @@ export default function App() {
       window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
       setCurrentTerritorialManagerId(staffId);
       setCurrentRole('territorial');
+    } else if (identity.position === 'Заведующий производством') {
+      // Same "Управляющий производством" cabinet Owner's own "Цех" view opens — gated by the
+      // role_permissions matrix Owner sets in "Роли и права", same as it already would be for
+      // this position if it were ever reachable.
+      window.localStorage.setItem(ADMIN_ID_STORAGE_KEY, staffId);
+      window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
+      setCurrentAdminId(staffId);
+      setCurrentRole('admin');
     } else {
       // Internal employee — same deterministic id, so this device can find its own timesheet.
       window.localStorage.setItem(EMPLOYEE_ID_STORAGE_KEY, staffId);
@@ -999,7 +1019,12 @@ export default function App() {
       setCurrentEmployeeId(null);
       setCurrentRole('manager');
     }
-  }, [serverDataLoaded, staff, currentRole, currentTerritorialManagerId, currentEmployeeId]);
+    if (currentRole === 'admin' && currentAdminId && !staff.some((s) => s.id === currentAdminId)) {
+      window.localStorage.removeItem(ADMIN_ID_STORAGE_KEY);
+      setCurrentAdminId(null);
+      setCurrentRole('manager');
+    }
+  }, [serverDataLoaded, staff, currentRole, currentTerritorialManagerId, currentEmployeeId, currentAdminId]);
 
   return (
     <>

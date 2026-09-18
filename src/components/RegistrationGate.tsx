@@ -32,6 +32,7 @@ interface RegistrationGateProps {
     role: StaffRole;
     shopId: number | null;
     assignedShopIds?: number[];
+    position?: string;
   }) => void;
   onRefresh: () => void;
 }
@@ -151,6 +152,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
         role: myRequest.requestedRole,
         shopId: myRequest.requestedShopId,
         assignedShopIds: myRequest.requestedShopIds,
+        position: myRequest.requestedPosition,
       });
     }
   }, [myRequest?.status]);
@@ -169,6 +171,7 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
         role: myStaffRecord.role,
         shopId: myStaffRecord.shopId ?? null,
         assignedShopIds: myStaffRecord.assignedShopIds,
+        position: myStaffRecord.position,
       });
       return;
     }
