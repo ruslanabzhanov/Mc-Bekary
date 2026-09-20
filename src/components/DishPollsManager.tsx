@@ -22,6 +22,15 @@ const formatDate = (iso: string) =>
 
 const makeDishNames = (count: number) => Array.from({ length: count }, (_, i) => `Блюдо ${i + 1}`);
 
+// 1 блюдо / 2 блюда / 5 блюд — иначе на карточке голосования висит «5 оценка».
+const plural = (n: number, one: string, few: string, many: string) => {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+};
+
 // Deterministic id for a typed name, so the same physical taster re-entering the same name on
 // the Owner's own device corrects their earlier entry instead of creating a duplicate — same
 // "re-voting corrects the row" behaviour the anonymous customer link already relies on.
@@ -330,8 +339,13 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   const dishRanking = workspacePoll
     ? workspacePoll.dishNames.map((name, i) => ({ index: i, name, score: overallDishScore(i) }))
     : [];
-  const topDishes = [...dishRanking].sort((a, b) => b.score - a.score).slice(0, 10);
-  const bottomDishes = [...dishRanking].sort((a, b) => a.score - b.score).slice(0, 10);
+  // Топ и антитоп не должны пересекаться: при 10 блюдах «первая десятка» и «последняя
+  // десятка» — это один и тот же список дважды, только задом наперёд. Поэтому при небольшом
+  // числе блюд делим пополам, а полноценные топ-10/антитоп-10 включаются от 20 блюд.
+  const topCount = Math.min(10, Math.ceil(dishRanking.length / 2));
+  const bottomCount = Math.min(10, Math.floor(dishRanking.length / 2));
+  const topDishes = [...dishRanking].sort((a, b) => b.score - a.score).slice(0, topCount);
+  const bottomDishes = [...dishRanking].sort((a, b) => a.score - b.score).slice(0, bottomCount);
 
   const people: DishPollVote[] = [];
   if (analyticsResults) {
@@ -644,7 +658,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                       </button>
                     ))}
                   </div>
-                  <div className="bg-white rounded-2xl border border-rose-200 p-4">
+                  <div className={`bg-white rounded-2xl border border-rose-200 p-4 ${bottomDishes.length === 0 ? 'hidden' : ''}`}>
                     <h4 className="text-xs font-black uppercase text-rose-700 mb-2">Антитоп блюд</h4>
                     {bottomDishes.map((d, rank) => (
                       <button
@@ -675,22 +689,28 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                         {overallDishScore(dishIndex).toFixed(1)}
                       </span>
                     </div>
-                    {workspacePoll.criteria.map((c) => (
-                      <div key={c} className="flex items-center justify-between gap-3">
-                        <span className="text-sm text-slate-700">{c}</span>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <div className="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-indigo-600 rounded-full"
-                              style={{ width: `${((analyticsResults.averages[dishIndex]?.[c] || 0) / 10) * 100}%` }}
-                            />
+                    {workspacePoll.criteria.map((c) => {
+                      // Критерий могли добавить уже после того, как люди проголосовали — по нему
+                      // данных нет вовсе, и «0.0» читалось бы как «всем поставили ноль».
+                      const avg = analyticsResults.averages[dishIndex]?.[c];
+                      const hasData = typeof avg === 'number';
+                      return (
+                        <div key={c} className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-slate-700">{c}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-indigo-600 rounded-full"
+                                style={{ width: `${((avg || 0) / 10) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-sm font-black text-slate-900 tabular-nums w-9 text-right">
+                              {hasData ? avg.toFixed(1) : '—'}
+                            </span>
                           </div>
-                          <span className="text-sm font-black text-slate-900 tabular-nums w-9 text-right">
-                            {(analyticsResults.averages[dishIndex]?.[c] || 0).toFixed(1)}
-                          </span>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </button>
                 ))}
 
@@ -816,6 +836,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
             averages={analyticsResults.averages}
             globalCriteriaAverages={globalCriteriaAverages()}
             ranking={[...dishRanking].sort((a, b) => b.score - a.score)}
+            votes={analyticsResults.votes}
             voteCount={analyticsResults.votes.length}
             onClose={() => setIsPrintOpen(false)}
           />
@@ -1004,8 +1025,9 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    {poll.dishNames.join(', ')} · {poll.criteria.join(', ')} · {poll.voteCount || 0}{' '}
-                    {poll.voteCount === 1 ? 'оценка' : 'оценок'}
+                    {poll.dishNames.length} {plural(poll.dishNames.length, 'блюдо', 'блюда', 'блюд')} ·{' '}
+                    {poll.criteria.length} {plural(poll.criteria.length, 'критерий', 'критерия', 'критериев')} ·{' '}
+                    {poll.voteCount || 0} {plural(poll.voteCount || 0, 'оценка', 'оценки', 'оценок')}
                   </p>
                 </div>
               </div>

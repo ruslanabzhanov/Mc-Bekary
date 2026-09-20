@@ -1095,15 +1095,29 @@ export function createApiApp() {
     }
   });
 
+  // ?voter=<telegram id> — чтобы вернувшийся по той же ссылке гость увидел, что он уже
+  // оценил меню, а не пустую форму: иначе он решит, что оценки не сохранились, и
+  // переголосует наспех поверх своих же вдумчивых оценок.
   app.get('/api/dish-polls/:id', async (req, res) => {
     try {
-      const { data, error } = await supabase
-        .from('dish_polls')
-        .select('*')
-        .eq('id', String(req.params.id))
-        .maybeSingle();
+      const pollId = String(req.params.id);
+      const voter = req.query.voter ? String(req.query.voter) : null;
+      const { data, error } = await supabase.from('dish_polls').select('*').eq('id', pollId).maybeSingle();
       if (error) throw error;
-      res.json({ poll: data ? dishPollFromDb(data) : null });
+      if (!data) return res.json({ poll: null });
+
+      let myVote = null;
+      if (voter) {
+        const { data: voteRow, error: voteError } = await supabase
+          .from('dish_poll_votes')
+          .select('*')
+          .eq('poll_id', pollId)
+          .eq('telegram_user_id', voter)
+          .maybeSingle();
+        if (voteError) throw voteError;
+        if (voteRow) myVote = dishPollVoteFromDb(voteRow);
+      }
+      res.json({ poll: dishPollFromDb(data), myVote });
     } catch (e) {
       console.error('Failed to load a dish poll:', e);
       res.status(500).json({ error: 'Failed to load dish poll' });
@@ -1292,8 +1306,11 @@ export function createApiApp() {
     try {
       const pollId = String(req.params.id);
       const { telegramUserId, telegramUsername, telegramName, entries } = req.body || {};
+      // Эти тексты видит гость на своём экране, поэтому они по-русски и без технических
+      // подробностей: единственное, что он может сделать — переоткрыть ссылку.
+      const CHANGED = 'Голосование изменили, пока вы оценивали. Откройте ссылку заново и оцените ещё раз.';
       if (!telegramUserId || !telegramName || !Array.isArray(entries) || entries.length === 0) {
-        return res.status(400).json({ error: 'telegramUserId, telegramName and entries are required' });
+        return res.status(400).json({ error: 'Не удалось прочитать ваши оценки. Откройте ссылку заново.' });
       }
       const { data: pollRow, error: pollError } = await supabase
         .from('dish_polls')
@@ -1301,26 +1318,32 @@ export function createApiApp() {
         .eq('id', pollId)
         .maybeSingle();
       if (pollError) throw pollError;
-      if (!pollRow) return res.status(404).json({ error: 'Poll not found' });
-      if (pollRow.status !== 'active') return res.status(400).json({ error: 'Poll is closed' });
+      if (!pollRow) return res.status(404).json({ error: 'Голосование не найдено — возможно, ссылка устарела.' });
+      if (pollRow.status !== 'active') {
+        return res.status(400).json({ error: 'Голосование уже завершено — приём оценок закрыт.' });
+      }
 
       const criteria: string[] = pollRow.criteria || [];
       const dishNames: string[] = pollRow.dish_names || [];
       const allowComments = pollRow.allow_comments !== false;
       if (entries.length !== dishNames.length) {
-        return res.status(400).json({ error: 'entries must cover every dish in the poll' });
+        return res.status(400).json({ error: CHANGED });
       }
       const cleanEntries: { scores: Record<string, number>; comment?: string }[] = [];
       for (let i = 0; i < entries.length; i++) {
         const scores = entries[i]?.scores;
         if (!scores || typeof scores !== 'object') {
-          return res.status(400).json({ error: `Missing scores for dish ${i + 1}` });
+          return res.status(400).json({ error: CHANGED });
         }
         const cleanScores: Record<string, number> = {};
         for (const criterion of criteria) {
+          // Критерия нет вовсе — значит его добавили уже после того, как гость открыл форму.
+          if (scores[criterion] === undefined || scores[criterion] === null) {
+            return res.status(400).json({ error: CHANGED });
+          }
           const n = Number(scores[criterion]);
           if (!Number.isFinite(n) || n < 1 || n > 10) {
-            return res.status(400).json({ error: `Score for "${criterion}" (dish ${i + 1}) must be 1-10` });
+            return res.status(400).json({ error: `Оценка по критерию «${criterion}» должна быть от 1 до 10.` });
           }
           cleanScores[criterion] = n;
         }
@@ -1342,7 +1365,7 @@ export function createApiApp() {
       res.json({ success: true });
     } catch (e) {
       console.error('Failed to submit a dish poll vote:', e);
-      res.status(500).json({ error: 'Failed to submit vote' });
+      res.status(500).json({ error: 'Не удалось сохранить оценки. Попробуйте ещё раз.' });
     }
   });
 

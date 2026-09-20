@@ -77,18 +77,32 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
   const [activeDishIndex, setActiveDishIndex] = useState<number | null>(null);
   const [missing, setMissing] = useState<string[] | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [alreadyVoted, setAlreadyVoted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetch(`/api/dish-polls/${encodeURIComponent(pollId)}`)
-      .then((r) => r.json())
-      .then((data) => setPoll(data.poll))
-      .catch(() => setPoll(null));
-  }, [pollId]);
-
   const tg = (window as any).Telegram?.WebApp;
   const user = tg?.initDataUnsafe?.user;
+
+  useEffect(() => {
+    const voterParam = user?.id ? `?voter=${encodeURIComponent(String(user.id))}` : '';
+    fetch(`/api/dish-polls/${encodeURIComponent(pollId)}${voterParam}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setPoll(data.poll);
+        // Уже голосовал — показываем это и подставляем его прежние оценки, чтобы он их
+        // поправил, а не выставлял всё заново с нуля.
+        if (data.myVote?.entries?.length) {
+          const prefilled: Record<number, VoteDraft> = {};
+          data.myVote.entries.forEach((e: VoteDraft, i: number) => {
+            prefilled[i] = { scores: { ...e.scores }, comment: e.comment };
+          });
+          setEntries(prefilled);
+          setAlreadyVoted(true);
+        }
+      })
+      .catch(() => setPoll(null));
+  }, [pollId, user?.id]);
 
   const isDishDone = (dishIndex: number) =>
     !!poll && poll.criteria.every((c) => typeof entries[dishIndex]?.scores[c] === 'number');
@@ -180,6 +194,25 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
         </div>
         <h3 className="text-lg font-extrabold text-slate-900 text-center">Спасибо!</h3>
         <p className="text-sm text-slate-500 text-center mt-2">Ваши оценки по «{poll.name}» учтены.</p>
+      </Shell>
+    );
+  }
+  if (alreadyVoted) {
+    return (
+      <Shell>
+        <div className="w-12 h-12 mx-auto bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center mb-3 border border-emerald-200">
+          <CheckCircle2 className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-extrabold text-slate-900 text-center">Вы уже оценили «{poll.name}»</h3>
+        <p className="text-sm text-slate-500 text-center mt-2">
+          Ваши оценки сохранены. Если хотите что-то поправить — можно изменить их прямо сейчас.
+        </p>
+        <button
+          onClick={() => setAlreadyVoted(false)}
+          className="w-full min-h-[48px] mt-4 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all"
+        >
+          Изменить мои оценки
+        </button>
       </Shell>
     );
   }
