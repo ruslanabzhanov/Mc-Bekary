@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
-import { DishPoll } from '../types';
+import { DishPoll, DishPollVoteEntry } from '../types';
 
 interface DishPollVoteScreenProps {
   pollId: string;
@@ -60,13 +60,22 @@ const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </div>
 );
 
+const makeInitialEntries = (poll: DishPoll): DishPollVoteEntry[] =>
+  poll.dishNames.map(() => {
+    const scores: Record<string, number> = {};
+    poll.criteria.forEach((c) => {
+      scores[c] = 5;
+    });
+    return { scores };
+  });
+
 // Reached via a Telegram deep link (t.me/<bot>?startapp=vote_<id>), entirely outside the rest
-// of the app — no registration gate, no role, no header. Whoever opens it just rates a dish;
-// Telegram's own WebApp user object is the only "identity" involved, read automatically.
+// of the app — no registration gate, no role, no header. Whoever opens it rates every dish in
+// the poll in one sitting, using the same criteria "base tile" for each; Telegram's own WebApp
+// user object is the only "identity" involved, read automatically.
 export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }) => {
   const [poll, setPoll] = useState<DishPoll | null | undefined>(undefined);
-  const [scores, setScores] = useState<Record<string, number>>({});
-  const [comment, setComment] = useState('');
+  const [entries, setEntries] = useState<DishPollVoteEntry[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -77,11 +86,7 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
       .then((data) => {
         setPoll(data.poll);
         if (data.poll) {
-          const initial: Record<string, number> = {};
-          data.poll.criteria.forEach((c: string) => {
-            initial[c] = 5;
-          });
-          setScores(initial);
+          setEntries(makeInitialEntries(data.poll));
         }
       })
       .catch(() => setPoll(null));
@@ -89,6 +94,15 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
 
   const tg = (window as any).Telegram?.WebApp;
   const user = tg?.initDataUnsafe?.user;
+
+  const updateScore = (dishIndex: number, criterion: string, value: number) => {
+    setEntries((prev) =>
+      prev.map((entry, i) => (i === dishIndex ? { ...entry, scores: { ...entry.scores, [criterion]: value } } : entry))
+    );
+  };
+  const updateComment = (dishIndex: number, comment: string) => {
+    setEntries((prev) => prev.map((entry, i) => (i === dishIndex ? { ...entry, comment } : entry)));
+  };
 
   const handleSubmit = async () => {
     if (!poll || !user?.id) return;
@@ -102,8 +116,10 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
           telegramUserId: String(user.id),
           telegramUsername: user.username || undefined,
           telegramName: [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Гость',
-          scores,
-          comment: comment.trim() || undefined,
+          entries: entries.map((e) => ({
+            scores: e.scores,
+            comment: e.comment?.trim() || undefined,
+          })),
         }),
       });
       if (!res.ok) {
@@ -158,7 +174,7 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
           <CheckCircle2 className="w-6 h-6" />
         </div>
         <h3 className="text-lg font-extrabold text-slate-900 text-center">Спасибо!</h3>
-        <p className="text-sm text-slate-500 text-center mt-2">Ваша оценка блюда «{poll.dishName}» учтена.</p>
+        <p className="text-sm text-slate-500 text-center mt-2">Ваши оценки по «{poll.name}» учтены.</p>
       </Shell>
     );
   }
@@ -168,33 +184,37 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
       <div className="max-w-sm mx-auto space-y-4 pb-10">
         <div className="flex flex-col items-center text-center pt-4">
           <img src={masterCoffeeCroissant} alt="Master Bakery" className="w-14 h-14 object-contain mb-2" />
-          <h1 className="text-xl font-extrabold text-slate-900">{poll.dishName}</h1>
-          <p className="text-xs text-slate-500 mt-1">Оцените блюдо по каждому пункту от 1 до 10</p>
+          <h1 className="text-xl font-extrabold text-slate-900">{poll.name}</h1>
+          <p className="text-xs text-slate-500 mt-1">Оцените каждое блюдо по каждому пункту от 1 до 10</p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-6">
-          {poll.criteria.map((criterion) => (
-            <ScoreInput
-              key={criterion}
-              label={criterion}
-              value={scores[criterion] ?? 5}
-              onChange={(v) => setScores((s) => ({ ...s, [criterion]: v }))}
-            />
-          ))}
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 p-4">
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-            Комментарий (необязательно)
-          </label>
-          <textarea
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            rows={3}
-            placeholder="Что понравилось, что можно улучшить?"
-            className="w-full px-3 py-2 text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
-          />
-        </div>
+        {poll.dishNames.map((dishName, dishIndex) => (
+          <div key={dishIndex} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-6">
+            <h2 className="text-sm font-black uppercase tracking-wider text-indigo-700">{dishName}</h2>
+            {poll.criteria.map((criterion) => (
+              <ScoreInput
+                key={criterion}
+                label={criterion}
+                value={entries[dishIndex]?.scores[criterion] ?? 5}
+                onChange={(v) => updateScore(dishIndex, criterion, v)}
+              />
+            ))}
+            {poll.allowComments && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Комментарий (необязательно)
+                </label>
+                <textarea
+                  value={entries[dishIndex]?.comment || ''}
+                  onChange={(e) => updateComment(dishIndex, e.target.value)}
+                  rows={3}
+                  placeholder="Что понравилось, что можно улучшить?"
+                  className="w-full px-3 py-2 text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                />
+              </div>
+            )}
+          </div>
+        ))}
 
         {error && (
           <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl px-4 py-3 text-sm font-medium">

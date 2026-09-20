@@ -213,27 +213,50 @@ export interface AdvanceRequest {
 
 export type DishPollStatus = 'active' | 'closed';
 
-// An Owner-built dish-tasting poll — criteria are free text the Owner types in ("Вкус",
-// "Внешний вид", ...), not a fixed set, since a bakery's tasting criteria vary dish to dish.
+// Suggested criteria offered as tap-to-toggle tiles when building a poll's "base tile" — the
+// Owner can still type a custom one, but picking from here is the default path.
+export const SUGGESTED_DISH_POLL_CRITERIA = [
+  'Вкус',
+  'Внешний вид',
+  'Аромат',
+  'Текстура',
+  'Размер порции',
+  'Свежесть',
+  'Подача',
+  'Цена/качество',
+] as const;
+
+// An Owner-built dish-tasting poll. `criteria` is the one shared "base tile" applied to every
+// dish in the poll (picked from SUGGESTED_DISH_POLL_CRITERIA or typed in). `dishNames` holds one
+// label per dish being tasted in this round — auto-numbered ("Блюдо 1", "Блюдо 2", ...) at
+// creation and renamed later from the poll's own settings, not typed up front.
 export interface DishPoll {
   id: string;
-  dishName: string;
+  name: string;
+  dishNames: string[];
   criteria: string[];
+  allowComments: boolean;
   status: DishPollStatus;
   createdAt: string;
   voteCount?: number; // present only on the list endpoint, for the management screen
 }
 
-// One anonymous customer's response. telegramUsername/telegramName come straight from
-// Telegram's own WebApp user object — nothing the voter typed identifies them.
+// One anonymous customer's response, covering every dish in the poll in one submission.
+// `entries` is aligned index-for-index with the poll's own `dishNames` at vote time.
+// telegramUsername/telegramName come straight from Telegram's own WebApp user object —
+// nothing the voter typed identifies them.
+export interface DishPollVoteEntry {
+  scores: Record<string, number>; // criterion label -> 1..10
+  comment?: string; // only collected when the poll's allowComments is true
+}
+
 export interface DishPollVote {
   id: number;
   pollId: string;
   telegramUserId: string;
   telegramUsername?: string;
   telegramName: string;
-  scores: Record<string, number>; // criterion label -> 1..10
-  comment?: string;
+  entries: DishPollVoteEntry[];
   createdAt: string;
 }
 

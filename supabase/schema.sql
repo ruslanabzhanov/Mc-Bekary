@@ -208,30 +208,36 @@ create table if not exists advance_requests (
 create index if not exists advance_requests_staff_idx on advance_requests(staff_id);
 
 -- Anonymous dish-tasting polls, reached by customers via a Telegram deep link — no
--- registration, no staff record. criteria is a plain array of strings the Owner types in when
--- creating the poll (e.g. ["Вкус", "Внешний вид", "Размер порции"]); each vote's `scores` keys
--- against those same strings by name, not by id, since the poll's own criteria never change
--- after votes start coming in (only a brand-new poll — e.g. a "copy" — gets a new list).
+-- registration, no staff record. One poll can cover several dishes tasted in the same round
+-- (dish_names, e.g. ["Блюдо 1", "Блюдо 2"] — auto-numbered at creation, renamed later from the
+-- poll's own settings, never typed up front). criteria is the single shared "base tile" of
+-- evaluation points applied to every dish in the poll (picked from a suggested list or typed in
+-- by the Owner); each vote's entries key against those same strings by name, not by id, since a
+-- poll's own criteria never change after votes start coming in (only a brand-new poll — e.g. a
+-- "copy" — gets a new list). allow_comments turns the optional per-dish comment box on or off.
 create table if not exists dish_polls (
   id text primary key,
-  dish_name text not null,
+  name text not null,
+  dish_names jsonb not null default '["Блюдо 1"]',
   criteria jsonb not null default '[]',
+  allow_comments boolean not null default true,
   status text not null default 'active',
   created_at timestamptz not null default now()
 );
 
--- One row per person per poll. telegram_user_id is what Telegram Mini Apps read automatically
--- with no form field — the entire point of this feature is that a customer never types
--- anything about who they are. Unique per (poll_id, telegram_user_id) so re-voting corrects
--- the same row (upsert) instead of padding the count.
+-- One row per person per poll, covering every dish in that poll in a single submission.
+-- telegram_user_id is what Telegram Mini Apps read automatically with no form field — the
+-- entire point of this feature is that a customer never types anything about who they are.
+-- entries is a jsonb array aligned index-for-index with the poll's dish_names at vote time
+-- (each entry: {scores: {criterion: 1..10}, comment?}). Unique per (poll_id, telegram_user_id)
+-- so re-voting corrects the same row (upsert) instead of padding the count.
 create table if not exists dish_poll_votes (
   id bigserial primary key,
   poll_id text not null references dish_polls(id) on delete cascade,
   telegram_user_id text not null,
   telegram_username text,
   telegram_name text not null,
-  scores jsonb not null default '{}',
-  comment text,
+  entries jsonb not null default '[]',
   created_at timestamptz not null default now(),
   unique (poll_id, telegram_user_id)
 );

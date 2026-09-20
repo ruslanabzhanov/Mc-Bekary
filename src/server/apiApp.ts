@@ -1116,10 +1116,19 @@ export function createApiApp() {
       if (!requireOwner(initData)) {
         return res.status(403).json({ error: 'Not allowed to create a dish poll' });
       }
-      if (!poll?.id || !poll?.dishName || !Array.isArray(poll?.criteria) || poll.criteria.length === 0) {
-        return res.status(400).json({ error: 'dishName and at least one criterion are required' });
+      const dishNames = Array.isArray(poll?.dishNames) ? poll.dishNames.map((n: unknown) => String(n).trim()).filter(Boolean) : [];
+      if (
+        !poll?.id ||
+        !poll?.name?.trim() ||
+        !Array.isArray(poll?.criteria) ||
+        poll.criteria.length === 0 ||
+        dishNames.length === 0
+      ) {
+        return res.status(400).json({ error: 'name, at least one dish and one criterion are required' });
       }
-      const { error } = await supabase.from('dish_polls').insert(dishPollToDb({ ...poll, status: 'active' }));
+      const { error } = await supabase.from('dish_polls').insert(
+        dishPollToDb({ ...poll, dishNames, status: 'active' })
+      );
       if (error) throw error;
       res.json({ success: true });
     } catch (e) {
@@ -1136,7 +1145,14 @@ export function createApiApp() {
       }
       const patch: Record<string, unknown> = {};
       if (updates?.status) patch.status = updates.status;
-      if (updates?.dishName) patch.dish_name = updates.dishName;
+      if (updates?.name) patch.name = updates.name;
+      if (Array.isArray(updates?.dishNames)) {
+        const dishNames = updates.dishNames.map((n: unknown) => String(n).trim()).filter(Boolean);
+        if (dishNames.length === 0) {
+          return res.status(400).json({ error: 'dishNames cannot be empty' });
+        }
+        patch.dish_names = dishNames;
+      }
       if (Object.keys(patch).length === 0) {
         return res.status(400).json({ error: 'updates is required' });
       }
@@ -1164,8 +1180,9 @@ export function createApiApp() {
     }
   });
 
-  // The Owner's results view: every vote plus a per-criterion average, computed here rather
-  // than shipping every row to the client to average — this list only ever grows.
+  // The Owner's results view: every vote plus a per-dish, per-criterion average, computed here
+  // rather than shipping every row to the client to average — this list only ever grows.
+  // `averages` is an array aligned with the poll's own dishNames, one criterion-average map each.
   app.get('/api/dish-polls/:id/results', async (req, res) => {
     try {
       const { data, error } = await supabase
@@ -1175,18 +1192,24 @@ export function createApiApp() {
         .order('created_at', { ascending: false });
       if (error) throw error;
       const votes = (data || []).map(dishPollVoteFromDb);
-      const totals: Record<string, { sum: number; count: number }> = {};
+      const totals: Record<string, { sum: number; count: number }>[] = [];
       for (const v of votes) {
-        for (const [criterion, score] of Object.entries(v.scores)) {
-          if (!totals[criterion]) totals[criterion] = { sum: 0, count: 0 };
-          totals[criterion].sum += Number(score) || 0;
-          totals[criterion].count += 1;
+        v.entries.forEach((entry: { scores: Record<string, number> }, dishIndex: number) => {
+          if (!totals[dishIndex]) totals[dishIndex] = {};
+          for (const [criterion, score] of Object.entries(entry.scores || {})) {
+            if (!totals[dishIndex][criterion]) totals[dishIndex][criterion] = { sum: 0, count: 0 };
+            totals[dishIndex][criterion].sum += Number(score) || 0;
+            totals[dishIndex][criterion].count += 1;
+          }
+        });
+      }
+      const averages = totals.map((dishTotals) => {
+        const out: Record<string, number> = {};
+        for (const [criterion, { sum, count }] of Object.entries(dishTotals || {})) {
+          out[criterion] = count > 0 ? sum / count : 0;
         }
-      }
-      const averages: Record<string, number> = {};
-      for (const [criterion, { sum, count }] of Object.entries(totals)) {
-        averages[criterion] = count > 0 ? sum / count : 0;
-      }
+        return out;
+      });
       res.json({ votes, voteCount: votes.length, averages });
     } catch (e) {
       console.error('Failed to load dish poll results:', e);
@@ -1194,15 +1217,16 @@ export function createApiApp() {
     }
   });
 
-  // A customer votes. No identity check beyond "does Telegram say who you are" — this is
-  // feedback on a croissant, not a security boundary. One row per (poll, telegram user):
-  // voting again corrects the same response instead of counting them twice.
+  // A customer votes on every dish in the poll at once. No identity check beyond "does
+  // Telegram say who you are" — this is feedback on a croissant, not a security boundary. One
+  // row per (poll, telegram user): voting again corrects the same response instead of counting
+  // them twice.
   app.post('/api/dish-polls/:id/vote', async (req, res) => {
     try {
       const pollId = String(req.params.id);
-      const { telegramUserId, telegramUsername, telegramName, scores, comment } = req.body || {};
-      if (!telegramUserId || !telegramName || !scores || typeof scores !== 'object') {
-        return res.status(400).json({ error: 'telegramUserId, telegramName and scores are required' });
+      const { telegramUserId, telegramUsername, telegramName, entries } = req.body || {};
+      if (!telegramUserId || !telegramName || !Array.isArray(entries) || entries.length === 0) {
+        return res.status(400).json({ error: 'telegramUserId, telegramName and entries are required' });
       }
       const { data: pollRow, error: pollError } = await supabase
         .from('dish_polls')
@@ -1214,13 +1238,27 @@ export function createApiApp() {
       if (pollRow.status !== 'active') return res.status(400).json({ error: 'Poll is closed' });
 
       const criteria: string[] = pollRow.criteria || [];
-      const cleanScores: Record<string, number> = {};
-      for (const criterion of criteria) {
-        const n = Number(scores[criterion]);
-        if (!Number.isFinite(n) || n < 1 || n > 10) {
-          return res.status(400).json({ error: `Score for "${criterion}" must be 1-10` });
+      const dishNames: string[] = pollRow.dish_names || [];
+      const allowComments = pollRow.allow_comments !== false;
+      if (entries.length !== dishNames.length) {
+        return res.status(400).json({ error: 'entries must cover every dish in the poll' });
+      }
+      const cleanEntries: { scores: Record<string, number>; comment?: string }[] = [];
+      for (let i = 0; i < entries.length; i++) {
+        const scores = entries[i]?.scores;
+        if (!scores || typeof scores !== 'object') {
+          return res.status(400).json({ error: `Missing scores for dish ${i + 1}` });
         }
-        cleanScores[criterion] = n;
+        const cleanScores: Record<string, number> = {};
+        for (const criterion of criteria) {
+          const n = Number(scores[criterion]);
+          if (!Number.isFinite(n) || n < 1 || n > 10) {
+            return res.status(400).json({ error: `Score for "${criterion}" (dish ${i + 1}) must be 1-10` });
+          }
+          cleanScores[criterion] = n;
+        }
+        const comment = allowComments && entries[i]?.comment ? String(entries[i].comment) : undefined;
+        cleanEntries.push({ scores: cleanScores, ...(comment ? { comment } : {}) });
       }
 
       const { error } = await supabase.from('dish_poll_votes').upsert(
@@ -1229,8 +1267,7 @@ export function createApiApp() {
           telegramUserId: String(telegramUserId),
           telegramUsername: telegramUsername || undefined,
           telegramName,
-          scores: cleanScores,
-          comment: comment || undefined,
+          entries: cleanEntries,
         }),
         { onConflict: 'poll_id,telegram_user_id' }
       );
