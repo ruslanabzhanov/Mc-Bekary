@@ -6,6 +6,7 @@ import { PersonnelManager } from './PersonnelManager';
 import { SalesPointsManager } from './SalesPointsManager';
 import { RolePermissionsModal } from './RolePermissionsModal';
 import { TimesheetManager } from './TimesheetManager';
+import { DishPollsManager } from './DishPollsManager';
 import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
 import {
   ShieldCheck,
@@ -28,7 +29,8 @@ import {
   History,
   X,
   Crown,
-  HandCoins
+  HandCoins,
+  Vote
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -127,6 +129,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isCostingsModalOpen, setIsCostingsModalOpen] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+  const [isDishPollsOpen, setIsDishPollsOpen] = useState(false);
   const [isHistoryDaysOpen, setIsHistoryDaysOpen] = useState(false);
   const [isRolePermissionsOpen, setIsRolePermissionsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -393,6 +396,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </span>
             <Store className="w-6 h-6 text-slate-900 mt-1.5" />
           </button>
+
+          {isOwner && (
+            <button
+              id="btn-open-dish-polls"
+              onClick={() => setIsDishPollsOpen(true)}
+              className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+            >
+              <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+                Голосования
+              </span>
+              <Vote className="w-6 h-6 text-slate-900 mt-1.5" />
+            </button>
+          )}
 
           {isOwner && (
             <button
@@ -694,6 +710,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {isDishPollsOpen && isOwner && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <Vote className="w-5 h-5 text-indigo-600" />
+              <span>Голосования</span>
+            </h2>
+            <button
+              onClick={() => setIsDishPollsOpen(false)}
+              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+            <DishPollsManager telegramInitData={telegramInitData} />
           </div>
         </div>
       )}

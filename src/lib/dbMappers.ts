@@ -185,6 +185,39 @@ export const shiftFromDb = (r: any) => ({
   note: r.note || undefined,
 });
 
+export const dishPollFromDb = (r: any) => ({
+  id: r.id,
+  dishName: r.dish_name,
+  criteria: r.criteria || [],
+  status: r.status || 'active',
+  createdAt: r.created_at,
+});
+export const dishPollToDb = (r: any) => ({
+  id: r.id,
+  dish_name: r.dishName,
+  criteria: r.criteria || [],
+  status: r.status || 'active',
+});
+
+export const dishPollVoteFromDb = (r: any) => ({
+  id: r.id,
+  pollId: r.poll_id,
+  telegramUserId: r.telegram_user_id,
+  telegramUsername: r.telegram_username || undefined,
+  telegramName: r.telegram_name,
+  scores: r.scores || {},
+  comment: r.comment || undefined,
+  createdAt: r.created_at,
+});
+export const dishPollVoteToDb = (r: any) => ({
+  poll_id: r.pollId,
+  telegram_user_id: r.telegramUserId,
+  telegram_username: r.telegramUsername || null,
+  telegram_name: r.telegramName,
+  scores: r.scores || {},
+  comment: r.comment || null,
+});
+
 export const advanceRequestFromDb = (r: any) => ({
   id: r.id,
   staffId: r.staff_id,

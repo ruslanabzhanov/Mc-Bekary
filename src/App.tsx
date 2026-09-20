@@ -7,6 +7,7 @@ import { EmployeeView } from './components/EmployeeView';
 import { OrderPreviewModal } from './components/OrderPreviewModal';
 import { SubmittedOrdersModal } from './components/SubmittedOrdersModal';
 import { RegistrationGate } from './components/RegistrationGate';
+import { DishPollVoteScreen } from './components/DishPollVoteScreen';
 import { SplashScreen, wasSplashShownThisSession, markSplashShown } from './components/SplashScreen';
 import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
@@ -1103,6 +1104,18 @@ export default function App() {
     setCurrentRole(shouldBe);
     showToast('Ваш доступ обновлён управляющим — открыт новый экран.');
   }, [serverDataLoaded, staff, currentRole]);
+
+  // Reached via a Telegram deep link (t.me/<bot>?startapp=vote_<id>) — or a bare ?vote=
+  // query param, for testing outside Telegram — an anonymous dish-tasting vote, entirely
+  // separate from everything else in this file: no registration gate, no role, no header.
+  // Checked last, after every hook above has already run unconditionally.
+  const voteTg = (window as any).Telegram?.WebApp;
+  const voteStartParam = voteTg?.initDataUnsafe?.start_param as string | undefined;
+  const voteQueryParam = new URLSearchParams(window.location.search).get('vote');
+  const votePollId = voteStartParam?.startsWith('vote_') ? voteStartParam.slice(5) : voteQueryParam;
+  if (votePollId) {
+    return <DishPollVoteScreen pollId={votePollId} />;
+  }
 
   return (
     <>

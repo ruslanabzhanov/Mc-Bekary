@@ -207,6 +207,36 @@ create table if not exists advance_requests (
 );
 create index if not exists advance_requests_staff_idx on advance_requests(staff_id);
 
+-- Anonymous dish-tasting polls, reached by customers via a Telegram deep link — no
+-- registration, no staff record. criteria is a plain array of strings the Owner types in when
+-- creating the poll (e.g. ["Вкус", "Внешний вид", "Размер порции"]); each vote's `scores` keys
+-- against those same strings by name, not by id, since the poll's own criteria never change
+-- after votes start coming in (only a brand-new poll — e.g. a "copy" — gets a new list).
+create table if not exists dish_polls (
+  id text primary key,
+  dish_name text not null,
+  criteria jsonb not null default '[]',
+  status text not null default 'active',
+  created_at timestamptz not null default now()
+);
+
+-- One row per person per poll. telegram_user_id is what Telegram Mini Apps read automatically
+-- with no form field — the entire point of this feature is that a customer never types
+-- anything about who they are. Unique per (poll_id, telegram_user_id) so re-voting corrects
+-- the same row (upsert) instead of padding the count.
+create table if not exists dish_poll_votes (
+  id bigserial primary key,
+  poll_id text not null references dish_polls(id) on delete cascade,
+  telegram_user_id text not null,
+  telegram_username text,
+  telegram_name text not null,
+  scores jsonb not null default '{}',
+  comment text,
+  created_at timestamptz not null default now(),
+  unique (poll_id, telegram_user_id)
+);
+create index if not exists dish_poll_votes_poll_idx on dish_poll_votes(poll_id);
+
 create table if not exists registration_requests (
   id text primary key,
   name text not null,

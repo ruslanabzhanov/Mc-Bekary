@@ -27,6 +27,10 @@ import {
   shiftFromDb,
   advanceRequestFromDb,
   advanceRequestToDb,
+  dishPollFromDb,
+  dishPollToDb,
+  dishPollVoteFromDb,
+  dishPollVoteToDb,
 } from '../lib/dbMappers.js';
 import { verifyTelegramInitData } from '../lib/telegramAuth.js';
 import { sendTelegramMessage } from '../lib/telegramNotify.js';
@@ -1063,6 +1067,178 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to update an advance request:', e);
       res.status(500).json({ error: 'Failed to update advance request' });
+    }
+  });
+
+  // Anonymous dish-tasting polls. Management (create/edit/close/delete) is Owner-only — this
+  // feature has no admin equivalent, unlike almost everything else in AdminView, so it's
+  // worth a real requireOwner check rather than just hiding the tile. Reading a poll and
+  // voting on it are deliberately open: a voter has no identity to check against at all.
+  app.get('/api/dish-polls', async (req, res) => {
+    try {
+      const [{ data, error }, { data: voteRows, error: voteError }] = await Promise.all([
+        supabase.from('dish_polls').select('*').order('created_at', { ascending: false }),
+        supabase.from('dish_poll_votes').select('poll_id'),
+      ]);
+      if (error) throw error;
+      if (voteError) throw voteError;
+      const counts: Record<string, number> = {};
+      (voteRows || []).forEach((r: any) => {
+        counts[r.poll_id] = (counts[r.poll_id] || 0) + 1;
+      });
+      res.json({
+        polls: (data || []).map((r) => ({ ...dishPollFromDb(r), voteCount: counts[r.id] || 0 })),
+      });
+    } catch (e) {
+      console.error('Failed to load dish polls:', e);
+      res.status(500).json({ error: 'Failed to load dish polls' });
+    }
+  });
+
+  app.get('/api/dish-polls/:id', async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('dish_polls')
+        .select('*')
+        .eq('id', String(req.params.id))
+        .maybeSingle();
+      if (error) throw error;
+      res.json({ poll: data ? dishPollFromDb(data) : null });
+    } catch (e) {
+      console.error('Failed to load a dish poll:', e);
+      res.status(500).json({ error: 'Failed to load dish poll' });
+    }
+  });
+
+  app.post('/api/dish-polls', async (req, res) => {
+    try {
+      const { initData, poll } = req.body || {};
+      if (!requireOwner(initData)) {
+        return res.status(403).json({ error: 'Not allowed to create a dish poll' });
+      }
+      if (!poll?.id || !poll?.dishName || !Array.isArray(poll?.criteria) || poll.criteria.length === 0) {
+        return res.status(400).json({ error: 'dishName and at least one criterion are required' });
+      }
+      const { error } = await supabase.from('dish_polls').insert(dishPollToDb({ ...poll, status: 'active' }));
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to create a dish poll:', e);
+      res.status(500).json({ error: 'Failed to create dish poll' });
+    }
+  });
+
+  app.patch('/api/dish-polls/:id', async (req, res) => {
+    try {
+      const { initData, updates } = req.body || {};
+      if (!requireOwner(initData)) {
+        return res.status(403).json({ error: 'Not allowed to edit a dish poll' });
+      }
+      const patch: Record<string, unknown> = {};
+      if (updates?.status) patch.status = updates.status;
+      if (updates?.dishName) patch.dish_name = updates.dishName;
+      if (Object.keys(patch).length === 0) {
+        return res.status(400).json({ error: 'updates is required' });
+      }
+      const { error } = await supabase.from('dish_polls').update(patch).eq('id', String(req.params.id));
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to update a dish poll:', e);
+      res.status(500).json({ error: 'Failed to update dish poll' });
+    }
+  });
+
+  app.delete('/api/dish-polls/:id', async (req, res) => {
+    try {
+      const { initData } = req.body || {};
+      if (!requireOwner(initData)) {
+        return res.status(403).json({ error: 'Not allowed to delete a dish poll' });
+      }
+      const { error } = await supabase.from('dish_polls').delete().eq('id', String(req.params.id));
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to delete a dish poll:', e);
+      res.status(500).json({ error: 'Failed to delete dish poll' });
+    }
+  });
+
+  // The Owner's results view: every vote plus a per-criterion average, computed here rather
+  // than shipping every row to the client to average — this list only ever grows.
+  app.get('/api/dish-polls/:id/results', async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('dish_poll_votes')
+        .select('*')
+        .eq('poll_id', String(req.params.id))
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const votes = (data || []).map(dishPollVoteFromDb);
+      const totals: Record<string, { sum: number; count: number }> = {};
+      for (const v of votes) {
+        for (const [criterion, score] of Object.entries(v.scores)) {
+          if (!totals[criterion]) totals[criterion] = { sum: 0, count: 0 };
+          totals[criterion].sum += Number(score) || 0;
+          totals[criterion].count += 1;
+        }
+      }
+      const averages: Record<string, number> = {};
+      for (const [criterion, { sum, count }] of Object.entries(totals)) {
+        averages[criterion] = count > 0 ? sum / count : 0;
+      }
+      res.json({ votes, voteCount: votes.length, averages });
+    } catch (e) {
+      console.error('Failed to load dish poll results:', e);
+      res.status(500).json({ error: 'Failed to load dish poll results' });
+    }
+  });
+
+  // A customer votes. No identity check beyond "does Telegram say who you are" — this is
+  // feedback on a croissant, not a security boundary. One row per (poll, telegram user):
+  // voting again corrects the same response instead of counting them twice.
+  app.post('/api/dish-polls/:id/vote', async (req, res) => {
+    try {
+      const pollId = String(req.params.id);
+      const { telegramUserId, telegramUsername, telegramName, scores, comment } = req.body || {};
+      if (!telegramUserId || !telegramName || !scores || typeof scores !== 'object') {
+        return res.status(400).json({ error: 'telegramUserId, telegramName and scores are required' });
+      }
+      const { data: pollRow, error: pollError } = await supabase
+        .from('dish_polls')
+        .select('*')
+        .eq('id', pollId)
+        .maybeSingle();
+      if (pollError) throw pollError;
+      if (!pollRow) return res.status(404).json({ error: 'Poll not found' });
+      if (pollRow.status !== 'active') return res.status(400).json({ error: 'Poll is closed' });
+
+      const criteria: string[] = pollRow.criteria || [];
+      const cleanScores: Record<string, number> = {};
+      for (const criterion of criteria) {
+        const n = Number(scores[criterion]);
+        if (!Number.isFinite(n) || n < 1 || n > 10) {
+          return res.status(400).json({ error: `Score for "${criterion}" must be 1-10` });
+        }
+        cleanScores[criterion] = n;
+      }
+
+      const { error } = await supabase.from('dish_poll_votes').upsert(
+        dishPollVoteToDb({
+          pollId,
+          telegramUserId: String(telegramUserId),
+          telegramUsername: telegramUsername || undefined,
+          telegramName,
+          scores: cleanScores,
+          comment: comment || undefined,
+        }),
+        { onConflict: 'poll_id,telegram_user_id' }
+      );
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to submit a dish poll vote:', e);
+      res.status(500).json({ error: 'Failed to submit vote' });
     }
   });
 

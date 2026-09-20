@@ -211,6 +211,32 @@ export interface AdvanceRequest {
   submittedAt: string; // HH:MM, Kazakhstan time — same convention as RegistrationRequest
 }
 
+export type DishPollStatus = 'active' | 'closed';
+
+// An Owner-built dish-tasting poll — criteria are free text the Owner types in ("Вкус",
+// "Внешний вид", ...), not a fixed set, since a bakery's tasting criteria vary dish to dish.
+export interface DishPoll {
+  id: string;
+  dishName: string;
+  criteria: string[];
+  status: DishPollStatus;
+  createdAt: string;
+  voteCount?: number; // present only on the list endpoint, for the management screen
+}
+
+// One anonymous customer's response. telegramUsername/telegramName come straight from
+// Telegram's own WebApp user object — nothing the voter typed identifies them.
+export interface DishPollVote {
+  id: number;
+  pollId: string;
+  telegramUserId: string;
+  telegramUsername?: string;
+  telegramName: string;
+  scores: Record<string, number>; // criterion label -> 1..10
+  comment?: string;
+  createdAt: string;
+}
+
 export type ChecklistAssignments = Record<string, string[]>; // checklist dept key -> assigned product IDs
 
 export type RegistrationRequestStatus = 'pending' | 'approved' | 'rejected';
