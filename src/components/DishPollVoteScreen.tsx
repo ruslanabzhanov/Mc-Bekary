@@ -66,6 +66,46 @@ interface VoteDraft {
   comment?: string;
 }
 
+// Дегустация из десяти блюд идёт долго: телефон блокируется, Telegram сворачивается, окно
+// приложения выгружается. Незаконченные оценки живут только в памяти экрана, поэтому
+// дублируем их на само устройство и восстанавливаем при возвращении.
+const draftKey = (pollId: string, userId: string | number) => `mc-bekary-vote-draft-${pollId}-${userId}`;
+
+// Если владелец успел поменять блюда или критерии, старый черновик уже не подходит —
+// он бы подставил оценки не туда. Такой черновик выбрасываем.
+const pollSignature = (poll: DishPoll) => `${poll.dishNames.length}|${poll.criteria.join('~')}`;
+
+const readDraft = (pollId: string, userId: string | number, poll: DishPoll): Record<number, VoteDraft> | null => {
+  try {
+    const raw = window.localStorage.getItem(draftKey(pollId, userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.signature !== pollSignature(poll)) return null;
+    return parsed.entries || null;
+  } catch {
+    return null;
+  }
+};
+
+const writeDraft = (pollId: string, userId: string | number, poll: DishPoll, entries: Record<number, VoteDraft>) => {
+  try {
+    window.localStorage.setItem(
+      draftKey(pollId, userId),
+      JSON.stringify({ signature: pollSignature(poll), entries })
+    );
+  } catch {
+    // Приватный режим или переполненное хранилище — молча работаем как раньше.
+  }
+};
+
+const clearDraft = (pollId: string, userId: string | number) => {
+  try {
+    window.localStorage.removeItem(draftKey(pollId, userId));
+  } catch {
+    // см. writeDraft
+  }
+};
+
 // Reached via a Telegram deep link (t.me/<bot>?startapp=vote_<id>), entirely outside the rest
 // of the app — no registration gate, no role, no header. Dishes are shown as tiles rather than
 // one long scroll of every criterion for every dish at once; tapping a tile opens that dish's
@@ -90,8 +130,10 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
       .then((r) => r.json())
       .then((data) => {
         setPoll(data.poll);
+        if (!data.poll || !user?.id) return;
         // Уже голосовал — показываем это и подставляем его прежние оценки, чтобы он их
-        // поправил, а не выставлял всё заново с нуля.
+        // поправил, а не выставлял всё заново с нуля. Отправленный голос всегда важнее
+        // черновика: черновик мог остаться от того же захода, в котором его и отправили.
         if (data.myVote?.entries?.length) {
           const prefilled: Record<number, VoteDraft> = {};
           data.myVote.entries.forEach((e: VoteDraft, i: number) => {
@@ -99,10 +141,21 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
           });
           setEntries(prefilled);
           setAlreadyVoted(true);
+          clearDraft(pollId, user.id);
+          return;
         }
+        // Не дошёл до «Сохранить» и вышел — возвращаем то, что успел наставить.
+        const draft = readDraft(pollId, user.id, data.poll);
+        if (draft) setEntries(draft);
       })
       .catch(() => setPoll(null));
   }, [pollId, user?.id]);
+
+  useEffect(() => {
+    if (!poll || !user?.id || submitted || alreadyVoted) return;
+    if (Object.keys(entries).length === 0) return;
+    writeDraft(pollId, user.id, poll, entries);
+  }, [entries, poll, pollId, user?.id, submitted, alreadyVoted]);
 
   const isDishDone = (dishIndex: number) =>
     !!poll && poll.criteria.every((c) => typeof entries[dishIndex]?.scores[c] === 'number');
@@ -146,6 +199,7 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
         setError(data.error || 'Не удалось отправить оценку. Попробуйте ещё раз.');
         return;
       }
+      clearDraft(pollId, user.id);
       setSubmitted(true);
     } catch (e) {
       console.error('Failed to submit dish poll vote:', e);

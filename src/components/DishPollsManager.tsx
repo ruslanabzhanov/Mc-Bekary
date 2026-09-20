@@ -46,6 +46,44 @@ interface VoteDraft {
   comment?: string;
 }
 
+// Дегустацию проводят долго и с одного телефона по кругу. Если приложение свернётся и
+// выгрузится, незаконченные оценки текущего дегустатора пропадут — поэтому держим их копию
+// на устройстве вместе с именем, чтобы было видно, чей это черновик.
+const ownerDraftKey = (pollId: string) => `mc-bekary-owner-vote-draft-${pollId}`;
+const pollSignature = (poll: DishPoll) => `${poll.dishNames.length}|${poll.criteria.join('~')}`;
+
+const readOwnerDraft = (poll: DishPoll): { voterName: string; entries: Record<number, VoteDraft> } | null => {
+  try {
+    const raw = window.localStorage.getItem(ownerDraftKey(poll.id));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Блюда или критерии поменялись — старые оценки встали бы не туда.
+    if (parsed?.signature !== pollSignature(poll)) return null;
+    return { voterName: parsed.voterName || '', entries: parsed.entries || {} };
+  } catch {
+    return null;
+  }
+};
+
+const writeOwnerDraft = (poll: DishPoll, voterName: string, entries: Record<number, VoteDraft>) => {
+  try {
+    window.localStorage.setItem(
+      ownerDraftKey(poll.id),
+      JSON.stringify({ signature: pollSignature(poll), voterName, entries })
+    );
+  } catch {
+    // Приватный режим или переполненное хранилище — работаем как раньше.
+  }
+};
+
+const clearOwnerDraft = (pollId: string) => {
+  try {
+    window.localStorage.removeItem(ownerDraftKey(pollId));
+  } catch {
+    // см. writeOwnerDraft
+  }
+};
+
 export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInitData }) => {
   const [polls, setPolls] = useState<DishPoll[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -190,8 +228,11 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
     setMode('vote');
     const tg = (window as any).Telegram?.WebApp;
     const user = tg?.initDataUnsafe?.user;
-    setVoterName(user ? [user.first_name, user.last_name].filter(Boolean).join(' ') : '');
-    setVoteEntries({});
+    // Незаконченная дегустация с прошлого захода важнее пустой формы — возвращаем её
+    // вместе с именем того, кто не дооценил.
+    const draft = readOwnerDraft(poll);
+    setVoterName(draft ? draft.voterName : user ? [user.first_name, user.last_name].filter(Boolean).join(' ') : '');
+    setVoteEntries(draft ? draft.entries : {});
     setActiveDishIndex(null);
     setVoteMissing(null);
     setVoteSaved(false);
@@ -221,6 +262,12 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   const updateVoteComment = (dishIndex: number, comment: string) => {
     setVoteEntries((prev) => ({ ...prev, [dishIndex]: { scores: prev[dishIndex]?.scores || {}, comment } }));
   };
+
+  useEffect(() => {
+    if (!workspacePoll || mode !== 'vote') return;
+    if (Object.keys(voteEntries).length === 0) return;
+    writeOwnerDraft(workspacePoll, voterName, voteEntries);
+  }, [voteEntries, voterName, workspacePoll, mode]);
 
   const handleSaveVote = async () => {
     if (!workspacePoll) return;
@@ -253,6 +300,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
         setVoteMissing([data.error || 'Не удалось сохранить оценки.']);
         return;
       }
+      clearOwnerDraft(workspacePoll.id);
       setVoteEntries({});
       setActiveDishIndex(null);
       setVoteSaved(true);
