@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Plus, Copy, Check, X, Trash2, RotateCcw, ChevronLeft, Vote, MessageSquare, Settings, Minus,
-  BarChart3, Printer, CheckCircle2,
+  BarChart3, Printer, CheckCircle2, Download,
 } from 'lucide-react';
 import { DishPoll, DishPollVote, SUGGESTED_DISH_POLL_CRITERIA } from '../types';
 import { ScoreInput } from './DishPollVoteScreen';
@@ -94,6 +94,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   const [allowComments, setAllowComments] = useState(true);
   const [dishCount, setDishCount] = useState(1);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [qrPollId, setQrPollId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // ---- Poll workspace (vote / analytics / settings for one open poll) ----
@@ -131,6 +132,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   useEffect(loadPolls, []);
 
   const workspacePoll = polls.find((p) => p.id === workspacePollId);
+  const qrPoll = polls.find((p) => p.id === qrPollId);
 
   useEffect(() => {
     if (mode !== 'analytics' || !workspacePollId) return;
@@ -216,6 +218,24 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
     }).catch((e) => console.error('Failed to delete dish poll:', e));
   };
 
+  // В Telegram есть свой способ сохранить файл (Bot API 8.0), в обычном браузере — обычная
+  // ссылка со скачиванием. Работает и то, и другое, потому что картинка отдаётся с нашего же
+  // адреса, а не со стороннего сервиса.
+  const handleDownloadQr = (poll: DishPoll) => {
+    const url = `${window.location.origin}/api/dish-polls/${encodeURIComponent(poll.id)}/qr?size=800&download=1`;
+    const tg = (window as any).Telegram?.WebApp;
+    if (typeof tg?.downloadFile === 'function') {
+      tg.downloadFile({ url, file_name: `qr-${poll.name}.png` });
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `qr-${poll.id}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const handleCopyLink = (poll: DishPoll) => {
     navigator.clipboard?.writeText(linkFor(poll.id)).then(() => {
       setCopiedId(poll.id);
@@ -250,8 +270,9 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   };
 
   // ---- Vote mode ----
+  // Ноль = ползунок не трогали, значит блюдо ещё не оценено.
   const isDishDone = (dishIndex: number) =>
-    !!workspacePoll && workspacePoll.criteria.every((c) => typeof voteEntries[dishIndex]?.scores[c] === 'number');
+    !!workspacePoll && workspacePoll.criteria.every((c) => (voteEntries[dishIndex]?.scores[c] ?? 0) > 0);
 
   const updateVoteScore = (dishIndex: number, criterion: string, value: number) => {
     setVoteEntries((prev) => ({
@@ -850,7 +871,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                 <ScoreInput
                   key={c}
                   label={c}
-                  value={voteEntries[activeDishIndex]?.scores[c] ?? 5}
+                  value={voteEntries[activeDishIndex]?.scores[c]}
                   onChange={(v) => updateVoteScore(activeDishIndex, c, v)}
                 />
               ))}
@@ -1105,17 +1126,19 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                 </button>
               </div>
 
-              {/* QR — сторонний сервис рисует картинку по публичной ссылке голосования, ничего
-                  приватного в запрос не уходит. */}
+              {/* QR отдаётся нашим сервером (см. /api/dish-polls/:id/qr), нажатие открывает
+                  его крупно — так его можно показать гостям с экрана или сохранить. */}
               <div className="flex items-center gap-3 pt-1">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(linkFor(poll.id))}`}
-                  alt="QR-код голосования"
-                  className="w-20 h-20 rounded-lg border border-slate-200"
-                />
+                <button onClick={() => setQrPollId(poll.id)} className="shrink-0">
+                  <img
+                    src={`/api/dish-polls/${encodeURIComponent(poll.id)}/qr?size=240`}
+                    alt="QR-код голосования"
+                    className="w-20 h-20 rounded-lg border border-slate-200"
+                  />
+                </button>
                 <p className="text-[11px] text-slate-400 flex-1">
-                  Распечатайте QR или отправьте ссылку — она сразу откроет форму оценки внутри
-                  Telegram, без регистрации.
+                  Нажмите на QR, чтобы открыть крупно и скачать. Его можно распечатать или
+                  показать с экрана — он сразу откроет форму оценки в Telegram, без регистрации.
                 </p>
               </div>
 
@@ -1136,6 +1159,38 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {qrPoll && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/80 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <h4 className="text-sm font-bold text-slate-900 truncate">{qrPoll.name}</h4>
+              <button
+                onClick={() => setQrPollId(null)}
+                className="w-9 h-9 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <img
+              src={`/api/dish-polls/${encodeURIComponent(qrPoll.id)}/qr?size=800`}
+              alt="QR-код голосования"
+              className="w-full rounded-xl border border-slate-200"
+            />
+            <p className="text-[11px] text-slate-400 text-center break-all">{linkFor(qrPoll.id)}</p>
+            <button
+              onClick={() => handleDownloadQr(qrPoll)}
+              className="w-full min-h-[48px] flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
+            >
+              <Download className="w-4 h-4" />
+              <span>Скачать QR</span>
+            </button>
+            <p className="text-[11px] text-slate-400 text-center">
+              Картинку также можно сохранить долгим нажатием по ней.
+            </p>
+          </div>
         </div>
       )}
     </div>

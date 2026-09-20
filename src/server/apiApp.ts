@@ -166,6 +166,9 @@ function makeSender(botToken: string, webAppUrl: string) {
 
 const WEB_APP_URL = 'https://mc-bekary.vercel.app';
 
+// Имя бота для ссылок на голосование за блюда (t.me/<бот>?startapp=vote_<id>).
+const DISH_POLL_BOT_USERNAME = 'Master_Bekarybot';
+
 // A point's order has just gone in. Nobody was told about this before — supervision had to
 // open the app and look, and the point's other staff had no way to know it was already done.
 async function notifyOrderSubmitted(shopId: number, order: any) {
@@ -1124,6 +1127,33 @@ export function createApiApp() {
     }
   });
 
+  // Картинка QR отдаётся через нас, а не прямой ссылкой на сторонний сервис: так адрес
+  // остаётся своим, и браузер (в отличие от кросс-доменной ссылки) действительно сохраняет
+  // файл по кнопке «Скачать».
+  app.get('/api/dish-polls/:id/qr', async (req, res) => {
+    try {
+      const pollId = String(req.params.id);
+      const size = Math.min(1000, Math.max(120, Number(req.query.size) || 600));
+      const link = `https://t.me/${DISH_POLL_BOT_USERNAME}?startapp=vote_${pollId}`;
+      const upstream = await fetch(
+        `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=12&data=${encodeURIComponent(link)}`
+      );
+      if (!upstream.ok) {
+        return res.status(502).json({ error: 'Не удалось получить QR-код' });
+      }
+      const png = Buffer.from(await upstream.arrayBuffer());
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      if (req.query.download) {
+        res.setHeader('Content-Disposition', `attachment; filename="qr-${pollId}.png"`);
+      }
+      res.send(png);
+    } catch (e) {
+      console.error('Failed to build a dish poll QR:', e);
+      res.status(500).json({ error: 'Не удалось получить QR-код' });
+    }
+  });
+
   app.post('/api/dish-polls', async (req, res) => {
     try {
       const { initData, poll } = req.body || {};
@@ -1341,9 +1371,11 @@ export function createApiApp() {
           if (scores[criterion] === undefined || scores[criterion] === null) {
             return res.status(400).json({ error: CHANGED });
           }
+          // Ноль на клиенте означает «не оценено» и до сюда доходить не должен, поэтому
+          // принимаем всё строго больше нуля: шаг ползунка 0,5, так что 0,5 — валидная оценка.
           const n = Number(scores[criterion]);
-          if (!Number.isFinite(n) || n < 1 || n > 10) {
-            return res.status(400).json({ error: `Оценка по критерию «${criterion}» должна быть от 1 до 10.` });
+          if (!Number.isFinite(n) || n <= 0 || n > 10) {
+            return res.status(400).json({ error: `Оценка по критерию «${criterion}» должна быть от 0,5 до 10.` });
           }
           cleanScores[criterion] = n;
         }

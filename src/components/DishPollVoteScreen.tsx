@@ -7,48 +7,41 @@ interface DishPollVoteScreenProps {
   pollId: string;
 }
 
-const SCORES = Array.from({ length: 10 }, (_, i) => i + 1);
-
-// Both interactions set the same value on purpose — a slider for a quick drag, numbered
-// buttons for landing on an exact score without hunting along the track. Exported so the
-// Owner's internal tasting screen (DishPollsManager) reuses the exact same control.
-export const ScoreInput: React.FC<{ label: string; value: number; onChange: (v: number) => void }> = ({
+// Ноль — это «ещё не оценил», а не оценка: ползунок стоит на нуле, пока человек его не
+// сдвинул, и блюдо не считается оценённым. Шаг 0,5 — чтобы можно было поставить 7,5.
+// Экспортируется, потому что внутренний экран дегустации у владельца (DishPollsManager)
+// использует ровно тот же элемент.
+export const ScoreInput: React.FC<{ label: string; value?: number; onChange: (v: number) => void }> = ({
   label,
   value,
   onChange,
-}) => (
-  <div>
-    <div className="flex items-center justify-between mb-2">
-      <span className="text-sm font-bold text-slate-900">{label}</span>
-      <span className="text-xl font-black text-indigo-700 tabular-nums">{value}</span>
+}) => {
+  const rated = typeof value === 'number' && value > 0;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-sm font-bold text-slate-900">{label}</span>
+        <span className={`text-xl font-black tabular-nums ${rated ? 'text-indigo-700' : 'text-slate-300'}`}>
+          {rated ? (Number.isInteger(value) ? value : value!.toFixed(1)) : '—'}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={10}
+        step={0.5}
+        value={value ?? 0}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-indigo-600 h-2"
+      />
+      <div className="flex justify-between text-[10px] text-slate-400 mt-0.5 px-0.5">
+        <span>0</span>
+        <span>5</span>
+        <span>10</span>
+      </div>
     </div>
-    <input
-      type="range"
-      min={1}
-      max={10}
-      step={1}
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="w-full accent-indigo-600 h-2 mb-2.5"
-    />
-    <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
-      {SCORES.map((n) => (
-        <button
-          key={n}
-          type="button"
-          onClick={() => onChange(n)}
-          className={`min-h-[38px] rounded-lg text-xs font-bold transition-all ${
-            value === n
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
-          }`}
-        >
-          {n}
-        </button>
-      ))}
-    </div>
-  </div>
-);
+  );
+};
 
 const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
@@ -157,8 +150,9 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
     writeDraft(pollId, user.id, poll, entries);
   }, [entries, poll, pollId, user?.id, submitted, alreadyVoted]);
 
+  // Ноль = ползунок не трогали, значит блюдо ещё не оценено.
   const isDishDone = (dishIndex: number) =>
-    !!poll && poll.criteria.every((c) => typeof entries[dishIndex]?.scores[c] === 'number');
+    !!poll && poll.criteria.every((c) => (entries[dishIndex]?.scores[c] ?? 0) > 0);
 
   const updateScore = (dishIndex: number, criterion: string, value: number) => {
     setEntries((prev) => ({
@@ -277,7 +271,9 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
         <div className="flex flex-col items-center text-center pt-4">
           <img src={masterCoffeeCroissant} alt="Master Bakery" className="w-14 h-14 object-contain mb-2" />
           <h1 className="text-xl font-extrabold text-slate-900">{poll.name}</h1>
-          <p className="text-xs text-slate-500 mt-1">Оцените каждое блюдо по каждому пункту от 1 до 10</p>
+          <p className="text-xs text-slate-500 mt-1">
+            Нажмите на блюдо и оцените его по каждому пункту, двигая ползунок
+          </p>
         </div>
 
         {activeDishIndex === null ? (
@@ -338,7 +334,7 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
               <ScoreInput
                 key={c}
                 label={c}
-                value={entries[activeDishIndex]?.scores[c] ?? 5}
+                value={entries[activeDishIndex]?.scores[c]}
                 onChange={(v) => updateScore(activeDishIndex, c, v)}
               />
             ))}
