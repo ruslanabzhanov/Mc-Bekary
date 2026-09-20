@@ -68,8 +68,16 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   };
 
   const handleCreate = async () => {
-    if (!name.trim() || selectedCriteria.length === 0 || dishCount < 1) {
-      setError('Нужно название голосования и хотя бы один критерий.');
+    if (!name.trim()) {
+      setError('Заполните название голосования.');
+      return;
+    }
+    if (selectedCriteria.length === 0) {
+      setError('Выберите хотя бы один критерий оценки.');
+      return;
+    }
+    if (dishCount < 1) {
+      setError('Укажите количество блюд.');
       return;
     }
     setError(null);
@@ -427,13 +435,13 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
             <button
               type="button"
               onClick={() => setAllowComments((v) => !v)}
-              className={`w-12 h-7 shrink-0 rounded-full relative transition-colors ${
+              className={`w-11 h-6 shrink-0 rounded-full relative transition-colors ${
                 allowComments ? 'bg-indigo-600' : 'bg-slate-300'
               }`}
             >
               <span
-                className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${
-                  allowComments ? 'translate-x-5' : 'translate-x-0.5'
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  allowComments ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>
