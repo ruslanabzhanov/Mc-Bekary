@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Plus, Copy, Check, X, Trash2, RotateCcw, ChevronLeft, Vote, MessageSquare, Settings, Minus,
   BarChart3, Printer, CheckCircle2,
@@ -65,6 +65,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   const [filterDishIndex, setFilterDishIndex] = useState<number | ''>('');
   const [filterPersonKey, setFilterPersonKey] = useState('');
   const [isPrintOpen, setIsPrintOpen] = useState(false);
+  const filtersCardRef = useRef<HTMLDivElement>(null);
 
   const [settingsName, setSettingsName] = useState('');
   const [settingsDishNames, setSettingsDishNames] = useState<string[]>([]);
@@ -352,6 +353,11 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
     ? analyticsResults?.votes.find((v) => v.telegramUserId === filterPersonKey)
     : undefined;
 
+  const viewDishVotes = (dishIndex: number) => {
+    setFilterDishIndex(dishIndex);
+    filtersCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   // ==================== Workspace ====================
   if (workspacePoll) {
     return (
@@ -496,6 +502,100 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
         {/* ---- Analytics mode ---- */}
         {mode === 'analytics' && (
           <div className="space-y-4">
+            {/* Оба фильтра сразу под названием голосования, в один ряд — по ним чаще всего и
+                хотят посмотреть, кто как оценил конкретное блюдо или конкретный человек. */}
+            <div ref={filtersCardRef} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Блюдо
+                  </label>
+                  <select
+                    value={filterDishIndex}
+                    onChange={(e) => setFilterDishIndex(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full px-2 min-h-[44px] text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
+                  >
+                    <option value="">Все</option>
+                    {workspacePoll.dishNames.map((n, i) => (
+                      <option key={i} value={i}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Человек
+                  </label>
+                  <select
+                    value={filterPersonKey}
+                    onChange={(e) => setFilterPersonKey(e.target.value)}
+                    className="w-full px-2 min-h-[44px] text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
+                  >
+                    <option value="">Все</option>
+                    {people.map((p) => (
+                      <option key={p.telegramUserId} value={p.telegramUserId}>
+                        {p.telegramName}{p.telegramUsername ? ` (@${p.telegramUsername})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {filterDishIndex !== '' && (
+                <div className="divide-y divide-slate-100 border-t border-slate-100 pt-2">
+                  <p className="text-[11px] font-black uppercase text-indigo-700 pb-1">
+                    {workspacePoll.dishNames[filterDishIndex]} — кто как оценил
+                  </p>
+                  {dishFilterRows.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic py-2">Пока никто не оценил это блюдо.</p>
+                  ) : (
+                    dishFilterRows.map(({ vote, entry }) => (
+                      <div key={vote.id} className="py-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-sm text-slate-900">{vote.telegramName}</span>
+                          <span className="text-[11px] text-slate-400">{formatDate(vote.createdAt)}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                          {Object.entries(entry.scores).map(([c, s]) => (
+                            <span key={c} className="text-xs text-slate-600">{c}: <b className="text-slate-900">{s}</b></span>
+                          ))}
+                        </div>
+                        {entry.comment && (
+                          <div className="flex items-start gap-1.5 mt-1 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
+                            <MessageSquare className="w-3.5 h-3.5 shrink-0 mt-px text-slate-400" />
+                            <span>{entry.comment}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {personFilterVote && (
+                <div className="divide-y divide-slate-100 border-t border-slate-100 pt-2">
+                  <p className="text-[11px] font-black uppercase text-indigo-700 pb-1">
+                    {personFilterVote.telegramName} — все его оценки
+                  </p>
+                  {personFilterVote.entries.map((entry, i) => (
+                    <div key={i} className="py-2">
+                      <span className="font-bold text-sm text-slate-900">{workspacePoll.dishNames[i]}</span>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                        {Object.entries(entry.scores).map(([c, s]) => (
+                          <span key={c} className="text-xs text-slate-600">{c}: <b className="text-slate-900">{s}</b></span>
+                        ))}
+                      </div>
+                      {entry.comment && (
+                        <div className="flex items-start gap-1.5 mt-1 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
+                          <MessageSquare className="w-3.5 h-3.5 shrink-0 mt-px text-slate-400" />
+                          <span>{entry.comment}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleToggleStatus(workspacePoll)}
@@ -534,112 +634,41 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   <div className="bg-white rounded-2xl border border-emerald-200 p-4">
                     <h4 className="text-xs font-black uppercase text-emerald-700 mb-2">Топ блюд</h4>
                     {topDishes.map((d, rank) => (
-                      <div key={d.index} className="flex items-center justify-between text-sm py-1">
+                      <button
+                        key={d.index}
+                        onClick={() => viewDishVotes(d.index)}
+                        className="w-full flex items-center justify-between text-sm py-1 hover:bg-emerald-50 rounded-lg px-1 -mx-1 transition-all"
+                      >
                         <span className="text-slate-700 truncate">{rank + 1}. {d.name}</span>
                         <span className="font-black text-slate-900 tabular-nums shrink-0">{d.score.toFixed(1)}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                   <div className="bg-white rounded-2xl border border-rose-200 p-4">
                     <h4 className="text-xs font-black uppercase text-rose-700 mb-2">Антитоп блюд</h4>
                     {bottomDishes.map((d, rank) => (
-                      <div key={d.index} className="flex items-center justify-between text-sm py-1">
+                      <button
+                        key={d.index}
+                        onClick={() => viewDishVotes(d.index)}
+                        className="w-full flex items-center justify-between text-sm py-1 hover:bg-rose-50 rounded-lg px-1 -mx-1 transition-all"
+                      >
                         <span className="text-slate-700 truncate">{rank + 1}. {d.name}</span>
                         <span className="font-black text-slate-900 tabular-nums shrink-0">{d.score.toFixed(1)}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
 
-                <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 px-1 pt-1">Фильтры</h4>
-
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Выбрать блюдо
-                  </label>
-                  <select
-                    value={filterDishIndex}
-                    onChange={(e) => setFilterDishIndex(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full px-3 min-h-[44px] text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
-                  >
-                    <option value="">— выберите блюдо —</option>
-                    {workspacePoll.dishNames.map((n, i) => (
-                      <option key={i} value={i}>{n}</option>
-                    ))}
-                  </select>
-                  {filterDishIndex !== '' && (
-                    <div className="divide-y divide-slate-100 border-t border-slate-100 mt-2">
-                      {dishFilterRows.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic py-2">Пока никто не оценил это блюдо.</p>
-                      ) : (
-                        dishFilterRows.map(({ vote, entry }) => (
-                          <div key={vote.id} className="py-2">
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-sm text-slate-900">{vote.telegramName}</span>
-                              <span className="text-[11px] text-slate-400">{formatDate(vote.createdAt)}</span>
-                            </div>
-                            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
-                              {Object.entries(entry.scores).map(([c, s]) => (
-                                <span key={c} className="text-xs text-slate-600">{c}: <b className="text-slate-900">{s}</b></span>
-                              ))}
-                            </div>
-                            {entry.comment && (
-                              <div className="flex items-start gap-1.5 mt-1 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
-                                <MessageSquare className="w-3.5 h-3.5 shrink-0 mt-px text-slate-400" />
-                                <span>{entry.comment}</span>
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Выбрать человека
-                  </label>
-                  <select
-                    value={filterPersonKey}
-                    onChange={(e) => setFilterPersonKey(e.target.value)}
-                    className="w-full px-3 min-h-[44px] text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
-                  >
-                    <option value="">— выберите человека —</option>
-                    {people.map((p) => (
-                      <option key={p.telegramUserId} value={p.telegramUserId}>
-                        {p.telegramName}{p.telegramUsername ? ` (@${p.telegramUsername})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {personFilterVote && (
-                    <div className="divide-y divide-slate-100 border-t border-slate-100 mt-2">
-                      {personFilterVote.entries.map((entry, i) => (
-                        <div key={i} className="py-2">
-                          <span className="font-bold text-sm text-slate-900">{workspacePoll.dishNames[i]}</span>
-                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
-                            {Object.entries(entry.scores).map(([c, s]) => (
-                              <span key={c} className="text-xs text-slate-600">{c}: <b className="text-slate-900">{s}</b></span>
-                            ))}
-                          </div>
-                          {entry.comment && (
-                            <div className="flex items-start gap-1.5 mt-1 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
-                              <MessageSquare className="w-3.5 h-3.5 shrink-0 mt-px text-slate-400" />
-                              <span>{entry.comment}</span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 px-1 pt-1">
-                  Подробно по каждому блюду
+                  Подробно по каждому блюду — нажмите, чтобы увидеть кто как проголосовал
                 </h4>
 
                 {workspacePoll.dishNames.map((dishName, dishIndex) => (
-                  <div key={dishIndex} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                  <button
+                    key={dishIndex}
+                    onClick={() => viewDishVotes(dishIndex)}
+                    className="w-full text-left bg-white rounded-2xl border border-slate-200 hover:border-indigo-300 p-4 space-y-3 transition-all"
+                  >
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-black uppercase tracking-wider text-indigo-700">{dishName}</h4>
                       <span className="text-sm font-black text-slate-900 tabular-nums">
@@ -662,7 +691,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </button>
                 ))}
 
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
