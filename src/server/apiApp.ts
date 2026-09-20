@@ -1143,6 +1143,73 @@ export function createApiApp() {
       if (!requireOwner(initData)) {
         return res.status(403).json({ error: 'Not allowed to edit a dish poll' });
       }
+      const pollId = String(req.params.id);
+
+      // Removing a dish also has to strip that index out of every already-cast vote's
+      // `entries` array — those are stored aligned by position to dishNames, so leaving them
+      // untouched would silently shift every later dish's scores onto the wrong dish.
+      if (typeof updates?.deleteDishIndex === 'number') {
+        const dishIndex = updates.deleteDishIndex;
+        const { data: pollRow, error: pollError } = await supabase
+          .from('dish_polls')
+          .select('dish_names')
+          .eq('id', pollId)
+          .maybeSingle();
+        if (pollError) throw pollError;
+        if (!pollRow) return res.status(404).json({ error: 'Poll not found' });
+        const dishNames: string[] = pollRow.dish_names || [];
+        if (dishIndex < 0 || dishIndex >= dishNames.length) {
+          return res.status(400).json({ error: 'deleteDishIndex out of range' });
+        }
+        if (dishNames.length <= 1) {
+          return res.status(400).json({ error: 'A poll needs at least one dish' });
+        }
+        const newDishNames = dishNames.filter((_, i) => i !== dishIndex);
+        const { error: updatePollErr } = await supabase
+          .from('dish_polls')
+          .update({ dish_names: newDishNames })
+          .eq('id', pollId);
+        if (updatePollErr) throw updatePollErr;
+
+        const { data: voteRows, error: votesError } = await supabase
+          .from('dish_poll_votes')
+          .select('id, entries')
+          .eq('poll_id', pollId);
+        if (votesError) throw votesError;
+        await Promise.all(
+          (voteRows || []).map((v: any) => {
+            const entries = Array.isArray(v.entries) ? v.entries : [];
+            if (entries.length <= dishIndex) return Promise.resolve();
+            const newEntries = entries.filter((_: unknown, i: number) => i !== dishIndex);
+            return supabase.from('dish_poll_votes').update({ entries: newEntries }).eq('id', v.id);
+          })
+        );
+        return res.json({ success: true });
+      }
+
+      // A criterion can only be added, never removed — removing one would leave every past
+      // vote's scores keyed by a criterion name the poll no longer recognizes.
+      if (typeof updates?.addCriterion === 'string') {
+        const criterion = updates.addCriterion.trim();
+        if (!criterion) return res.status(400).json({ error: 'addCriterion cannot be empty' });
+        const { data: pollRow, error: pollError } = await supabase
+          .from('dish_polls')
+          .select('criteria')
+          .eq('id', pollId)
+          .maybeSingle();
+        if (pollError) throw pollError;
+        if (!pollRow) return res.status(404).json({ error: 'Poll not found' });
+        const criteria: string[] = pollRow.criteria || [];
+        if (!criteria.includes(criterion)) {
+          const { error: updateErr } = await supabase
+            .from('dish_polls')
+            .update({ criteria: [...criteria, criterion] })
+            .eq('id', pollId);
+          if (updateErr) throw updateErr;
+        }
+        return res.json({ success: true });
+      }
+
       const patch: Record<string, unknown> = {};
       if (updates?.status) patch.status = updates.status;
       if (updates?.name) patch.name = updates.name;
@@ -1156,7 +1223,7 @@ export function createApiApp() {
       if (Object.keys(patch).length === 0) {
         return res.status(400).json({ error: 'updates is required' });
       }
-      const { error } = await supabase.from('dish_polls').update(patch).eq('id', String(req.params.id));
+      const { error } = await supabase.from('dish_polls').update(patch).eq('id', pollId);
       if (error) throw error;
       res.json({ success: true });
     } catch (e) {

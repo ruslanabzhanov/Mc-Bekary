@@ -10,8 +10,9 @@ interface DishPollVoteScreenProps {
 const SCORES = Array.from({ length: 10 }, (_, i) => i + 1);
 
 // Both interactions set the same value on purpose — a slider for a quick drag, numbered
-// buttons for landing on an exact score without hunting along the track.
-const ScoreInput: React.FC<{ label: string; value: number; onChange: (v: number) => void }> = ({
+// buttons for landing on an exact score without hunting along the track. Exported so the
+// Owner's internal tasting screen (DishPollsManager) reuses the exact same control.
+export const ScoreInput: React.FC<{ label: string; value: number; onChange: (v: number) => void }> = ({
   label,
   value,
   onChange,
