@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, ChevronLeft } from 'lucide-react';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
-import { DishPoll, DishPollVoteEntry } from '../types';
+import { DishPoll } from '../types';
 
 interface DishPollVoteScreenProps {
   pollId: string;
@@ -61,22 +61,21 @@ const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </div>
 );
 
-const makeInitialEntries = (poll: DishPoll): DishPollVoteEntry[] =>
-  poll.dishNames.map(() => {
-    const scores: Record<string, number> = {};
-    poll.criteria.forEach((c) => {
-      scores[c] = 5;
-    });
-    return { scores };
-  });
+interface VoteDraft {
+  scores: Record<string, number>;
+  comment?: string;
+}
 
 // Reached via a Telegram deep link (t.me/<bot>?startapp=vote_<id>), entirely outside the rest
-// of the app — no registration gate, no role, no header. Whoever opens it rates every dish in
-// the poll in one sitting, using the same criteria "base tile" for each; Telegram's own WebApp
-// user object is the only "identity" involved, read automatically.
+// of the app — no registration gate, no role, no header. Dishes are shown as tiles rather than
+// one long scroll of every criterion for every dish at once; tapping a tile opens that dish's
+// own form, and a tile lights up green once every criterion for it has been answered. Telegram's
+// own WebApp user object is the only "identity" involved, read automatically.
 export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }) => {
   const [poll, setPoll] = useState<DishPoll | null | undefined>(undefined);
-  const [entries, setEntries] = useState<DishPollVoteEntry[]>([]);
+  const [entries, setEntries] = useState<Record<number, VoteDraft>>({});
+  const [activeDishIndex, setActiveDishIndex] = useState<number | null>(null);
+  const [missing, setMissing] = useState<string[] | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,29 +83,34 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
   useEffect(() => {
     fetch(`/api/dish-polls/${encodeURIComponent(pollId)}`)
       .then((r) => r.json())
-      .then((data) => {
-        setPoll(data.poll);
-        if (data.poll) {
-          setEntries(makeInitialEntries(data.poll));
-        }
-      })
+      .then((data) => setPoll(data.poll))
       .catch(() => setPoll(null));
   }, [pollId]);
 
   const tg = (window as any).Telegram?.WebApp;
   const user = tg?.initDataUnsafe?.user;
 
+  const isDishDone = (dishIndex: number) =>
+    !!poll && poll.criteria.every((c) => typeof entries[dishIndex]?.scores[c] === 'number');
+
   const updateScore = (dishIndex: number, criterion: string, value: number) => {
-    setEntries((prev) =>
-      prev.map((entry, i) => (i === dishIndex ? { ...entry, scores: { ...entry.scores, [criterion]: value } } : entry))
-    );
+    setEntries((prev) => ({
+      ...prev,
+      [dishIndex]: { ...prev[dishIndex], scores: { ...(prev[dishIndex]?.scores || {}), [criterion]: value } },
+    }));
   };
   const updateComment = (dishIndex: number, comment: string) => {
-    setEntries((prev) => prev.map((entry, i) => (i === dishIndex ? { ...entry, comment } : entry)));
+    setEntries((prev) => ({ ...prev, [dishIndex]: { scores: prev[dishIndex]?.scores || {}, comment } }));
   };
 
   const handleSubmit = async () => {
     if (!poll || !user?.id) return;
+    const missingDishes = poll.dishNames.filter((_, i) => !isDishDone(i));
+    if (missingDishes.length > 0) {
+      setMissing(missingDishes);
+      return;
+    }
+    setMissing(null);
     setIsSubmitting(true);
     setError(null);
     try {
@@ -117,9 +121,9 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
           telegramUserId: String(user.id),
           telegramUsername: user.username || undefined,
           telegramName: [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Гость',
-          entries: entries.map((e) => ({
-            scores: e.scores,
-            comment: e.comment?.trim() || undefined,
+          entries: poll.dishNames.map((_, i) => ({
+            scores: entries[i].scores,
+            comment: entries[i].comment?.trim() || undefined,
           })),
         }),
       });
@@ -189,15 +193,66 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
           <p className="text-xs text-slate-500 mt-1">Оцените каждое блюдо по каждому пункту от 1 до 10</p>
         </div>
 
-        {poll.dishNames.map((dishName, dishIndex) => (
-          <div key={dishIndex} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-6">
-            <h2 className="text-sm font-black uppercase tracking-wider text-indigo-700">{dishName}</h2>
-            {poll.criteria.map((criterion) => (
+        {activeDishIndex === null ? (
+          <>
+            {missing && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl px-4 py-3 text-sm font-medium">
+                Не проголосовали за: {missing.join(', ')}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              {poll.dishNames.map((dishName, i) => {
+                const done = isDishDone(i);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setActiveDishIndex(i)}
+                    className={`min-h-[72px] rounded-xl border p-3 text-sm font-bold text-left transition-all flex flex-col justify-between ${
+                      done
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-white border-slate-200 text-slate-900 hover:border-indigo-300'
+                    }`}
+                  >
+                    <span className="block truncate">{dishName}</span>
+                    {done && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            {error && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl px-4 py-3 text-sm font-medium">
+                {error}
+              </div>
+            )}
+
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="w-full min-h-[52px] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
+            >
+              {isSubmitting ? 'Сохраняем…' : 'Сохранить оценки'}
+            </button>
+          </>
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-6">
+            <button
+              onClick={() => setActiveDishIndex(null)}
+              className="flex items-center gap-1.5 text-sm font-bold text-indigo-700 hover:text-indigo-900"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Назад к блюдам</span>
+            </button>
+            <h2 className="text-sm font-black uppercase tracking-wider text-indigo-700">
+              {poll.dishNames[activeDishIndex]}
+            </h2>
+            {poll.criteria.map((c) => (
               <ScoreInput
-                key={criterion}
-                label={criterion}
-                value={entries[dishIndex]?.scores[criterion] ?? 5}
-                onChange={(v) => updateScore(dishIndex, criterion, v)}
+                key={c}
+                label={c}
+                value={entries[activeDishIndex]?.scores[c] ?? 5}
+                onChange={(v) => updateScore(activeDishIndex, c, v)}
               />
             ))}
             {poll.allowComments && (
@@ -206,30 +261,22 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
                   Комментарий (необязательно)
                 </label>
                 <textarea
-                  value={entries[dishIndex]?.comment || ''}
-                  onChange={(e) => updateComment(dishIndex, e.target.value)}
+                  value={entries[activeDishIndex]?.comment || ''}
+                  onChange={(e) => updateComment(activeDishIndex, e.target.value)}
                   rows={3}
                   placeholder="Что понравилось, что можно улучшить?"
                   className="w-full px-3 py-2 text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
                 />
               </div>
             )}
-          </div>
-        ))}
-
-        {error && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl px-4 py-3 text-sm font-medium">
-            {error}
+            <button
+              onClick={() => setActiveDishIndex(null)}
+              className="w-full min-h-[48px] bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all"
+            >
+              Готово
+            </button>
           </div>
         )}
-
-        <button
-          onClick={handleSubmit}
-          disabled={isSubmitting}
-          className="w-full min-h-[52px] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
-        >
-          {isSubmitting ? 'Отправляем…' : 'Отправить оценку'}
-        </button>
       </div>
     </div>
   );
