@@ -521,43 +521,13 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               </div>
             ) : (
               <>
-                {workspacePoll.dishNames.map((dishName, dishIndex) => (
-                  <div key={dishIndex} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-black uppercase tracking-wider text-indigo-700">{dishName}</h4>
-                      <span className="text-sm font-black text-slate-900 tabular-nums">
-                        {overallDishScore(dishIndex).toFixed(1)}
-                      </span>
-                    </div>
-                    {workspacePoll.criteria.map((c) => (
-                      <div key={c} className="flex items-center justify-between gap-3">
-                        <span className="text-sm text-slate-700">{c}</span>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <div className="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-indigo-600 rounded-full"
-                              style={{ width: `${((analyticsResults.averages[dishIndex]?.[c] || 0) / 10) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-sm font-black text-slate-900 tabular-nums w-9 text-right">
-                            {(analyticsResults.averages[dishIndex]?.[c] || 0).toFixed(1)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                {/* Ключевые цифры — сразу видно с телефона, не листая вниз. */}
+                <div className="bg-indigo-600 rounded-2xl p-4 flex items-center justify-between text-white shadow-sm">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200">Проголосовало</p>
+                    <p className="text-3xl font-black tabular-nums leading-tight">{analyticsResults.votes.length}</p>
                   </div>
-                ))}
-
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
-                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
-                    Критерии в среднем по всем блюдам
-                  </h4>
-                  {Object.entries(globalCriteriaAverages()).map(([c, avg]) => (
-                    <div key={c} className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-slate-700">{c}</span>
-                      <span className="text-sm font-black text-slate-900 tabular-nums">{avg.toFixed(1)}</span>
-                    </div>
-                  ))}
+                  <Vote className="w-9 h-9 text-indigo-300" />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -581,9 +551,11 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   </div>
                 </div>
 
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 px-1 pt-1">Фильтры</h4>
+
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Фильтр — выбрать блюдо
+                    Выбрать блюдо
                   </label>
                   <select
                     value={filterDishIndex}
@@ -626,7 +598,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
 
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Фильтр — выбрать человека
+                    Выбрать человека
                   </label>
                   <select
                     value={filterPersonKey}
@@ -660,6 +632,49 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                       ))}
                     </div>
                   )}
+                </div>
+
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 px-1 pt-1">
+                  Подробно по каждому блюду
+                </h4>
+
+                {workspacePoll.dishNames.map((dishName, dishIndex) => (
+                  <div key={dishIndex} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-indigo-700">{dishName}</h4>
+                      <span className="text-sm font-black text-slate-900 tabular-nums">
+                        {overallDishScore(dishIndex).toFixed(1)}
+                      </span>
+                    </div>
+                    {workspacePoll.criteria.map((c) => (
+                      <div key={c} className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-slate-700">{c}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-indigo-600 rounded-full"
+                              style={{ width: `${((analyticsResults.averages[dishIndex]?.[c] || 0) / 10) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-black text-slate-900 tabular-nums w-9 text-right">
+                            {(analyticsResults.averages[dishIndex]?.[c] || 0).toFixed(1)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+
+                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
+                    Критерии в среднем по всем блюдам
+                  </h4>
+                  {Object.entries(globalCriteriaAverages()).map(([c, avg]) => (
+                    <div key={c} className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-slate-700">{c}</span>
+                      <span className="text-sm font-black text-slate-900 tabular-nums">{avg.toFixed(1)}</span>
+                    </div>
+                  ))}
                 </div>
               </>
             )}
