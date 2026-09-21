@@ -548,7 +548,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center gap-2">
-          <h3 className="text-lg font-extrabold text-slate-900 flex-1 truncate">{workspacePoll.name}</h3>
+          <h3 className="text-lg font-extrabold text-slate-900 flex-1 min-w-0 break-words leading-tight">{workspacePoll.name}</h3>
           <span
             className={`shrink-0 text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${
               workspacePoll.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
@@ -832,9 +832,9 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                       <button
                         key={d.index}
                         onClick={() => viewDishVotes(d.index)}
-                        className="w-full flex items-center justify-between text-sm py-1 hover:bg-emerald-50 rounded-lg px-1 -mx-1 transition-all"
+                        className="w-full flex items-center justify-between gap-2 text-sm py-1 hover:bg-emerald-50 rounded-lg px-1 -mx-1 transition-all"
                       >
-                        <span className="text-slate-700 truncate">{rank + 1}. {d.name}</span>
+                        <span className="text-slate-700 text-left break-words min-w-0">{rank + 1}. {d.name}</span>
                         <span className="font-black text-slate-900 tabular-nums shrink-0">{d.score.toFixed(1)}</span>
                       </button>
                     ))}
@@ -845,9 +845,9 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                       <button
                         key={d.index}
                         onClick={() => viewDishVotes(d.index)}
-                        className="w-full flex items-center justify-between text-sm py-1 hover:bg-rose-50 rounded-lg px-1 -mx-1 transition-all"
+                        className="w-full flex items-center justify-between gap-2 text-sm py-1 hover:bg-rose-50 rounded-lg px-1 -mx-1 transition-all"
                       >
-                        <span className="text-slate-700 truncate">{rank + 1}. {d.name}</span>
+                        <span className="text-slate-700 text-left break-words min-w-0">{rank + 1}. {d.name}</span>
                         <span className="font-black text-slate-900 tabular-nums shrink-0">{d.score.toFixed(1)}</span>
                       </button>
                     ))}
@@ -952,7 +952,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                           : 'bg-white border-slate-200 text-slate-900 hover:border-indigo-300'
                       }`}
                     >
-                      <span className="block truncate">{dishName}</span>
+                      <span className="block break-words hyphens-auto leading-snug">{dishName}</span>
                       {done && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
                     </button>
                   );
@@ -1196,7 +1196,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <h4 className="font-bold text-slate-900 text-sm truncate">{poll.name}</h4>
+                    <h4 className="font-bold text-slate-900 text-sm break-words min-w-0">{poll.name}</h4>
                     <span
                       className={`shrink-0 text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${
                         poll.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
@@ -1278,7 +1278,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
         <div className="fixed inset-0 z-[60] bg-slate-900/80 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-4 space-y-3">
             <div className="flex items-start justify-between gap-2">
-              <h4 className="text-sm font-bold text-slate-900 truncate">{qrPoll.name}</h4>
+              <h4 className="text-sm font-bold text-slate-900 break-words min-w-0">{qrPoll.name}</h4>
               <button
                 onClick={() => setQrPollId(null)}
                 className="w-9 h-9 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"

@@ -297,7 +297,7 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
                         : 'bg-white border-slate-200 text-slate-900 hover:border-indigo-300'
                     }`}
                   >
-                    <span className="block truncate">{dishName}</span>
+                    <span className="block break-words hyphens-auto leading-snug">{dishName}</span>
                     {done && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
                   </button>
                 );
