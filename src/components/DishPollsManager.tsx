@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Plus, Copy, Check, X, Trash2, RotateCcw, ChevronLeft, Vote, MessageSquare, Settings, Minus,
-  BarChart3, Printer, CheckCircle2, Download,
+  BarChart3, Printer, CheckCircle2, Download, FileSpreadsheet,
 } from 'lucide-react';
 import { DishPoll, DishPollVote, SUGGESTED_DISH_POLL_CRITERIA } from '../types';
 import { ScoreInput } from './DishPollVoteScreen';
@@ -221,19 +221,32 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   // В Telegram есть свой способ сохранить файл (Bot API 8.0), в обычном браузере — обычная
   // ссылка со скачиванием. Работает и то, и другое, потому что картинка отдаётся с нашего же
   // адреса, а не со стороннего сервиса.
-  const handleDownloadQr = (poll: DishPoll) => {
-    const url = `${window.location.origin}/api/dish-polls/${encodeURIComponent(poll.id)}/qr?size=800&download=1`;
+  const downloadFromServer = (url: string, fileName: string) => {
     const tg = (window as any).Telegram?.WebApp;
     if (typeof tg?.downloadFile === 'function') {
-      tg.downloadFile({ url, file_name: `qr-${poll.name}.png` });
+      tg.downloadFile({ url, file_name: fileName });
       return;
     }
     const a = document.createElement('a');
     a.href = url;
-    a.download = `qr-${poll.id}.png`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  const handleDownloadQr = (poll: DishPoll) => {
+    downloadFromServer(
+      `${window.location.origin}/api/dish-polls/${encodeURIComponent(poll.id)}/qr?size=800&download=1`,
+      `qr-${poll.name}.png`
+    );
+  };
+
+  const handleDownloadExcel = (poll: DishPoll) => {
+    downloadFromServer(
+      `${window.location.origin}/api/dish-polls/${encodeURIComponent(poll.id)}/export`,
+      `${poll.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Голосование'}.xlsx`
+    );
   };
 
   const handleCopyLink = (poll: DishPoll) => {
@@ -791,21 +804,30 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="space-y-2">
               <button
                 onClick={() => handleToggleStatus(workspacePoll)}
-                className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold uppercase tracking-wider text-slate-700 transition-all"
+                className="w-full flex items-center justify-center gap-1.5 min-h-[44px] bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold uppercase tracking-wider text-slate-700 transition-all"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>{workspacePoll.status === 'active' ? 'Завершить голосование' : 'Возобновить голосование'}</span>
               </button>
-              <button
-                onClick={() => setIsPrintOpen(true)}
-                className="flex items-center justify-center gap-1.5 min-h-[44px] px-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold uppercase tracking-wider text-indigo-700 transition-all"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Распечатать</span>
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setIsPrintOpen(true)}
+                  className="flex items-center justify-center gap-1.5 min-h-[44px] px-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold uppercase tracking-wider text-indigo-700 transition-all"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Распечатать</span>
+                </button>
+                <button
+                  onClick={() => handleDownloadExcel(workspacePoll)}
+                  className="flex items-center justify-center gap-1.5 min-h-[44px] px-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold uppercase tracking-wider text-emerald-700 transition-all"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Скачать Excel</span>
+                </button>
+              </div>
             </div>
 
             {isAnalyticsLoading ? (

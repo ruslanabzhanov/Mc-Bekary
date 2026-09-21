@@ -3,6 +3,7 @@
 // app.listen() — those differ between the two environments.
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import ExcelJS from 'exceljs';
 import { supabase } from '../lib/supabaseServer.js';
 import {
   shopFromDb,
@@ -1328,6 +1329,162 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to delete a dish poll:', e);
       res.status(500).json({ error: 'Failed to delete dish poll' });
+    }
+  });
+
+  // Результаты голосования одним файлом Excel. Собирается на сервере, а не в браузере: в
+  // Telegram скачать файл, сгенерированный на странице, нельзя — нужен настоящий адрес, как у QR.
+  // Считается тем же способом, что и экран аналитики, чтобы цифры в файле и на экране совпадали.
+  app.get('/api/dish-polls/:id/export', async (req, res) => {
+    try {
+      const pollId = String(req.params.id);
+      const [{ data: pollRow, error: pollError }, { data: voteRows, error: votesError }] = await Promise.all([
+        supabase.from('dish_polls').select('*').eq('id', pollId).maybeSingle(),
+        supabase.from('dish_poll_votes').select('*').eq('poll_id', pollId).order('created_at', { ascending: true }),
+      ]);
+      if (pollError) throw pollError;
+      if (votesError) throw votesError;
+      if (!pollRow) return res.status(404).json({ error: 'Голосование не найдено' });
+
+      const poll = dishPollFromDb(pollRow);
+      const votes = (voteRows || []).map(dishPollVoteFromDb);
+      const criteria: string[] = poll.criteria;
+      const dishNames: string[] = poll.dishNames;
+
+      const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+      const scoresFor = (dishIndex: number, criterion: string) =>
+        votes
+          .map((v: any) => v.entries[dishIndex]?.scores?.[criterion])
+          .filter((s: unknown): s is number => typeof s === 'number');
+
+      const dishRows = dishNames.map((name, i) => {
+        const perCriterion = criteria.map((c) => avg(scoresFor(i, c)));
+        const present = perCriterion.filter((x): x is number => x !== null);
+        return {
+          name,
+          perCriterion,
+          overall: avg(present),
+          ratedBy: votes.filter((v: any) => v.entries[i]).length,
+        };
+      });
+      const ranked = [...dishRows].sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1));
+
+      const kzTime = (iso: string) =>
+        new Date(iso).toLocaleString('ru-RU', {
+          timeZone: 'Asia/Almaty', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        });
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Master Bakery';
+      wb.created = new Date();
+      const bold = { bold: true };
+      const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F1F3' } };
+      const styleHeader = (row: ExcelJS.Row) => {
+        row.font = bold;
+        row.eachCell((cell) => {
+          cell.fill = headerFill;
+          cell.alignment = { vertical: 'middle', wrapText: true };
+        });
+      };
+
+      // --- Лист 1: итоги по блюдам, от лучшего к худшему ---
+      const summary = wb.addWorksheet('Итоги');
+      summary.addRow([poll.name]).font = { bold: true, size: 14 };
+      summary.addRow([`Проголосовало: ${votes.length} · выгружено ${kzTime(new Date().toISOString())}`]);
+      summary.addRow([]);
+      styleHeader(summary.addRow(['Место', 'Блюдо', 'Итог', ...criteria, 'Оценок']));
+      ranked.forEach((d, idx) => {
+        const row = summary.addRow([
+          d.overall === null ? '—' : idx + 1,
+          d.name,
+          d.overall ?? '—',
+          ...d.perCriterion.map((x) => x ?? '—'),
+          d.ratedBy,
+        ]);
+        row.getCell(3).font = bold;
+      });
+      summary.addRow([]);
+      styleHeader(summary.addRow(['', 'Критерии в среднем по всем блюдам', 'Среднее']));
+      criteria.forEach((c) => {
+        const all = dishNames.flatMap((_, i) => scoresFor(i, c));
+        summary.addRow(['', c, avg(all) ?? '—']);
+      });
+      summary.getColumn(1).width = 8;
+      summary.getColumn(2).width = 42;
+      summary.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
+      for (let col = 3; col <= 3 + criteria.length; col++) {
+        summary.getColumn(col).width = 13;
+        summary.getColumn(col).numFmt = '0.0';
+      }
+      summary.getColumn(4 + criteria.length).width = 9;
+
+      // --- Лист 2: каждая оценка отдельной строкой — удобно фильтровать и сортировать ---
+      const detail = wb.addWorksheet('Все оценки');
+      styleHeader(detail.addRow(['Дегустатор', 'Telegram', 'Когда', 'Блюдо', ...criteria, 'Среднее', 'Комментарий']));
+      votes.forEach((v: any) => {
+        dishNames.forEach((dish, i) => {
+          const entry = v.entries[i];
+          if (!entry) return;
+          const vals = criteria.map((c) => entry.scores?.[c]);
+          const nums = vals.filter((x: unknown): x is number => typeof x === 'number');
+          detail.addRow([
+            v.telegramName,
+            v.telegramUsername ? `@${v.telegramUsername}` : '',
+            kzTime(v.createdAt),
+            dish,
+            ...vals.map((x: unknown) => (typeof x === 'number' ? x : '—')),
+            avg(nums) ?? '—',
+            entry.comment || '',
+          ]);
+        });
+      });
+      detail.views = [{ state: 'frozen', ySplit: 1 }];
+      detail.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 6 + criteria.length } };
+      detail.getColumn(1).width = 24;
+      detail.getColumn(2).width = 18;
+      detail.getColumn(3).width = 17;
+      detail.getColumn(4).width = 36;
+      for (let col = 5; col <= 4 + criteria.length; col++) detail.getColumn(col).width = 12;
+      detail.getColumn(5 + criteria.length).width = 10;
+      detail.getColumn(5 + criteria.length).numFmt = '0.0';
+      detail.getColumn(6 + criteria.length).width = 60;
+      detail.getColumn(6 + criteria.length).alignment = { wrapText: true, vertical: 'top' };
+
+      // --- Лист 3: кто как оценил каждое блюдо (средний балл человека по блюду) ---
+      const matrix = wb.addWorksheet('Кто как оценил');
+      styleHeader(matrix.addRow(['Дегустатор', ...dishNames]));
+      votes.forEach((v: any) => {
+        matrix.addRow([
+          v.telegramName,
+          ...dishNames.map((_, i) => {
+            const entry = v.entries[i];
+            if (!entry) return '—';
+            const nums = criteria
+              .map((c) => entry.scores?.[c])
+              .filter((x: unknown): x is number => typeof x === 'number');
+            return avg(nums) ?? '—';
+          }),
+        ]);
+      });
+      matrix.views = [{ state: 'frozen', xSplit: 1, ySplit: 1 }];
+      matrix.getColumn(1).width = 24;
+      for (let col = 2; col <= 1 + dishNames.length; col++) {
+        matrix.getColumn(col).width = 16;
+        matrix.getColumn(col).numFmt = '0.0';
+      }
+      matrix.getRow(1).height = 48;
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const safeName = poll.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Голосование';
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="golosovanie.xlsx"; filename*=UTF-8''${encodeURIComponent(`${safeName}.xlsx`)}`
+      );
+      res.send(Buffer.from(buffer as ArrayBuffer));
+    } catch (e) {
+      console.error('Failed to export dish poll results:', e);
+      res.status(500).json({ error: 'Не удалось собрать файл' });
     }
   });
 
