@@ -1189,6 +1189,46 @@ export function createApiApp() {
       }
       const pollId = String(req.params.id);
 
+      // Переименование одного блюда и добавление блюда — точечные операции, а не отправка
+      // всего списка: настройки сохраняются автоматически по мере ввода, и полный список,
+      // отправленный чуть раньше удаления, мог бы воскресить уже удалённое блюдо.
+      if (updates?.renameDish && typeof updates.renameDish.index === 'number') {
+        const index = updates.renameDish.index;
+        const newName = String(updates.renameDish.name ?? '').trim();
+        if (!newName) return res.status(400).json({ error: 'Dish name cannot be empty' });
+        const { data: pollRow, error: pollError } = await supabase
+          .from('dish_polls')
+          .select('dish_names')
+          .eq('id', pollId)
+          .maybeSingle();
+        if (pollError) throw pollError;
+        if (!pollRow) return res.status(404).json({ error: 'Poll not found' });
+        const dishNames: string[] = [...(pollRow.dish_names || [])];
+        if (index < 0 || index >= dishNames.length) {
+          return res.status(400).json({ error: 'renameDish index out of range' });
+        }
+        dishNames[index] = newName;
+        const { error: updateErr } = await supabase.from('dish_polls').update({ dish_names: dishNames }).eq('id', pollId);
+        if (updateErr) throw updateErr;
+        return res.json({ success: true });
+      }
+
+      if (typeof updates?.addDish === 'string') {
+        const newName = updates.addDish.trim();
+        if (!newName) return res.status(400).json({ error: 'Dish name cannot be empty' });
+        const { data: pollRow, error: pollError } = await supabase
+          .from('dish_polls')
+          .select('dish_names')
+          .eq('id', pollId)
+          .maybeSingle();
+        if (pollError) throw pollError;
+        if (!pollRow) return res.status(404).json({ error: 'Poll not found' });
+        const dishNames: string[] = [...(pollRow.dish_names || []), newName];
+        const { error: updateErr } = await supabase.from('dish_polls').update({ dish_names: dishNames }).eq('id', pollId);
+        if (updateErr) throw updateErr;
+        return res.json({ success: true });
+      }
+
       // Removing a dish also has to strip that index out of every already-cast vote's
       // `entries` array — those are stored aligned by position to dishNames, so leaving them
       // untouched would silently shift every later dish's scores onto the wrong dish.

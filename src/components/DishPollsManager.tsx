@@ -117,7 +117,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
 
   const [settingsName, setSettingsName] = useState('');
   const [settingsDishNames, setSettingsDishNames] = useState<string[]>([]);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsSaveState, setSettingsSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [newCriterion, setNewCriterion] = useState('');
 
   const loadPolls = () => {
@@ -258,6 +258,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
     setVoteSaved(false);
     setSettingsName(poll.name);
     setSettingsDishNames([...poll.dishNames]);
+    setSettingsSaveState('idle');
     setNewCriterion('');
     setAnalyticsResults(null);
     setFilterDishIndex('');
@@ -265,6 +266,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   };
 
   const closeWorkspace = () => {
+    flushAllEdits();
     setWorkspacePollId(null);
     loadPolls();
   };
@@ -333,49 +335,119 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
   };
 
   // ---- Settings mode ----
-  const handleAddDishLocally = () => {
-    setSettingsDishNames((prev) => [...prev, `Блюдо ${prev.length + 1}`]);
+  // Всё в настройках сохраняется само: название — через секунду после того, как перестали
+  // печатать (или сразу при выходе из поля), добавление/удаление — сразу. Раньше была одна
+  // кнопка «Сохранить» под списком всех блюд: при 12 блюдах её не видно без прокрутки, и
+  // правки молча пропадали при выходе из настроек.
+  // Запросы идут строго по очереди: переименование, начатое до удаления блюда, обязано дойти
+  // до сервера раньше него — иначе оно применится уже к сдвинутому списку.
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSavesRef = useRef(0);
+  const saveFailedRef = useRef(false);
+  const pendingEditsRef = useRef<Record<string, { timer: number; run: () => void }>>({});
+
+  const patchPoll = (pollId: string, updates: Record<string, unknown>) => {
+    pendingSavesRef.current += 1;
+    setSettingsSaveState('saving');
+    saveQueueRef.current = saveQueueRef.current
+      .then(async () => {
+        const res = await fetch(`/api/dish-polls/${encodeURIComponent(pollId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData: telegramInitData, updates }),
+        });
+        if (!res.ok) throw new Error(`PATCH ${res.status}`);
+      })
+      .catch((e) => {
+        console.error('Failed to save dish poll settings:', e);
+        saveFailedRef.current = true;
+      })
+      .then(() => {
+        pendingSavesRef.current -= 1;
+        if (pendingSavesRef.current > 0) return;
+        setSettingsSaveState(saveFailedRef.current ? 'error' : 'saved');
+        saveFailedRef.current = false;
+        loadPolls();
+      });
   };
 
-  const handleDeleteDish = async (i: number) => {
+  const scheduleEdit = (key: string, run: () => void) => {
+    const existing = pendingEditsRef.current[key];
+    if (existing) window.clearTimeout(existing.timer);
+    const timer = window.setTimeout(() => {
+      delete pendingEditsRef.current[key];
+      run();
+    }, 900);
+    pendingEditsRef.current[key] = { timer, run };
+  };
+
+  const flushEdit = (key: string) => {
+    const pending = pendingEditsRef.current[key];
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    delete pendingEditsRef.current[key];
+    pending.run();
+  };
+
+  // Перед добавлением/удалением блюда и при уходе из настроек досохраняем всё недопечатанное —
+  // иначе отложенное переименование сработает уже после сдвига номеров блюд.
+  const flushAllEdits = () => {
+    Object.keys(pendingEditsRef.current).forEach(flushEdit);
+  };
+
+  const savePollName = (value: string) => {
+    if (!workspacePoll) return;
+    const name = value.trim();
+    if (!name || name === workspacePoll.name) return;
+    patchPoll(workspacePoll.id, { name });
+  };
+
+  const saveDishName = (index: number, value: string) => {
+    if (!workspacePoll) return;
+    const name = value.trim();
+    if (!name || name === workspacePoll.dishNames[index]) return;
+    patchPoll(workspacePoll.id, { renameDish: { index, name } });
+  };
+
+  const handleAddDish = () => {
+    if (!workspacePoll) return;
+    flushAllEdits();
+    // Номер берём больше любого уже занятого, а не «количество + 1»: после удаления блюда
+    // «количество + 1» совпадало бы с ещё существующим «Блюдо N».
+    const usedNumbers = settingsDishNames
+      .map((n) => /^Блюдо (\d+)$/.exec(n.trim())?.[1])
+      .filter(Boolean)
+      .map(Number);
+    const name = `Блюдо ${Math.max(settingsDishNames.length, ...usedNumbers) + 1}`;
+    setSettingsDishNames((prev) => [...prev, name]);
+    patchPoll(workspacePoll.id, { addDish: name });
+  };
+
+  const handleDeleteDish = (i: number) => {
     if (!workspacePoll || settingsDishNames.length <= 1) return;
     if (!window.confirm(`Удалить «${settingsDishNames[i]}» вместе со всеми оценками по этому блюду?`)) return;
-    await fetch(`/api/dish-polls/${encodeURIComponent(workspacePoll.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: telegramInitData, updates: { deleteDishIndex: i } }),
-    }).catch((e) => console.error('Failed to delete dish:', e));
+    flushAllEdits();
     setSettingsDishNames((prev) => prev.filter((_, idx) => idx !== i));
-    loadPolls();
+    patchPoll(workspacePoll.id, { deleteDishIndex: i });
   };
 
-  const handleSaveSettingsNames = async () => {
-    if (!workspacePoll) return;
-    const cleanNames = settingsDishNames.map((n) => n.trim()).filter(Boolean);
-    if (!settingsName.trim() || cleanNames.length === 0) return;
-    setIsSavingSettings(true);
-    try {
-      await fetch(`/api/dish-polls/${encodeURIComponent(workspacePoll.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData: telegramInitData, updates: { name: settingsName.trim(), dishNames: cleanNames } }),
-      });
-      loadPolls();
-    } finally {
-      setIsSavingSettings(false);
-    }
-  };
-
-  const handleAddCriterion = async () => {
+  const handleAddCriterion = () => {
     const c = newCriterion.trim();
     if (!c || !workspacePoll) return;
-    await fetch(`/api/dish-polls/${encodeURIComponent(workspacePoll.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: telegramInitData, updates: { addCriterion: c } }),
-    }).catch((e) => console.error('Failed to add criterion:', e));
+    flushAllEdits();
     setNewCriterion('');
-    loadPolls();
+    patchPoll(workspacePoll.id, { addCriterion: c });
+  };
+
+  useEffect(() => {
+    if (settingsSaveState !== 'saved') return;
+    const t = window.setTimeout(() => setSettingsSaveState('idle'), 2000);
+    return () => window.clearTimeout(t);
+  }, [settingsSaveState]);
+
+  const switchMode = (next: WorkspaceMode) => {
+    flushAllEdits();
+    setMode(next);
   };
 
   // ---- Analytics mode ----
@@ -455,7 +527,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
           </button>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setMode(mode === 'analytics' ? 'vote' : 'analytics')}
+              onClick={() => switchMode(mode === 'analytics' ? 'vote' : 'analytics')}
               className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all ${
                 mode === 'analytics' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
               }`}
@@ -464,7 +536,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               <BarChart3 className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setMode(mode === 'settings' ? 'vote' : 'settings')}
+              onClick={() => switchMode(mode === 'settings' ? 'vote' : 'settings')}
               className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all ${
                 mode === 'settings' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
               }`}
@@ -497,14 +569,24 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                 <input
                   type="text"
                   value={settingsName}
-                  onChange={(e) => setSettingsName(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSettingsName(value);
+                    scheduleEdit('name', () => savePollName(value));
+                  }}
+                  onBlur={() => {
+                    flushEdit('name');
+                    // Пустое название не сохраняем — возвращаем прежнее, а не оставляем пустое поле.
+                    if (!settingsName.trim()) setSettingsName(workspacePoll.name);
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                   className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Блюда
+                  Блюда — нажмите на название, чтобы переименовать
                 </label>
                 <div className="space-y-2">
                   {settingsDishNames.map((n, i) => (
@@ -512,9 +594,20 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                       <input
                         type="text"
                         value={n}
-                        onChange={(e) =>
-                          setSettingsDishNames((prev) => prev.map((x, idx) => (idx === i ? e.target.value : x)))
-                        }
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setSettingsDishNames((prev) => prev.map((x, idx) => (idx === i ? value : x)));
+                          scheduleEdit(`dish-${i}`, () => saveDishName(i, value));
+                        }}
+                        onBlur={() => {
+                          flushEdit(`dish-${i}`);
+                          if (!settingsDishNames[i]?.trim()) {
+                            setSettingsDishNames((prev) =>
+                              prev.map((x, idx) => (idx === i ? workspacePoll.dishNames[i] ?? x : x))
+                            );
+                          }
+                        }}
+                        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                         className="flex-1 px-3 min-h-[44px] text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
                       />
                       {settingsDishNames.length > 1 && (
@@ -529,7 +622,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   ))}
                 </div>
                 <button
-                  onClick={handleAddDishLocally}
+                  onClick={handleAddDish}
                   className="mt-2 flex items-center gap-1.5 text-xs font-bold text-indigo-700 hover:text-indigo-900 uppercase tracking-wider"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -537,13 +630,9 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                 </button>
               </div>
 
-              <button
-                onClick={handleSaveSettingsNames}
-                disabled={isSavingSettings}
-                className="w-full min-h-[48px] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
-              >
-                {isSavingSettings ? 'Сохраняем…' : 'Сохранить'}
-              </button>
+              <p className="text-[11px] text-slate-400">
+                Кнопка «Сохранить» не нужна — каждое изменение сохраняется само, через секунду.
+              </p>
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
@@ -579,6 +668,29 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                 добавлять новые.
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Статус автосохранения — плавает внизу экрана, чтобы его было видно, даже когда
+            правят двенадцатое блюдо в самом низу списка. */}
+        {mode === 'settings' && settingsSaveState !== 'idle' && (
+          <div
+            className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-[55] px-4 py-2 rounded-full shadow-lg text-xs font-bold flex items-center gap-1.5 ${
+              settingsSaveState === 'error'
+                ? 'bg-rose-600 text-white'
+                : settingsSaveState === 'saved'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-800 text-white'
+            }`}
+          >
+            {settingsSaveState === 'saving' && 'Сохраняем…'}
+            {settingsSaveState === 'saved' && (
+              <>
+                <Check className="w-3.5 h-3.5" />
+                <span>Сохранено</span>
+              </>
+            )}
+            {settingsSaveState === 'error' && 'Не сохранилось — проверьте интернет и измените ещё раз'}
           </div>
         )}
 
