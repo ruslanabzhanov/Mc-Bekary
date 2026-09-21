@@ -34,6 +34,7 @@ import {
   dishPollVoteToDb,
 } from '../lib/dbMappers.js';
 import { verifyTelegramInitData } from '../lib/telegramAuth.js';
+import { PRE_DEADLINE_OFFSETS, planDeadlineReminder, toMinutes, formatMinutesLeft } from '../lib/deadlineSchedule.js';
 import { sendTelegramMessage } from '../lib/telegramNotify.js';
 
 // All 27 shops are in Kazakhstan (UTC+5, unified nationwide since 2024). Using
@@ -299,23 +300,121 @@ async function canManageDeadline(initData: string): Promise<boolean> {
   return (data || []).some((r: any) => r.position === 'Заведующий производством');
 }
 
-// Автонапоминание отстающим — раз в день, как только наступил дедлайн. На бесплатном тарифе
-// Vercel расписание бывает только раз в сутки и с точностью до часа, поэтому время подвижного
-// дедлайна ловит планировщик базы (раз в 5 минут дёргает /api/cron/deadline-tick). Решение
-// «пора ли» принимается здесь, а «сегодня уже отправляли» отмечается вставкой строки с датой
-// в первичный ключ — второй одновременный вызов упрётся в неё и ничего не отправит.
-async function maybeSendDeadlineReminder() {
+const shopLabel = (s: any) => (s.district || '').trim() || s.address || `Точка №${s.id}`;
+
+// Точки, где заявка на сегодня ещё не подана, и Telegram всех их сотрудников. Точка, которая
+// уже подала, сюда не попадает — ей напоминать не о чем.
+async function laggingShopRecipients() {
+  const [{ data: shopRows }, { data: orderRows }, { data: staffRows }] = await Promise.all([
+    supabase.from('shops').select('*'),
+    supabase.from('orders').select('*').eq('order_date', almatyToday()),
+    supabase.from('staff').select('*'),
+  ]);
+  const submitted = new Set(
+    (orderRows || []).map(orderFromDb).filter((o: any) => o.status !== 'draft').map((o: any) => o.shopId)
+  );
+  const staff = (staffRows || []).map(staffFromDb);
+  return (shopRows || [])
+    .map(shopFromDb)
+    .filter((s: any) => !submitted.has(s.id))
+    .map((shop: any) => ({
+      shop,
+      chatIds: [
+        ...new Set(
+          staff
+            .filter((m: any) => m.telegramUserId && m.shopId === shop.id)
+            .map((m: any) => String(m.telegramUserId))
+        ),
+      ] as string[],
+    }));
+}
+
+// «До конца приёма осталось …» — только сотрудникам точек, не подавших заявку. Руководству
+// эти пять напоминаний не шлём: им хватает итогового сообщения после дедлайна.
+async function remindBeforeDeadline(minutesLeft: number, deadline: string) {
+  const targets = await laggingShopRecipients();
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) return targets;
+  const send = makeSender(botToken, WEB_APP_URL);
+  const jobs = targets.flatMap(({ shop, chatIds }) => {
+    const text =
+      `⏰ <b>До конца приёма заявок: ${formatMinutesLeft(minutesLeft)}</b>\n` +
+      `Приём до ${deadline}.\n\n🏪 ${shopLabel(shop)}\n\n` +
+      `Заявка на витрину ещё не подана — откройте приложение и отправьте её.`;
+    return chatIds.map((id) => () => send(id, text));
+  });
+  // Пачками по 20: по одному на всю сеть — дольше, чем живёт функция Vercel, а все сразу —
+  // упрёмся в ограничение Telegram на частоту сообщений.
+  for (let i = 0; i < jobs.length; i += 20) {
+    await Promise.all(jobs.slice(i, i + 20).map((job) => job()));
+  }
+  return targets;
+}
+
+// Напоминания по подвижному дедлайну: за 60/30/20/10/5 минут — не подавшим точкам, после
+// дедлайна — итоговое (точкам, их территориальным и руководству). На бесплатном тарифе Vercel
+// расписание бывает раз в сутки и с точностью до часа, поэтому сюда раз в минуту стучится
+// планировщик базы, а решение «что пора отправить» принимает planDeadlineReminder.
+// «Уже отправлено» — вставка строки в первичный ключ app_settings: второй одновременный вызов
+// в неё упрётся и ничего не разошлёт.
+// dryRun — ничего не отправляет и ничего не отмечает, только показывает, что и кому ушло бы;
+// at (только вместе с dryRun) — «а что было бы в такое-то время».
+async function runDeadlineSchedule({ dryRun = false, at }: { dryRun?: boolean; at?: string } = {}) {
   const deadline = await getOrderDeadline();
-  if (timeNow() < deadline) return { sent: false, reason: 'ещё не дедлайн', deadline };
-  const { error } = await supabase
+  const today = almatyToday();
+  const now = dryRun && at && DEADLINE_RE.test(at) ? at : timeNow();
+  const afterKey = `deadline_reminder_sent:${today}`;
+  const beforePrefix = `deadline_prereminder:${today}:${deadline}:`;
+  const { data: marks, error } = await supabase
     .from('app_settings')
-    .insert({ key: `deadline_reminder_sent:${almatyToday()}`, value: timeNow() });
-  if (error) {
-    if (error.code === '23505') return { sent: false, reason: 'сегодня уже отправлено', deadline };
-    throw error;
+    .select('key')
+    .in('key', [afterKey, ...PRE_DEADLINE_OFFSETS.map((o) => beforePrefix + o)]);
+  if (error) throw error;
+  const keys = new Set((marks || []).map((r: any) => r.key));
+  const sentBefore = new Set(PRE_DEADLINE_OFFSETS.filter((o) => keys.has(beforePrefix + o)));
+  const plan = planDeadlineReminder(toMinutes(now), toMinutes(deadline), sentBefore, keys.has(afterKey));
+  const base = { now, deadline, dryRun };
+  if (!plan) return { ...base, action: 'ничего не нужно' };
+
+  const preview = async () =>
+    (await laggingShopRecipients()).map((t) => ({ shop: shopLabel(t.shop), recipients: t.chatIds.length }));
+
+  if (plan.kind === 'before') {
+    const what = `до конца приёма: ${formatMinutesLeft(plan.minutesLeft)}`;
+    if (dryRun) return { ...base, action: `напомнить не подавшим — ${what}`, shops: await preview() };
+    const { error: claimErr } = await supabase
+      .from('app_settings')
+      .insert({ key: beforePrefix + plan.offset, value: now });
+    if (claimErr) {
+      if (claimErr.code === '23505') return { ...base, action: 'уже отправлено' };
+      throw claimErr;
+    }
+    const skipped = plan.markOffsets.filter((o) => o !== plan.offset);
+    if (skipped.length > 0) {
+      await supabase
+        .from('app_settings')
+        .upsert(
+          skipped.map((o) => ({ key: beforePrefix + o, value: `пропущено: ушло «за ${plan.offset}»` })),
+          { onConflict: 'key', ignoreDuplicates: true }
+        );
+    }
+    const targets = await remindBeforeDeadline(plan.minutesLeft, deadline);
+    return {
+      ...base,
+      action: `отправлено — ${what}`,
+      shops: targets.length,
+      recipients: targets.reduce((n, t) => n + t.chatIds.length, 0),
+    };
+  }
+
+  if (dryRun) return { ...base, action: 'дедлайн прошёл — итоговое напоминание', shops: await preview() };
+  const { error: claimErr } = await supabase.from('app_settings').insert({ key: afterKey, value: now });
+  if (claimErr) {
+    if (claimErr.code === '23505') return { ...base, action: 'уже отправлено' };
+    throw claimErr;
   }
   const { lagging, shops } = await remindLaggingShops({ automatic: true });
-  return { sent: true, deadline, lagging: lagging.length, total: shops.length };
+  return { ...base, action: 'отправлено итоговое', lagging: lagging.length, total: shops.length };
 }
 
 // Who still hasn't ordered today, and telling the people who can do something about it.
@@ -2224,9 +2323,9 @@ export function createApiApp() {
         return res.status(403).json({ error: 'Not allowed' });
       }
       // Ежедневный запуск Vercel остаётся страховкой, но сам больше не рассылает «вслепую»:
-      // дедлайн теперь подвижный, и решает maybeSendDeadlineReminder — так же, как и частая
+      // дедлайн теперь подвижный, и решает runDeadlineSchedule — так же, как и частая
       // проверка ниже, поэтому двух рассылок в один день не будет.
-      res.json({ success: true, ...(await maybeSendDeadlineReminder()) });
+      res.json({ success: true, ...(await runDeadlineSchedule()) });
     } catch (e) {
       console.error('Deadline reminder failed:', e);
       res.status(500).json({ error: 'Deadline reminder failed' });
@@ -2239,9 +2338,11 @@ export function createApiApp() {
   // Частая проверка от планировщика базы. Открыта без секрета намеренно: до дедлайна она
   // ничего не делает, после — отправляет напоминание не чаще раза в день, то есть ровно то,
   // что и так должно произойти. Посторонний вызов ничего сверх этого не даст.
-  const runDeadlineTick = async (_req: any, res: any) => {
+  const runDeadlineTick = async (req: any, res: any) => {
     try {
-      res.json({ success: true, ...(await maybeSendDeadlineReminder()) });
+      const dryRun = req.query?.dryRun === '1';
+      const at = typeof req.query?.at === 'string' ? req.query.at : undefined;
+      res.json({ success: true, ...(await runDeadlineSchedule({ dryRun, at })) });
     } catch (e) {
       console.error('Deadline tick failed:', e);
       res.status(500).json({ error: 'Deadline tick failed' });

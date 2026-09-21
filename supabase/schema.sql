@@ -282,9 +282,9 @@ alter table app_settings enable row level security;
 insert into app_settings(key, value) values ('order_deadline', '10:30') on conflict (key) do nothing;
 
 -- Автонапоминание по подвижному дедлайну. Vercel на бесплатном тарифе запускает расписание
--- раз в сутки с точностью до часа, поэтому раз в 5 минут сервер опрашивает сама база; решает,
--- пора ли, сервер (/api/cron/deadline-tick), и не чаще раза в день.
+-- раз в сутки с точностью до часа, поэтому раз в минуту сервер опрашивает сама база; решает,
+-- что пора отправить, сервер (/api/cron/deadline-tick): за 60/30/20/10/5 минут до дедлайна и итог после.
 --   create extension if not exists pg_cron with schema pg_catalog;
 --   create extension if not exists pg_net with schema extensions;
---   select cron.schedule('deadline-tick', '*/5 * * * *',
+--   select cron.schedule('deadline-tick', '* * * * *',
 --     $$select net.http_get('https://mc-bekary.vercel.app/api/cron/deadline-tick')$$);
