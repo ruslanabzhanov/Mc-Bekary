@@ -30,10 +30,13 @@ import {
   X,
   Crown,
   HandCoins,
-  Vote
+  Vote,
+  Clock
 } from 'lucide-react';
 
 interface AdminViewProps {
+  orderDeadline: string;
+  onEditDeadline: () => void;
   shops: CoffeeShop[];
   products: Product[];
   orders: Record<number, ShopOrder>;
@@ -121,6 +124,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   actorName,
   permissions,
   onUpdateRolePermissions,
+  orderDeadline,
+  onEditDeadline,
 }) => {
   const [selectedPrintDept, setSelectedPrintDept] = useState<'bakery' | 'desserts' | 'bar_prep' | 'kitchen_prep' | null>(null);
   const [isChecklistsMenuOpen, setIsChecklistsMenuOpen] = useState(false);
@@ -191,6 +196,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <h2 className="text-base sm:text-xl font-bold tracking-tight uppercase text-indigo-900">Управляющий производством</h2>
           </div>
         </div>
+
+        {/* Дедлайн подачи. В шапке он виден только на широком экране, а двигают его чаще всего
+            с телефона — поэтому здесь отдельной заметной кнопкой. */}
+        <button
+          id="btn-edit-order-deadline"
+          onClick={onEditDeadline}
+          className="w-full flex items-center justify-between gap-3 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl px-4 py-3 transition-all"
+        >
+          <span className="flex items-center gap-2 text-sm text-amber-900">
+            <Clock className="w-4 h-4 shrink-0" />
+            <span>
+              Приём заявок до <b className="text-base tabular-nums">{orderDeadline}</b>
+            </span>
+          </span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Изменить</span>
+        </button>
 
         {/* METRICS ROW */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -47,6 +47,9 @@ interface HeaderProps {
   onOpenSubmittedOrdersModal?: () => void;
   currentTerritorialManagerName?: string;
   isOwnerVerified?: boolean;
+  orderDeadline: string;
+  // Есть только у владельца и заведующего производством — им дедлайн можно двигать.
+  onEditDeadline?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -58,6 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSubmittedOrdersModal,
   currentTerritorialManagerName,
   isOwnerVerified,
+  orderDeadline,
+  onEditDeadline,
 }) => {
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
 
@@ -92,10 +97,21 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-3 flex-shrink-0">
             {/* Center Info: Live Time & Discipline Bar */}
             <div className="hidden md:flex items-center space-x-4 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
-              <div className="flex items-center space-x-1.5 text-slate-600 font-medium">
-                <Clock className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Дедлайн: <strong className="text-slate-900">10:30</strong></span>
-              </div>
+              {onEditDeadline ? (
+                <button
+                  onClick={onEditDeadline}
+                  title="Изменить время приёма заявок"
+                  className="flex items-center space-x-1.5 text-slate-600 font-medium hover:bg-slate-200/60 px-1.5 py-0.5 rounded transition-all"
+                >
+                  <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Дедлайн: <strong className="text-slate-900 underline decoration-dotted underline-offset-2">{orderDeadline}</strong></span>
+                </button>
+              ) : (
+                <div className="flex items-center space-x-1.5 text-slate-600 font-medium">
+                  <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Дедлайн: <strong className="text-slate-900">{orderDeadline}</strong></span>
+                </div>
+              )}
               <div className="h-4 w-px bg-slate-200" />
               <button
                 onClick={onOpenSubmittedOrdersModal}

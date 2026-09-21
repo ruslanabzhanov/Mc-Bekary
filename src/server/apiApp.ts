@@ -271,15 +271,59 @@ async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejecte
   for (const chatId of supervisorRecipientIds()) await send(chatId, supervisorText);
 }
 
-// When a point is expected to have ordered by. Shown in messages and mirrored by the cron
-// schedule in vercel.json (which is in UTC — 10:30 Almaty is 05:30 UTC).
-const ORDER_DEADLINE = '10:30';
+// До какого времени точки должны подать заявку. Хранится в app_settings — двигают его
+// владелец и заведующий производством прямо из приложения. Пока настройки нет (или таблицы
+// ещё нет) — прежние 10:30, чтобы ничего не ломалось.
+const DEFAULT_ORDER_DEADLINE = '10:30';
+const DEADLINE_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+async function getOrderDeadline(): Promise<string> {
+  try {
+    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'order_deadline').maybeSingle();
+    if (error || !data || !DEADLINE_RE.test(data.value)) return DEFAULT_ORDER_DEADLINE;
+    return data.value;
+  } catch {
+    return DEFAULT_ORDER_DEADLINE;
+  }
+}
+
+// Двигать дедлайн могут владелец и заведующий производством. Проверяем по подписи Telegram:
+// своего пароля у заведующего нет, но он заходит через Telegram, и его id записан в staff.
+async function canManageDeadline(initData: string): Promise<boolean> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken || !initData) return false;
+  const { valid, userId } = verifyTelegramInitData(initData, botToken);
+  if (!valid || userId == null) return false;
+  if (process.env.OWNER_TELEGRAM_ID && String(userId) === String(process.env.OWNER_TELEGRAM_ID)) return true;
+  const { data } = await supabase.from('staff').select('position').eq('telegram_user_id', String(userId));
+  return (data || []).some((r: any) => r.position === 'Заведующий производством');
+}
+
+// Автонапоминание отстающим — раз в день, как только наступил дедлайн. На бесплатном тарифе
+// Vercel расписание бывает только раз в сутки и с точностью до часа, поэтому время подвижного
+// дедлайна ловит планировщик базы (раз в 5 минут дёргает /api/cron/deadline-tick). Решение
+// «пора ли» принимается здесь, а «сегодня уже отправляли» отмечается вставкой строки с датой
+// в первичный ключ — второй одновременный вызов упрётся в неё и ничего не отправит.
+async function maybeSendDeadlineReminder() {
+  const deadline = await getOrderDeadline();
+  if (timeNow() < deadline) return { sent: false, reason: 'ещё не дедлайн', deadline };
+  const { error } = await supabase
+    .from('app_settings')
+    .insert({ key: `deadline_reminder_sent:${almatyToday()}`, value: timeNow() });
+  if (error) {
+    if (error.code === '23505') return { sent: false, reason: 'сегодня уже отправлено', deadline };
+    throw error;
+  }
+  const { lagging, shops } = await remindLaggingShops({ automatic: true });
+  return { sent: true, deadline, lagging: lagging.length, total: shops.length };
+}
 
 // Who still hasn't ordered today, and telling the people who can do something about it.
 // Shared by the manual "Напомнить отстающим" button and the automatic deadline run, so both
 // behave identically — the button used to only write an in-app banner, which nobody sees
 // unless they happen to open the app, which is exactly the case being chased here.
 async function remindLaggingShops({ automatic }: { automatic: boolean }) {
+  const ORDER_DEADLINE = await getOrderDeadline();
   const [{ data: shopRows }, { data: orderRows }, { data: staffRows }] = await Promise.all([
     supabase.from('shops').select('*'),
     supabase.from('orders').select('*').eq('order_date', almatyToday()),
@@ -460,6 +504,7 @@ export function createApiApp() {
 
   app.get('/api/initial-data', async (req, res) => {
     try {
+      const orderDeadlinePromise = getOrderDeadline();
       const [
         shops,
         products,
@@ -536,6 +581,7 @@ export function createApiApp() {
         registrationRequests: (registrationRequests.data || []).map(registrationRequestFromDb),
         rolePermissions: buildRolePermissions(rolePermissions.data || []),
         advanceRequests: (advanceRequests.data || []).map(advanceRequestFromDb),
+        orderDeadline: await orderDeadlinePromise,
       });
     } catch (e) {
       console.error('Failed to load initial data:', e);
@@ -2177,8 +2223,10 @@ export function createApiApp() {
       if (!secret || provided !== secret) {
         return res.status(403).json({ error: 'Not allowed' });
       }
-      const { lagging, shops } = await remindLaggingShops({ automatic: true });
-      res.json({ success: true, lagging: lagging.length, total: shops.length });
+      // Ежедневный запуск Vercel остаётся страховкой, но сам больше не рассылает «вслепую»:
+      // дедлайн теперь подвижный, и решает maybeSendDeadlineReminder — так же, как и частая
+      // проверка ниже, поэтому двух рассылок в один день не будет.
+      res.json({ success: true, ...(await maybeSendDeadlineReminder()) });
     } catch (e) {
       console.error('Deadline reminder failed:', e);
       res.status(500).json({ error: 'Deadline reminder failed' });
@@ -2187,6 +2235,40 @@ export function createApiApp() {
   // Vercel Cron issues a GET; POST is here so the run can be triggered by hand too.
   app.get('/api/cron/deadline-reminder', runDeadlineReminder);
   app.post('/api/cron/deadline-reminder', runDeadlineReminder);
+
+  // Частая проверка от планировщика базы. Открыта без секрета намеренно: до дедлайна она
+  // ничего не делает, после — отправляет напоминание не чаще раза в день, то есть ровно то,
+  // что и так должно произойти. Посторонний вызов ничего сверх этого не даст.
+  const runDeadlineTick = async (_req: any, res: any) => {
+    try {
+      res.json({ success: true, ...(await maybeSendDeadlineReminder()) });
+    } catch (e) {
+      console.error('Deadline tick failed:', e);
+      res.status(500).json({ error: 'Deadline tick failed' });
+    }
+  };
+  app.get('/api/cron/deadline-tick', runDeadlineTick);
+  app.post('/api/cron/deadline-tick', runDeadlineTick);
+
+  app.post('/api/settings/order-deadline', async (req, res) => {
+    try {
+      const { initData, deadline } = req.body || {};
+      if (!DEADLINE_RE.test(String(deadline || ''))) {
+        return res.status(400).json({ error: 'Укажите время в формате ЧЧ:ММ, например 10:30' });
+      }
+      if (!(await canManageDeadline(String(initData || '')))) {
+        return res.status(403).json({ error: 'Менять время приёма может только владелец или заведующий производством' });
+      }
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'order_deadline', value: deadline, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      res.json({ success: true, orderDeadline: deadline });
+    } catch (e) {
+      console.error('Failed to save order deadline:', e);
+      res.status(500).json({ error: 'Не удалось сохранить время. Попробуйте ещё раз.' });
+    }
+  });
 
   app.post('/api/reminders/send-all', async (req, res) => {
     try {

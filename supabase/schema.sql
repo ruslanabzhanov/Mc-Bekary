@@ -267,3 +267,24 @@ create table if not exists telegram_contacts (
   last_name text,
   received_at timestamptz not null default now()
 );
+
+-- Настройки приложения ключ → значение.
+--   order_deadline                 — до скольки точки подают заявку ("HH:MM"), меняют владелец
+--                                    и заведующий производством;
+--   deadline_reminder_sent:<дата>  — отметка «сегодня напоминание отстающим уже ушло». Вставка
+--                                    в первичный ключ и есть защита от двойной рассылки.
+create table if not exists app_settings (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
+alter table app_settings enable row level security;
+insert into app_settings(key, value) values ('order_deadline', '10:30') on conflict (key) do nothing;
+
+-- Автонапоминание по подвижному дедлайну. Vercel на бесплатном тарифе запускает расписание
+-- раз в сутки с точностью до часа, поэтому раз в 5 минут сервер опрашивает сама база; решает,
+-- пора ли, сервер (/api/cron/deadline-tick), и не чаще раза в день.
+--   create extension if not exists pg_cron with schema pg_catalog;
+--   create extension if not exists pg_net with schema extensions;
+--   select cron.schedule('deadline-tick', '*/5 * * * *',
+--     $$select net.http_get('https://mc-bekary.vercel.app/api/cron/deadline-tick')$$);

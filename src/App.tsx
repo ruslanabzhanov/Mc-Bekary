@@ -8,6 +8,7 @@ import { OrderPreviewModal } from './components/OrderPreviewModal';
 import { SubmittedOrdersModal } from './components/SubmittedOrdersModal';
 import { RegistrationGate } from './components/RegistrationGate';
 import { DishPollVoteScreen } from './components/DishPollVoteScreen';
+import { DeadlineModal } from './components/DeadlineModal';
 import { SplashScreen, wasSplashShownThisSession, markSplashShown } from './components/SplashScreen';
 import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
@@ -248,6 +249,9 @@ export default function App() {
   const [registrationRequests, hydrateRegistrationRequests] =
     useState<RegistrationRequest[]>(INITIAL_REGISTRATION_REQUESTS);
   const [advanceRequests, hydrateAdvanceRequests] = useState<AdvanceRequest[]>([]);
+  // До скольки точки подают заявку. Меняют владелец и заведующий производством.
+  const [orderDeadline, setOrderDeadline] = useState('10:30');
+  const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
   const [serverDataLoaded, setServerDataLoaded] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
@@ -305,6 +309,7 @@ export default function App() {
         if (data.staff) hydrateStaff(data.staff);
         if (data.registrationRequests) hydrateRegistrationRequests(data.registrationRequests);
         if (data.advanceRequests) hydrateAdvanceRequests(data.advanceRequests);
+        if (data.orderDeadline) setOrderDeadline(data.orderDeadline);
         // Only now is what we hold the server's answer rather than the bundled demo rows —
         // the registration gate must not judge a missing request until this is true.
         setServerDataLoaded(true);
@@ -411,6 +416,26 @@ export default function App() {
 
   // Owner-only: change what each role is allowed to do. Sends the raw initData string
   // again so the server can re-verify identity rather than trust this call's caller.
+  // Новое время показываем только после ответа сервера: права проверяет он (по подписи
+  // Telegram), и «сдвинули», когда на деле не сдвинулось, хуже короткого ожидания.
+  const handleChangeOrderDeadline = async (deadline: string): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/settings/order-deadline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: telegramInitData, deadline }),
+      });
+      const data = await res.json().catch(() => ({}) as any);
+      if (!res.ok) return data.error || 'Не удалось сохранить время.';
+      setOrderDeadline(data.orderDeadline);
+      showToast(`Время приёма заявок: до ${data.orderDeadline}`);
+      return null;
+    } catch {
+      return 'Нет связи с сервером. Проверьте интернет.';
+    }
+  };
+  const canEditDeadline = currentRole === 'owner' || currentRole === 'admin';
+
   const handleUpdateRolePermissions = async (permissions: RolePermissions) => {
     setRolePermissions(permissions);
     try {
@@ -1172,6 +1197,14 @@ export default function App() {
           onOpenSubmittedOrdersModal={() => setIsSubmittedModalOpen(true)}
           currentTerritorialManagerName={currentTerritorialManager?.name}
           isOwnerVerified={isOwnerVerified}
+          orderDeadline={orderDeadline}
+          onEditDeadline={canEditDeadline ? () => setIsDeadlineModalOpen(true) : undefined}
+        />
+        <DeadlineModal
+          isOpen={isDeadlineModalOpen && canEditDeadline}
+          currentDeadline={orderDeadline}
+          onClose={() => setIsDeadlineModalOpen(false)}
+          onSave={handleChangeOrderDeadline}
         />
 
         {/* Workspace Area */}
@@ -1188,6 +1221,7 @@ export default function App() {
             />
           ) : currentRole === 'manager' ? (
             <ManagerView
+              orderDeadline={orderDeadline}
               coffeeShops={shops}
               products={products}
               selectedShopId={selectedShopId}
@@ -1213,6 +1247,8 @@ export default function App() {
           ) : currentRole === 'admin' || currentRole === 'owner' ? (
             <AdminView
               telegramInitData={telegramInitData}
+              orderDeadline={orderDeadline}
+              onEditDeadline={() => setIsDeadlineModalOpen(true)}
               isOwner={currentRole === 'owner'}
               // Who's actually at the keyboard right now — attributed on the timesheet's
               // change log, since neither role is server-verified enough to log anything
@@ -1264,6 +1300,7 @@ export default function App() {
             />
           ) : (
             <TerritorialManagerView
+              orderDeadline={orderDeadline}
               managerName={currentTerritorialManager?.name || 'Территориальный управляющий'}
               shops={shops.filter((s) => currentTerritorialManager?.assignedShopIds?.includes(s.id))}
               orders={orders}

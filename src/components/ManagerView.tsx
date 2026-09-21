@@ -37,6 +37,8 @@ interface ManagerViewProps {
   shopPickerLabel?: string;
   // Кто фактически заполняет заявку, если это не менеджер точки.
   actingAs?: { name: string; roleLabel: string };
+  // До скольки подать заявку — показывается, пока она ещё черновик.
+  orderDeadline?: string;
 }
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
@@ -50,6 +52,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   onSelectShop,
   shopPickerLabel = 'Чью точку смотрим',
   actingAs,
+  orderDeadline,
 }) => {
   const [activeTab, setActiveTab] = useState<Category | 'all'>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -258,6 +261,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 {currentOrder.status === 'accepted' ? 'Принято' :
                  currentOrder.status === 'submitted' ? 'Отправлено' : 'Черновик'}
               </span>
+              {orderDeadline && currentOrder.status !== 'submitted' && currentOrder.status !== 'accepted' && (
+                <span className="block text-[10px] font-bold text-slate-500 mt-0.5">Подать до {orderDeadline}</span>
+              )}
             </div>
             {currentOrder.status === 'accepted' ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />

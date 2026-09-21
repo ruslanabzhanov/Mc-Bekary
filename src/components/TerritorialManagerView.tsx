@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 interface TerritorialManagerViewProps {
+  orderDeadline?: string;
   managerName: string;
   shops: CoffeeShop[];
   orders: Record<number, ShopOrder>;
@@ -75,7 +76,8 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   selectedManagerId,
   onPickManager,
   onUpdateStaffMember,
-  onDeleteStaffMember
+  onDeleteStaffMember,
+  orderDeadline,
 }) => {
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   // Какой раздел точки открыт: null — меню из трёх плиток.
@@ -384,6 +386,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
               onSelectShop={setOrderingShopId}
               shopPickerLabel="За какую точку подаём"
               actingAs={{ name: managerName, roleLabel: 'Территориальный управляющий' }}
+              orderDeadline={orderDeadline}
             />
           </div>
 
