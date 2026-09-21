@@ -25,6 +25,20 @@
   #root {
     display: none !important;
   }
+  /* Браузер по умолчанию выбрасывает при печати фоновые цвета (цветные шапки блоков, заливки
+     таблиц) — чек-лист выходил чёрно-белым. Просим печатать ровно так, как на экране. */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* …но фон самого приложения (бежевый) печатать не нужно — иначе он проступает на листе
+     везде, где нет содержимого. */
+  html,
+  body {
+    background: #fff !important;
+  }
 }
 
 /* Production checklists are designed as a dense A3 poster (matches the reference layout) so

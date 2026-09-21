@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal, flushSync } from 'react-dom';
 import { CoffeeShop, Product, ShopOrder, ChecklistAssignments, DishCosting, SemiFinishedProduct, RawMaterial } from '../types';
 import { Printer, X, Settings, Plus, Search, ClipboardList, Store } from 'lucide-react';
 
@@ -112,8 +112,69 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [activeView, setActiveView] = useState<'production' | 'summary'>('production');
+  const printBodyRef = useRef<HTMLDivElement>(null);
+  // Пока идёт печать: ширина, на которой верстается лист, и во сколько раз его уменьшить,
+  // чтобы всё содержимое легло на одну страницу. Вне печати — null, экран не трогаем.
+  const [printFit, setPrintFit] = useState<{ width: number; zoom: number } | null>(null);
+
+  // Чек-лист печатается на один лист A3 книжной ориентации. Общий @page в index.css — A3
+  // альбомный (он нужен табелю), поэтому здесь переопределяем его, только пока окно открыто.
+  // Подгонка срабатывает на beforeprint, а не на нашей кнопке, чтобы работала и печать по Ctrl+P.
+  useEffect(() => {
+    if (!isOpen) return;
+    const style = document.createElement('style');
+    style.textContent = '@page { size: A3 portrait; margin: 8mm; }';
+    document.head.appendChild(style);
+
+    const fitToOnePage = () => {
+      const el = printBodyRef.current;
+      if (!el) return;
+      // A3 — 297×420 мм, минус поля по 8 мм → 281×404 мм; в CSS 96 px на дюйм.
+      const mm = 96 / 25.4;
+      const pageW = 281 * mm;
+      const pageH = 404 * mm;
+      // Уменьшая лист в z раз, верстаем его во столько же раз шире — так после уменьшения он
+      // ровно во всю ширину бумаги. Шире вёрстка — меньше переносов и ниже таблица, поэтому
+      // «влезает ли при таком z» проверяем настоящим замером, а наибольший подходящий z ищем
+      // делением пополам: чем крупнее лист, тем он выше, так что граница одна.
+      // Мерим уже уменьшенный лист, а не «высоту × z»: браузер уменьшает неравномерно (линии
+      // таблицы не тоньше пикселя, строки округляются), и на 27 строках расчёт врал на ~3% —
+      // ровно настолько, чтобы последняя строка уехала на второй лист.
+      const fits = (z: number) => {
+        flushSync(() => setPrintFit({ width: pageW / z, zoom: z }));
+        const rect = el.getBoundingClientRect();
+        return rect.height <= pageH * 0.98 && el.scrollWidth <= el.clientWidth + 1;
+      };
+      let zoom = 1;
+      if (!fits(1)) {
+        let lo = 0.2;
+        let hi = 1;
+        for (let i = 0; i < 12; i++) {
+          const mid = (lo + hi) / 2;
+          if (fits(mid)) lo = mid;
+          else hi = mid;
+        }
+        zoom = lo;
+      }
+      flushSync(() => setPrintFit({ width: pageW / zoom, zoom }));
+    };
+    const reset = () => setPrintFit(null);
+
+    window.addEventListener('beforeprint', fitToOnePage);
+    window.addEventListener('afterprint', reset);
+    return () => {
+      window.removeEventListener('beforeprint', fitToOnePage);
+      window.removeEventListener('afterprint', reset);
+      style.remove();
+    };
+  }, [isOpen]);
 
   if (!isOpen || !departmentKey) return null;
+
+  // На время печати сетки всегда в три колонки — иначе на узком экране (телефон) вёрстка
+  // для замера была бы в одну колонку и лист посчитался бы неправильно.
+  const threeCols = printFit ? 'grid-cols-3' : 'grid-cols-1 lg:grid-cols-3 print:grid-cols-3';
+  const threeColsFooter = printFit ? 'grid-cols-3' : 'grid-cols-1 sm:grid-cols-3 print:grid-cols-3';
 
   const dept = DEPARTMENT_CONFIG[departmentKey];
   const semiMap = new Map<string, SemiFinishedProduct>(semiFinishedList.map((s) => [s.id, s]));
@@ -297,8 +358,8 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   });
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:text-black print:static print:h-auto">
-      <div className="bg-white border border-slate-200 rounded-xl w-full max-w-4xl overflow-hidden shadow-xl flex flex-col max-h-[92vh] print:max-w-none print:max-h-none print:border-none print:shadow-none print:bg-white print:text-black">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:static print:h-auto">
+      <div className="bg-white border border-slate-200 rounded-xl w-full max-w-4xl overflow-hidden shadow-xl flex flex-col max-h-[92vh] print:max-w-none print:max-h-none print:border-none print:shadow-none print:bg-white">
         
         {/* Modal Header (Hidden on Print) */}
         <div className="p-6 border-b border-slate-100 bg-white print:hidden space-y-4">
@@ -459,26 +520,30 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
         </div>
 
         {/* PRINTABLE BODY CONTENT */}
-        <div className="p-8 overflow-y-auto space-y-6 flex-1 text-slate-800 bg-white print:bg-white print:text-black print:overflow-visible">
+        <div
+          ref={printBodyRef}
+          style={printFit ? { width: printFit.width, maxWidth: 'none', zoom: printFit.zoom, flex: 'none' } : undefined}
+          className="p-8 overflow-y-auto space-y-6 flex-1 text-slate-800 bg-white print:bg-white print:overflow-visible"
+        >
           
           {/* Official Department Production Header */}
-          <div className="border-b-2 border-slate-200 print:border-black pb-4 flex items-start justify-between">
+          <div className="border-b-2 border-slate-200 print:border-slate-400 pb-4 flex items-start justify-between">
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-2xl print:text-xl">{dept.icon}</span>
-                <h1 className="text-xl print:text-2xl font-black text-indigo-900 print:text-black uppercase tracking-tight">
+                <h1 className="text-xl print:text-2xl font-black text-indigo-900 uppercase tracking-tight">
                   {dept.title}
                 </h1>
               </div>
-              <p className="text-xs text-slate-500 print:text-gray-700 mt-0.5">{dept.subtitle}</p>
-              <p className="text-xs font-bold text-indigo-700 print:text-black mt-2 uppercase tracking-wider">
+              <p className="text-xs text-slate-500 mt-0.5">{dept.subtitle}</p>
+              <p className="text-xs font-bold text-indigo-700 mt-2 uppercase tracking-wider">
                 СЕТЬ 27 КОФЕЕН "MASTER BAKERY" •{' '}
                 {activeView === 'production' ? 'ЗАДАНИЕ НА ЗАГОТОВКУ ДЛЯ ЦЕХА' : 'СВОДНАЯ ВЕДОМОСТЬ ПО ТОЧКАМ'}
               </p>
             </div>
 
-            <div className="text-right text-xs text-slate-700 print:text-black space-y-1">
-              <div className="font-bold bg-slate-100 print:bg-gray-100 px-3 py-1 rounded border border-slate-200 print:border-gray-400">
+            <div className="text-right text-xs text-slate-700 space-y-1">
+              <div className="font-bold bg-slate-100 px-3 py-1 rounded border border-slate-200">
                 Код цеха: {dept.code}
               </div>
               <div>Дата: <strong>{todayStr}</strong></div>
@@ -487,44 +552,44 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                   <div className="flex items-center justify-end gap-3">
                     <span>Смена:</span>
                     <span className="flex items-center gap-1">
-                      <span className="w-3 h-3 border border-slate-400 print:border-black inline-block" /> Дневная
+                      <span className="w-3 h-3 border border-slate-400 print:border-slate-400 inline-block" /> Дневная
                     </span>
                     <span className="flex items-center gap-1">
-                      <span className="w-3 h-3 border border-slate-400 print:border-black inline-block" /> Ночная
+                      <span className="w-3 h-3 border border-slate-400 print:border-slate-400 inline-block" /> Ночная
                     </span>
                   </div>
                   <div className="flex items-center justify-end gap-2">
                     <span>Повар:</span>
-                    <span className="inline-block w-32 border-b border-slate-300 print:border-black">&nbsp;</span>
+                    <span className="inline-block w-32 border-b border-slate-300 print:border-slate-400">&nbsp;</span>
                   </div>
                 </>
               )}
-              <div>Общий объем цеха: <strong className="text-indigo-900 print:text-black text-sm">{grandDeptTotal} шт</strong></div>
+              <div>Общий объем цеха: <strong className="text-indigo-900 text-sm">{grandDeptTotal} шт</strong></div>
             </div>
           </div>
 
           {calcTiles.length === 0 ? (
-            <div className="border border-dashed border-slate-300 print:border-black rounded-lg py-10 text-center text-slate-400 print:text-black">
+            <div className="border border-dashed border-slate-300 print:border-slate-400 rounded-lg py-10 text-center text-slate-400">
               Сегодня по этому цеху ещё нет поданных блюд и не требуется заготовка полуфабрикатов.
             </div>
           ) : activeView === 'production' ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-3 print:grid-cols-3 gap-4 items-start">
+              <div className={`grid ${threeCols} gap-4 items-start`}>
                 {/* Dish + tracked semi-finished product calculator, split across two columns */}
                 {[productionCol1, productionCol2].map((col, colIdx) => (
                   <div key={colIdx} className="space-y-3">
-                    <h3 className="text-[10px] font-bold text-slate-500 print:text-black uppercase tracking-wider">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                       Калькулятор {colIdx === 0 ? '(часть 1)' : '(часть 2)'}
                     </h3>
                     {col.map(({ id, title, badge, planLabel, allNeeds }) => (
                       <div
                         key={id}
-                        className="border border-slate-300 print:border-black rounded-lg overflow-hidden break-inside-avoid"
+                        className="border border-slate-300 print:border-slate-400 rounded-lg overflow-hidden break-inside-avoid"
                       >
                         <div
                           className={`${
                             badge ? 'bg-violet-800' : 'bg-indigo-900'
-                          } print:bg-gray-800 text-white px-3 py-1.5 flex items-center justify-between gap-2`}
+                          } text-white px-3 py-1.5 flex items-center justify-between gap-2`}
                         >
                           <h4 className="font-black uppercase text-[11px] tracking-tight truncate flex items-center gap-1.5">
                             {badge && (
@@ -542,14 +607,14 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                           </p>
                         ) : (
                           <table className="w-full text-[11px]">
-                            <tbody className="divide-y divide-slate-100 print:divide-gray-300">
+                            <tbody className="divide-y divide-slate-100 print:divide-slate-300">
                               {allNeeds.map((n, i) => (
                                 <tr key={i}>
-                                  <td className="px-3 py-1 text-slate-700 print:text-black">{n.name}</td>
-                                  <td className="px-2 py-1 text-slate-400 print:text-black text-right whitespace-nowrap">
+                                  <td className="px-3 py-1 text-slate-700">{n.name}</td>
+                                  <td className="px-2 py-1 text-slate-400 text-right whitespace-nowrap">
                                     {formatAmount(n.perUnit, n.unit)}
                                   </td>
-                                  <td className="px-3 py-1 font-bold text-indigo-900 print:text-black text-right whitespace-nowrap">
+                                  <td className="px-3 py-1 font-bold text-indigo-900 text-right whitespace-nowrap">
                                     {formatAmount(n.amount, n.unit)}
                                   </td>
                                 </tr>
@@ -564,26 +629,26 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
 
                 {/* Consolidated ingredient totals, grouped by category */}
                 <div className="space-y-2">
-                  <h3 className="text-[10px] font-bold text-slate-500 print:text-black uppercase tracking-wider">
+                  <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                     Сводная ведомость заготовок
                   </h3>
-                  <div className="border border-slate-300 print:border-black rounded-lg overflow-hidden break-inside-avoid">
+                  <div className="border border-slate-300 print:border-slate-400 rounded-lg overflow-hidden break-inside-avoid">
                     {sortedAggregatedGroups.length === 0 ? (
                       <p className="text-[11px] text-slate-400 italic px-3 py-2">Нет данных для расчёта</p>
                     ) : (
                       sortedAggregatedGroups.map(([groupLabel, items], gi) => (
                         <div key={groupLabel}>
                           <div
-                            className={`${GROUP_COLORS[gi % GROUP_COLORS.length]} print:bg-gray-800 text-white px-3 py-1.5 text-[11px] font-black uppercase tracking-wide`}
+                            className={`${GROUP_COLORS[gi % GROUP_COLORS.length]} text-white px-3 py-1.5 text-[11px] font-black uppercase tracking-wide`}
                           >
                             {gi + 1}. {groupLabel}
                           </div>
-                          <ul className="divide-y divide-dashed divide-slate-200 print:divide-black">
+                          <ul className="divide-y divide-dashed divide-slate-200 print:divide-slate-300">
                             {items.map((it, i) => (
                               <li key={i} className="flex items-center gap-2 px-3 py-1.5">
-                                <span className="w-3 h-3 border border-slate-400 print:border-black shrink-0" />
-                                <span className="flex-1 text-[11px] text-slate-800 print:text-black truncate">{it.name}</span>
-                                <span className="text-[11px] font-black text-indigo-900 print:text-black whitespace-nowrap">
+                                <span className="w-3 h-3 border border-slate-400 print:border-slate-400 shrink-0" />
+                                <span className="flex-1 text-[11px] text-slate-800 truncate">{it.name}</span>
+                                <span className="text-[11px] font-black text-indigo-900 whitespace-nowrap">
                                   {formatAmount(it.amount, it.unit)}
                                 </span>
                               </li>
@@ -595,7 +660,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                   </div>
 
                   {/* Hygiene / quality control rules */}
-                  <div className="border border-slate-300 print:border-black rounded-lg p-3 text-[10px] text-slate-700 print:text-black space-y-1 break-inside-avoid">
+                  <div className="border border-slate-300 print:border-slate-400 rounded-lg p-3 text-[10px] text-slate-700 space-y-1 break-inside-avoid">
                     <h5 className="font-black uppercase text-[11px] mb-1">Контроль качества и СанПиН</h5>
                     <p>• <strong>Температура:</strong> цех до +16°C, холод +2°...+4°C</p>
                     <p>• <strong>Гигиена:</strong> перчатки обязательны, руки мыть каждые 30 мин</p>
@@ -606,16 +671,16 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
               </div>
 
               {/* Shift handover footer, specific to the production checklist */}
-              <div className="pt-4 border-t border-slate-200 print:border-black grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-6 text-[11px] text-slate-700 print:text-black">
+              <div className={`pt-4 border-t border-slate-200 print:border-slate-400 grid ${threeColsFooter} gap-6 text-[11px] text-slate-700`}>
                 <div className="space-y-3">
                   <h5 className="font-black uppercase text-xs">Приём-сдача смены</h5>
                   <div>
                     <span className="block mb-1">Смену сдал (ФИО, подпись):</span>
-                    <div className="border-b border-slate-300 print:border-black h-5" />
+                    <div className="border-b border-slate-300 print:border-slate-400 h-5" />
                   </div>
                   <div>
                     <span className="block mb-1">Смену принял (ФИО, подпись):</span>
-                    <div className="border-b border-slate-300 print:border-black h-5" />
+                    <div className="border-b border-slate-300 print:border-slate-400 h-5" />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -627,16 +692,16 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                     'Все остатки убраны в холодильник',
                   ].map((label) => (
                     <div key={label} className="flex items-center gap-2">
-                      <span className="w-3.5 h-3.5 border border-slate-400 print:border-black shrink-0" />
+                      <span className="w-3.5 h-3.5 border border-slate-400 print:border-slate-400 shrink-0" />
                       <span>{label}</span>
                     </div>
                   ))}
                 </div>
                 <div className="space-y-3">
                   <h5 className="font-black uppercase text-xs">Комментарии и замечания шефа</h5>
-                  <div className="border-b border-slate-300 print:border-black h-5" />
-                  <div className="border-b border-slate-300 print:border-black h-5" />
-                  <div className="border-b border-slate-300 print:border-black h-5" />
+                  <div className="border-b border-slate-300 print:border-slate-400 h-5" />
+                  <div className="border-b border-slate-300 print:border-slate-400 h-5" />
+                  <div className="border-b border-slate-300 print:border-slate-400 h-5" />
                 </div>
               </div>
             </div>
@@ -644,38 +709,38 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
           <>
           {/* Department Product Totals Breakdown */}
           <div className="space-y-2">
-            <h3 className="text-xs font-bold text-slate-700 print:text-black uppercase tracking-wider">
+            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
               Сводная потребность по позициям цеха:
             </h3>
-            <div className="border border-slate-200 print:border-black rounded-lg overflow-hidden">
+            <div className="border border-slate-200 print:border-slate-400 rounded-lg overflow-hidden">
               <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 print:bg-gray-200 text-slate-700 print:text-black font-bold border-b border-slate-200 print:border-black uppercase text-[10px] tracking-wider">
+                <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 print:border-slate-400 uppercase text-[10px] tracking-wider">
                   <tr>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black w-12 text-center">№</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black">Наименование</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black">Вес</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black">Срок годности</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400 w-12 text-center">№</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400">Наименование</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400">Вес</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400">Срок годности</th>
                     <th className="py-2.5 px-3 text-center font-extrabold">Количество</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 print:divide-gray-400 bg-white">
+                <tbody className="divide-y divide-slate-100 print:divide-slate-300 bg-white">
                   {deptProducts.map((p, index) => {
                     const total = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
                     return (
-                      <tr key={p.id} className="hover:bg-slate-50 print:hover:bg-transparent">
-                        <td className="py-2 px-3 text-center font-bold text-slate-500 print:text-black border-r border-slate-200 print:border-black">
+                      <tr key={p.id} className="hover:bg-slate-50">
+                        <td className="py-2 px-3 text-center font-bold text-slate-500 border-r border-slate-200 print:border-slate-400">
                           {index + 1}
                         </td>
-                        <td className="py-2 px-3 font-bold text-slate-900 print:text-black border-r border-slate-200 print:border-black">
+                        <td className="py-2 px-3 font-bold text-slate-900 border-r border-slate-200 print:border-slate-400">
                           {p.name}
                         </td>
-                        <td className="py-2 px-3 text-slate-600 print:text-black border-r border-slate-200 print:border-black">
+                        <td className="py-2 px-3 text-slate-600 border-r border-slate-200 print:border-slate-400">
                           {p.unitWeight}
                         </td>
-                        <td className="py-2 px-3 text-slate-600 print:text-black border-r border-slate-200 print:border-black">
+                        <td className="py-2 px-3 text-slate-600 border-r border-slate-200 print:border-slate-400">
                           {p.shelfLife}
                         </td>
-                        <td className="py-2 px-3 text-center font-black text-indigo-900 print:text-black">
+                        <td className="py-2 px-3 text-center font-black text-indigo-900">
                           {total} {p.unit}
                         </td>
                       </tr>
@@ -688,38 +753,38 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
 
           {/* Table per Coffee Shop for Dispatch / Packing */}
           <div>
-            <h3 className="text-xs font-bold text-slate-700 print:text-black uppercase tracking-wider mb-3">
+            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">
               Чек-лист распределения и фасовки по 27 точкам:
             </h3>
 
-            <div className="border border-slate-200 print:border-black rounded-lg overflow-hidden">
+            <div className="border border-slate-200 print:border-slate-400 rounded-lg overflow-hidden">
               <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 print:bg-gray-200 text-slate-700 print:text-black font-bold border-b border-slate-200 print:border-black uppercase text-[10px] tracking-wider">
+                <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 print:border-slate-400 uppercase text-[10px] tracking-wider">
                   <tr>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black w-12 text-center">№</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black">Кофейня / Адрес</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400 w-12 text-center">№</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400">Кофейня / Адрес</th>
                     {deptProducts.map((p) => (
-                      <th key={p.id} className="py-2.5 px-3 border-r border-slate-200 print:border-black text-center">
+                      <th key={p.id} className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400 text-center">
                         {p.name}
                       </th>
                     ))}
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-black text-center font-extrabold">Итого</th>
+                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400 text-center font-extrabold">Итого</th>
                     <th className="py-2.5 px-3 text-center w-24">Отметка цеха</th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-100 print:divide-gray-400 bg-white">
+                <tbody className="divide-y divide-slate-100 print:divide-slate-300 bg-white">
                   {activeShops.map(({ shop, items, deptTotal, isSubmitted }) => (
-                    <tr key={shop.id} className="hover:bg-slate-50 print:hover:bg-transparent">
-                      <td className="py-2 px-3 text-center font-bold text-slate-500 print:text-black border-r border-slate-200 print:border-black">
+                    <tr key={shop.id} className="hover:bg-slate-50">
+                      <td className="py-2 px-3 text-center font-bold text-slate-500 border-r border-slate-200 print:border-slate-400">
                         #{shop.id}
                       </td>
 
-                      <td className="py-2 px-3 border-r border-slate-200 print:border-black">
-                        <div className="font-bold text-slate-900 print:text-black">
+                      <td className="py-2 px-3 border-r border-slate-200 print:border-slate-400">
+                        <div className="font-bold text-slate-900">
                           {shop.name.replace(`Кофейня №${shop.id} — `, '')}
                         </div>
-                        <div className="text-[10px] text-slate-500 print:text-gray-600">
+                        <div className="text-[10px] text-slate-500">
                           {shop.district} | Менеджер: {shop.manager}
                         </div>
                       </td>
@@ -729,8 +794,8 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                         return (
                           <td
                             key={p.id}
-                            className={`py-2 px-3 text-center border-r border-slate-200 print:border-black font-semibold ${
-                              qty > 0 ? 'text-slate-900 print:text-black font-bold' : 'text-slate-300 print:text-gray-300'
+                            className={`py-2 px-3 text-center border-r border-slate-200 print:border-slate-400 font-semibold ${
+                              qty > 0 ? 'text-slate-900 font-bold' : 'text-slate-300'
                             }`}
                           >
                             {qty > 0 ? `${qty} шт` : '—'}
@@ -738,34 +803,34 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                         );
                       })}
 
-                      <td className="py-2 px-3 text-center font-black text-indigo-900 print:text-black border-r border-slate-200 print:border-black">
+                      <td className="py-2 px-3 text-center font-black text-indigo-900 border-r border-slate-200 print:border-slate-400">
                         {deptTotal} шт
                       </td>
 
                       <td className="py-2 px-3 text-center">
-                        <div className="w-4 h-4 border-2 border-slate-400 print:border-black rounded mx-auto" />
+                        <div className="w-4 h-4 border-2 border-slate-400 print:border-slate-400 rounded mx-auto" />
                       </td>
                     </tr>
                   ))}
                 </tbody>
 
-                <tfoot className="bg-slate-50 print:bg-gray-300 font-extrabold text-slate-900 print:text-black border-t-2 border-slate-200 print:border-black">
+                <tfoot className="bg-slate-50 font-extrabold text-slate-900 border-t-2 border-slate-200 print:border-slate-400">
                   <tr>
-                    <td colSpan={2} className="py-3 px-3 border-r border-slate-200 print:border-black text-right uppercase text-[10px]">
+                    <td colSpan={2} className="py-3 px-3 border-r border-slate-200 print:border-slate-400 text-right uppercase text-[10px]">
                       ИТОГО К ВЫПУСКУ:
                     </td>
                     {deptProducts.map((p) => {
                       const total = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
                       return (
-                        <td key={p.id} className="py-3 px-3 text-center border-r border-slate-200 print:border-black text-indigo-900 print:text-black">
+                        <td key={p.id} className="py-3 px-3 text-center border-r border-slate-200 print:border-slate-400 text-indigo-900">
                           {total} шт
                         </td>
                       );
                     })}
-                    <td className="py-3 px-3 text-center text-indigo-900 print:text-black text-sm font-black">
+                    <td className="py-3 px-3 text-center text-indigo-900 text-sm font-black">
                       {grandDeptTotal} шт
                     </td>
-                    <td className="py-3 px-3 text-center font-normal text-[10px] text-slate-500 print:text-black">
+                    <td className="py-3 px-3 text-center font-normal text-[10px] text-slate-500">
                       Подпись
                     </td>
                   </tr>
@@ -775,22 +840,22 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
           </div>
 
           {/* Signatures & Dispatch Block */}
-          <div className="pt-6 border-t border-slate-200 print:border-black grid grid-cols-3 gap-6 text-xs text-slate-700 print:text-black">
+          <div className="pt-6 border-t border-slate-200 print:border-slate-400 grid grid-cols-3 gap-6 text-xs text-slate-700">
             <div className="space-y-4">
               <span className="block font-bold">Начальник цеха:</span>
-              <div className="border-b border-slate-300 print:border-black h-6 text-[10px] text-slate-400 print:text-gray-500">
+              <div className="border-b border-slate-300 print:border-slate-400 h-6 text-[10px] text-slate-400">
                 (Подпись / ФИО)
               </div>
             </div>
             <div className="space-y-4">
               <span className="block font-bold">Экспедитор / Фасовка:</span>
-              <div className="border-b border-slate-300 print:border-black h-6 text-[10px] text-slate-400 print:text-gray-500">
+              <div className="border-b border-slate-300 print:border-slate-400 h-6 text-[10px] text-slate-400">
                 (Подпись / ФИО)
               </div>
             </div>
             <div className="space-y-4 text-right">
               <span className="block font-bold">Штрихкод партии:</span>
-              <div className="font-mono text-[10px] tracking-widest bg-slate-100 print:bg-gray-100 p-2 rounded border border-slate-200 print:border-gray-400 inline-block font-bold">
+              <div className="font-mono text-[10px] tracking-widest bg-slate-100 p-2 rounded border border-slate-200 inline-block font-bold">
                 *MC-2026-DEPT-{departmentKey.toUpperCase()}*
               </div>
             </div>
