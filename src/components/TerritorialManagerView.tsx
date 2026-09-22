@@ -5,6 +5,7 @@ import {
 import { ShopOrderHistoryTable } from './ShopOrderHistoryTable';
 import { ManagerView } from './ManagerView';
 import { OrderPreviewModal } from './OrderPreviewModal';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
   X, MapPin, User, Clock, Compass, Send, Users, ClipboardList, Trash2,
   CheckCircle2, XCircle, ChevronRight, ChevronLeft,
@@ -89,6 +90,11 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   const [isOrderPreviewOpen, setIsOrderPreviewOpen] = useState(false);
   const orderingShop = shops.find((s) => s.id === orderingShopId) || null;
   const orderingOrder = orderingShopId != null ? orders[orderingShopId] || emptyDraftOrder(orderingShopId) : null;
+
+  // Mirrors the in-app «Назад»/X buttons: one press steps out of the shop-detail tab first,
+  // then closes the shop detail itself; the ordering screen is a separate, later-opened layer.
+  useTelegramBackButton(!!selectedShop, () => (shopPanel ? setShopPanel(null) : setSelectedShopId(null)));
+  useTelegramBackButton(orderingShopId !== null, () => setOrderingShopId(null));
 
   const getShopManagers = (shop: CoffeeShop) =>
     staff.filter((s) => s.role === 'shop_manager' && s.shopId === shop.id);

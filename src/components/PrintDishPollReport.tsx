@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Printer } from 'lucide-react';
 import { DishPoll, DishPollVote } from '../types';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface DishRanking {
   index: number;
@@ -40,6 +41,8 @@ export const PrintDishPollReport: React.FC<PrintDishPollReportProps> = ({
 }) => {
   // Та же логика, что на экране: при небольшом числе блюд топ и антитоп делятся пополам,
   // иначе в отчёте дважды печатался бы один и тот же список.
+  useTelegramBackButton(true, onClose);
+
   const topCount = Math.min(10, Math.ceil(ranking.length / 2));
   const bottomCount = Math.min(10, Math.floor(ranking.length / 2));
   const best = ranking.slice(0, topCount);

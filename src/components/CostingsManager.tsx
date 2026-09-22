@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { calculateSemiCost, calculateDishPrimeCost } from '../data/costingData';
 import { compressImage } from '../utils/compressImage';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
   Utensils,
   ChefHat,
@@ -154,6 +155,19 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
 
   const [isAddDishCategoryOpen, setIsAddDishCategoryOpen] = useState(false);
   const [newDishCategoryName, setNewDishCategoryName] = useState('');
+
+  // Each of these is its own stacked overlay (a card, or a picker/search opened from within that
+  // card) — one hook call per overlay, so the Telegram hardware/gesture back button steps out
+  // one layer at a time instead of only ever being able to close the whole «Блюда и ТКК» panel.
+  useTelegramBackButton(isDishCardOpen, () => setIsDishCardOpen(false));
+  useTelegramBackButton(isCategoryPickerOpen, () => setIsCategoryPickerOpen(false));
+  useTelegramBackButton(isIngredientSearchOpen, () => setIsIngredientSearchOpen(false));
+  useTelegramBackButton(isSemiCardOpen, () => setIsSemiCardOpen(false));
+  useTelegramBackButton(isSemiTechOpen, () => setIsSemiTechOpen(false));
+  useTelegramBackButton(isSemiIngredientSearchOpen, () => setIsSemiIngredientSearchOpen(false));
+  useTelegramBackButton(isAddSemiModalOpen, () => setIsAddSemiModalOpen(false));
+  useTelegramBackButton(isAddDishModalOpen, () => setIsAddDishModalOpen(false));
+  useTelegramBackButton(isAddRawModalOpen, () => setIsAddRawModalOpen(false));
 
   // Category Label helper
   const getCategoryLabel = (cat: string) => rawCategoryDefs.find((c) => c.key === cat)?.label || cat;

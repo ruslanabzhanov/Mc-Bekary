@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, History, Clock, UserRound, ArrowLeft, PackageSearch, Loader2 } from 'lucide-react';
 import { CoffeeShop, Product, OrderHistoryEntry } from '../types';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface OrderHistoryModalProps {
   isOpen: boolean;
@@ -33,6 +34,8 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({ isOpen, on
       .catch((e) => console.error('Failed to load order history:', e))
       .finally(() => setIsLoading(false));
   }, [isOpen, shop.id]);
+
+  useTelegramBackButton(isOpen, () => (selectedEntry ? setSelectedEntry(null) : onClose()));
 
   if (!isOpen) return null;
 

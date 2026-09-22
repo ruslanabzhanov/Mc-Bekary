@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Clock, X } from 'lucide-react';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface DeadlineModalProps {
   isOpen: boolean;
@@ -31,6 +32,8 @@ export const DeadlineModal: React.FC<DeadlineModalProps> = ({ isOpen, currentDea
     setValue(currentDeadline);
     setError(null);
   }, [isOpen, currentDeadline]);
+
+  useTelegramBackButton(isOpen, onClose);
 
   if (!isOpen) return null;
 

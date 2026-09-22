@@ -15,6 +15,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole, RolePermissions } from '../types';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 // 'YYYY-MM-DD' for the given instant, as an Asia/Almaty calendar date (en-CA locale formats
 // dates in that exact order) — matches how the server buckets order_history by date.
@@ -102,6 +103,8 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   // What the list/detail actually render from — live data for today (actionable), a read-only
   // snapshot built from order_history for any other date.
   const displayOrders = isToday ? orders : historyOrders;
+
+  useTelegramBackButton(isOpen, () => (detailShopId != null ? setDetailShopId(null) : onClose()));
 
   if (!isOpen) return null;
 

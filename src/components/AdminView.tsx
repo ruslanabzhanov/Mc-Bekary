@@ -9,6 +9,7 @@ import { RolePermissionsModal } from './RolePermissionsModal';
 import { TimesheetManager } from './TimesheetManager';
 import { DishPollsManager } from './DishPollsManager';
 import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
   ShieldCheck,
   Send,
@@ -151,6 +152,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isHistoryDaysOpen, setIsHistoryDaysOpen] = useState(false);
   const [isRolePermissionsOpen, setIsRolePermissionsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // These full-screen panels are rendered inline here (unlike the standalone Modal components
+  // above, which wire their own back button internally) — one hook call per panel, each guarded
+  // by the same boolean that already controls whether it's mounted.
+  useTelegramBackButton(isCostingsModalOpen, () => setIsCostingsModalOpen(false));
+  useTelegramBackButton(isPersonnelModalOpen, () => setIsPersonnelModalOpen(false));
+  useTelegramBackButton(isSalesPointsModalOpen, () => setIsSalesPointsModalOpen(false));
+  useTelegramBackButton(isTimesheetOpen, () => setIsTimesheetOpen(false));
+  useTelegramBackButton(isAdvanceModalOpen, () => setIsAdvanceModalOpen(false));
+  useTelegramBackButton(isDishPollsOpen && !!isOwner, () => setIsDishPollsOpen(false));
 
   // Owner always has every capability; admin is gated by the permission matrix
   // the Owner configures (defaults to "everything on", matching pre-existing behavior).

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CoffeeShop, ShopOrder, Product, StaffMember } from '../types';
 import { ShopOrderHistoryTable } from './ShopOrderHistoryTable';
 import { Store, Plus, X, MapPin, User, ShieldCheck, Clock, ChevronDown, Trash2 } from 'lucide-react';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface SalesPointsManagerProps {
   shops: CoffeeShop[];
@@ -37,6 +38,9 @@ export const SalesPointsManager: React.FC<SalesPointsManagerProps> = ({
 
   const selectedShop = shops.find((s) => s.id === selectedShopId) || null;
   const territorialManagers = staff.filter((s) => s.role === 'territorial_manager');
+
+  useTelegramBackButton(!!selectedShop, () => setSelectedShopId(null));
+  useTelegramBackButton(isAddModalOpen, () => setIsAddModalOpen(false));
 
   const getShopManagers = (shop: CoffeeShop) =>
     staff.filter((s) => s.role === 'shop_manager' && s.shopId === shop.id);

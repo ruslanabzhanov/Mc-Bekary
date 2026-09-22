@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { CoffeeShop, Product, ShopOrder, ChecklistAssignments, DishCosting, SemiFinishedProduct, RawMaterial } from '../types';
 import { Printer, X, Settings, Plus, Search, ClipboardList, Store, FileSpreadsheet } from 'lucide-react';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface PrintChecklistsModalProps {
   isOpen: boolean;
@@ -171,6 +172,8 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
       style.remove();
     };
   }, [isOpen, activeView]);
+
+  useTelegramBackButton(isOpen, () => (isSettingsOpen ? setIsSettingsOpen(false) : onClose()));
 
   if (!isOpen || !departmentKey) return null;
 

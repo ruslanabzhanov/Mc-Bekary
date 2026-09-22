@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, History, ChevronRight, ChevronLeft, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { CoffeeShop, Product, OrderHistoryEntry } from '../types';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface OrderHistoryDaysModalProps {
   isOpen: boolean;
@@ -84,6 +85,14 @@ export const OrderHistoryDaysModal: React.FC<OrderHistoryDaysModalProps> = ({
       .catch((e) => console.error('Failed to load a day of history:', e))
       .finally(() => setIsLoadingDay(false));
   }, [openDate]);
+
+  // Mirrors the in-app «Назад» button above: one hardware/gesture back press steps out one
+  // level of this modal's own drill-down (shop → day → close) instead of exiting it outright.
+  useTelegramBackButton(isOpen, () => {
+    if (openShopId) setOpenShopId(null);
+    else if (openDate) setOpenDate(null);
+    else onClose();
+  });
 
   if (!isOpen) return null;
 

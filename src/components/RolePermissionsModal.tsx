@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Crown, Info } from 'lucide-react';
 import { Permission, RolePermissions } from '../types';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface RolePermissionsModalProps {
   isOpen: boolean;
@@ -29,6 +30,8 @@ export const RolePermissionsModal: React.FC<RolePermissionsModalProps> = ({
   useEffect(() => {
     if (isOpen) setDraft(permissions);
   }, [isOpen, permissions]);
+
+  useTelegramBackButton(isOpen, onClose);
 
   if (!isOpen) return null;
 

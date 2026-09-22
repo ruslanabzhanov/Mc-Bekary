@@ -6,6 +6,7 @@ import {
 import { DishPoll, DishPollVote, SUGGESTED_DISH_POLL_CRITERIA } from '../types';
 import { ScoreInput } from './DishPollVoteScreen';
 import { PrintDishPollReport } from './PrintDishPollReport';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface DishPollsManagerProps {
   telegramInitData: string;
@@ -283,6 +284,13 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
     setWorkspacePollId(null);
     loadPolls();
   };
+
+  // One hook per stacked layer: dish-scoring detail sits on top of the workspace, and the QR
+  // overlay is independent of both — each toggled strictly by its own later user action, so
+  // they land on the back-button stack in the right order automatically.
+  useTelegramBackButton(!!workspacePollId, closeWorkspace);
+  useTelegramBackButton(activeDishIndex !== null, () => setActiveDishIndex(null));
+  useTelegramBackButton(!!qrPollId, () => setQrPollId(null));
 
   // ---- Vote mode ----
   // Ноль = ползунок не трогали, значит блюдо ещё не оценено.

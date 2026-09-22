@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CoffeeShop, Product, ShopOrder } from '../types';
 import { X, Sparkles, AlertTriangle, Send, ShieldAlert, Bot } from 'lucide-react';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface OrderPreviewModalProps {
   isOpen: boolean;
@@ -21,6 +22,8 @@ export const OrderPreviewModal: React.FC<OrderPreviewModalProps> = ({
 }) => {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
+
+  useTelegramBackButton(isOpen, onClose);
 
   if (!isOpen) return null;
 

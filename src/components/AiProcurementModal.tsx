@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Factory, TrendingUp, AlertCircle, RefreshCw } from 'lucide-react';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface AiProcurementModalProps {
   isOpen: boolean;
@@ -40,6 +41,8 @@ export const AiProcurementModal: React.FC<AiProcurementModalProps> = ({ isOpen, 
       fetchProcurementReport();
     }
   }, [isOpen]);
+
+  useTelegramBackButton(isOpen, onClose);
 
   if (!isOpen) return null;
 

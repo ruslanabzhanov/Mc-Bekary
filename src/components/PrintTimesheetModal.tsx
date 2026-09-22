@@ -2,6 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, Printer } from 'lucide-react';
 import { StaffMember, Shift } from '../types';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface PrintTimesheetModalProps {
   month: string; // YYYY-MM
@@ -27,6 +28,8 @@ export const PrintTimesheetModal: React.FC<PrintTimesheetModalProps> = ({
   shifts,
   onClose,
 }) => {
+  useTelegramBackButton(true, onClose);
+
   const dayCount = daysInMonth(month);
   const days = Array.from({ length: dayCount }, (_, i) => i + 1);
   const rows = [...employees].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
