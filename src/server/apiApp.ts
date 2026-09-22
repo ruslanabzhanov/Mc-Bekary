@@ -2362,7 +2362,11 @@ export function createApiApp() {
       const b = ensure(key);
       Object.entries(row.items || {}).forEach(([pid, qtyVal]) => {
         const n = Number(qtyVal) || 0;
-        if (n <= 0) return;
+        // Not in the current catalog (e.g. a dish since deleted, or — before the products
+        // guard existed — the old built-in demo catalog) — checklists already exclude these
+        // from real production totals and only flag them separately; analytics does the same
+        // rather than folding them into a generic "Другое" that would overstate it.
+        if (n <= 0 || !priceById.has(pid)) return;
         b.qty += n;
         b.sum += n * (priceById.get(pid) || 0);
       });
@@ -2499,7 +2503,11 @@ export function createApiApp() {
       for (const row of currentRows) {
         Object.entries(row.items || {}).forEach(([pid, qtyVal]) => {
           const n = Number(qtyVal) || 0;
-          if (n <= 0) return;
+          // See the same guard in buildAnalyticsSeries — a real-world case this caught: a shop's
+          // one submission from the old built-in demo catalog, still sitting in order_history
+          // from before that catalog was removed, was inflating today's totals by 142 pcs under
+          // a generic "Другое" category.
+          if (n <= 0 || !priceById.has(pid)) return;
           totalQty += n;
           totalSum += n * (priceById.get(pid) || 0);
           const cat = catById.get(pid) || { key: 'other', label: 'Другое' };
@@ -2522,7 +2530,7 @@ export function createApiApp() {
       for (const row of previousRows) {
         Object.entries(row.items || {}).forEach(([pid, qtyVal]) => {
           const n = Number(qtyVal) || 0;
-          if (n <= 0) return;
+          if (n <= 0 || !priceById.has(pid)) return;
           prevQty += n;
           prevSum += n * (priceById.get(pid) || 0);
         });
