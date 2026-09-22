@@ -938,9 +938,36 @@ export function createApiApp() {
   });
 
   // Persist the product/menu catalog (photo, category, price edits)
+  // Только каталог — чтобы открытый экран заказа мог его обновлять, не перекачивая все таблицы.
+  app.get('/api/products', async (_req, res) => {
+    try {
+      const { data, error } = await supabase.from('products').select('*');
+      if (error) throw error;
+      res.json({ products: (data || []).map(productFromDb) });
+    } catch (e) {
+      console.error('Failed to load products:', e);
+      res.status(500).json({ error: 'Failed to load products' });
+    }
+  });
+
   app.post('/api/products', async (req, res) => {
     try {
       if (Array.isArray(req.body?.products)) {
+        // Сервер заменяет каталог целиком тем, что прислали. Через интерфейс блюда удаляют по
+        // одному, поэтому если в присланном списке разом нет заметной части каталога — это почти
+        // наверняка устаревший или встроенный демо-список с устройства, которое не загрузилось,
+        // а не чьё-то решение. Такой список не применяем, чтобы не стереть настоящий каталог.
+        const { data: existingRows, error: existingError } = await supabase.from('products').select('id');
+        if (existingError) throw existingError;
+        const incomingIds = new Set(req.body.products.map((p: any) => p?.id));
+        const wouldDelete = (existingRows || []).filter((r: any) => !incomingIds.has(r.id)).length;
+        const existingCount = (existingRows || []).length;
+        if (wouldDelete >= 3 && wouldDelete > existingCount * 0.2) {
+          console.error(`Refused products replace: would delete ${wouldDelete} of ${existingCount}`);
+          return res.status(409).json({
+            error: `Сохранение отклонено: оно удалило бы сразу ${wouldDelete} из ${existingCount} блюд. Обновите приложение и попробуйте ещё раз.`,
+          });
+        }
         await replaceTable('products', 'id', req.body.products.map(productToDb));
       }
       const { data, error } = await supabase.from('products').select('*');
@@ -1852,10 +1879,31 @@ export function createApiApp() {
       // the write below overwrites it (shop_id is the primary key).
       const existingOrder = existingOrderRow ? orderFromDb(existingOrderRow) : null;
 
+      // В заявку попадает только то, что есть в каталоге. Позиции, которых в нём нет, — блюдо,
+      // удалённое в «Блюдах», но оставшееся в чьём-то черновике, или встроенный демо-список на
+      // устройстве, которое не загрузило каталог, — выбрасываем: ни один цех их не увидит, а в
+      // заявке они только путают. Пустой ответ каталога (сбой) — не повод вычистить всю заявку.
+      const { data: productRows, error: productsError } = await supabase.from('products').select('id');
+      if (productsError) throw productsError;
+      const knownProductIds = new Set((productRows || []).map((r: any) => r.id));
+      const droppedItems: string[] = [];
+      const cleanItems: Record<string, number> = {};
+      Object.entries(items && typeof items === 'object' ? items : {}).forEach(([pid, q]) => {
+        if (knownProductIds.size === 0 || knownProductIds.has(pid)) cleanItems[pid] = q as number;
+        else if ((Number(q) || 0) > 0) droppedItems.push(pid);
+      });
+      const hasAnyQty = (x: Record<string, unknown>) => Object.values(x).some((q) => (Number(q) || 0) > 0);
+      if (status === 'submitted' && droppedItems.length > 0 && !hasAnyQty(cleanItems)) {
+        return res.status(400).json({
+          error: 'Ни одной позиции из этой заявки нет в каталоге. Закройте приложение, откройте заново и соберите заявку ещё раз.',
+          droppedItems,
+        });
+      }
+
       // Detect anomalies compared to historical average
       const anomalies: Record<string, string> = {};
-      if (items && typeof items === 'object') {
-        Object.entries(items).forEach(([productId, qtyVal]) => {
+      {
+        Object.entries(cleanItems).forEach(([productId, qtyVal]) => {
           const qty = Number(qtyVal) || 0;
           const avg = shop.historicalAvg[productId] || 10;
           if (avg > 0) {
@@ -1875,7 +1923,7 @@ export function createApiApp() {
       const order = {
         shopId,
         orderDate: today,
-        items: items || {},
+        items: cleanItems,
         status: status || 'submitted',
         submittedAt: status === 'submitted' ? timeStr : existingOrder?.submittedAt || timeStr,
         acceptedAt: status === 'accepted' ? timeStr : existingOrder?.acceptedAt,
@@ -1903,7 +1951,7 @@ export function createApiApp() {
         }
       }
 
-      res.json({ success: true, order });
+      res.json({ success: true, order, droppedItems });
 
       // After the response: supervision needs to know there's something to decide on, and the
       // point's other staff need to know it's already been sent so nobody sends it twice.

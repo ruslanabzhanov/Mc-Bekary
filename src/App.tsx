@@ -10,7 +10,7 @@ import { RegistrationGate } from './components/RegistrationGate';
 import { DishPollVoteScreen } from './components/DishPollVoteScreen';
 import { DeadlineModal } from './components/DeadlineModal';
 import { SplashScreen, wasSplashShownThisSession, markSplashShown } from './components/SplashScreen';
-import { COFFEE_SHOPS, PRODUCTS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
+import { COFFEE_SHOPS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
 import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, StaffRole, RegistrationRequest, AdvanceRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
 
@@ -22,9 +22,17 @@ import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedPro
 // back over whatever the server now holds.
 function useSyncedState<T>(initial: T, endpoint: string, bodyKey: string) {
   const [value, setValue] = useState<T>(initial);
+  // Пока с сервера не пришли настоящие данные, в состоянии лежит стартовое значение. Сервер
+  // заменяет таблицу целиком тем, что ему прислали, так что отправить его — значит стереть
+  // настоящий каталог. До первой загрузки правки остаются только на этом экране.
+  const hydratedRef = useRef(false);
   const setSynced: React.Dispatch<React.SetStateAction<T>> = (update) => {
     setValue((prev) => {
       const next = typeof update === 'function' ? (update as (p: T) => T)(prev) : update;
+      if (!hydratedRef.current) {
+        console.warn(`${bodyKey}: данные с сервера ещё не загружены — изменение на сервер не отправлено`);
+        return next;
+      }
       fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -33,7 +41,11 @@ function useSyncedState<T>(initial: T, endpoint: string, bodyKey: string) {
       return next;
     });
   };
-  return [value, setSynced, setValue] as const;
+  const hydrate = (serverValue: T) => {
+    hydratedRef.current = true;
+    setValue(serverValue);
+  };
+  return [value, setSynced, hydrate] as const;
 }
 
 // Default checklist -> product assignment, seeded from each department's matching product category
@@ -45,11 +57,10 @@ const DEPT_CATEGORY_MAP: Record<string, string> = {
   kitchen_prep: 'kitchen_prep',
   new_items: 'new_items',
 };
+// Пустые до загрузки с сервера: раньше их заполняли из встроенного демо-каталога, и на
+// устройстве, которое не смогло загрузиться, в чек-листах оказывались несуществующие блюда.
 const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
-  Object.entries(DEPT_CATEGORY_MAP).map(([deptKey, category]) => [
-    deptKey,
-    PRODUCTS.filter((p) => p.category === category).map((p) => p.id),
-  ])
+  Object.keys(DEPT_CATEGORY_MAP).map((deptKey) => [deptKey, [] as string[]])
 );
 
 // All 27 shops are in Kazakhstan (UTC+5, unified nationwide since 2024). This is only an
@@ -182,7 +193,9 @@ export default function App() {
     showToast('✅ Заявка одобрена! Добро пожаловать.');
   };
   const [shops, setShops, hydrateShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
-  const [products, setProducts, hydrateProducts] = useSyncedState<Product[]>(PRODUCTS, '/api/products', 'products');
+  // Каталог — только с сервера. Встроенный демо-список здесь больше не используется: если
+  // загрузка не удалась, менеджер собирал по нему заявку из блюд, которых у вас нет.
+  const [products, setProducts, hydrateProducts] = useSyncedState<Product[]>([], '/api/products', 'products');
   const [orders, setOrders] = useState<Record<number, ShopOrder>>(INITIAL_ORDERS);
   const [notifications, setNotifications] = useState<DisciplineNotification[]>([]);
   const [semiFinishedList, setSemiFinishedList, hydrateSemiFinishedList] = useSyncedState<SemiFinishedProduct[]>(
@@ -253,6 +266,7 @@ export default function App() {
   const [orderDeadline, setOrderDeadline] = useState('10:30');
   const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
   const [serverDataLoaded, setServerDataLoaded] = useState(false);
+  const [initialDataError, setInitialDataError] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -287,9 +301,18 @@ export default function App() {
   // the mandatory registration gate can re-run it on demand ("Проверить статус" button)
   // instead of only ever loading once on mount.
   const refreshInitialData = () => {
+    setInitialDataError(false);
     fetch('/api/initial-data')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`initial-data: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
+        // Ответ без каталога — это сбой, а не «каталог пуст»: считать такие данные загруженными
+        // значит открыть экран заказа с пустым (или демо) списком блюд.
+        if (!Array.isArray(data.products) || data.products.length === 0) {
+          throw new Error('initial-data: в ответе нет каталога');
+        }
         // Hydrate only — never the syncing setters. This data just arrived *from* the server;
         // echoing it straight back made every device rewrite all eleven catalogs on every
         // open, which is both pointless traffic and a real way for one device's stale copy to
@@ -315,9 +338,64 @@ export default function App() {
         setServerDataLoaded(true);
       })
       .catch((err) => {
-        console.log('Using local fallback state:', err);
+        console.error('Failed to load initial data:', err);
+        setInitialDataError(true);
       });
   };
+
+  // Не загрузилось — пробуем снова сами, чтобы менеджеру на плохой связи не приходилось
+  // догадываться, что надо перезапускать приложение.
+  useEffect(() => {
+    if (!initialDataError || serverDataLoaded) return;
+    const t = setTimeout(refreshInitialData, 10000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDataError, serverDataLoaded]);
+
+  // Каталог на открытом экране заказа обновляется сам: раз в минуту и каждый раз, когда
+  // приложение снова открывают. Иначе блюдо, удалённое в «Блюдах», оставалось у точек на
+  // экране (и в черновике) до перезапуска приложения.
+  useEffect(() => {
+    if (currentRole !== 'manager' && currentRole !== 'territorial') return;
+    const refreshCatalog = () =>
+      fetch('/api/products')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (Array.isArray(d?.products) && d.products.length > 0) hydrateProducts(d.products);
+        })
+        .catch(() => {});
+    const interval = setInterval(refreshCatalog, 60000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshCatalog();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRole]);
+
+  // Удалённое из каталога блюдо исчезает и из черновиков на этом устройстве. На сервере его
+  // всё равно выбросит обработчик заявки, но на экране черновик не должен его показывать.
+  useEffect(() => {
+    if (products.length === 0) return;
+    const known = new Set(products.map((p) => p.id));
+    setOrders((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [key, o] of Object.entries(prev) as [string, ShopOrder][]) {
+        if (o.status !== 'draft') continue;
+        const entries = Object.entries(o.items || {});
+        const kept = entries.filter(([pid]) => known.has(pid));
+        if (kept.length !== entries.length) {
+          changed = true;
+          next[Number(key)] = { ...o, items: Object.fromEntries(kept) };
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [products]);
 
   // Fetch initial state from server on startup
   useEffect(() => {
@@ -536,6 +614,12 @@ export default function App() {
     const shop = shops.find((s) => s.id === shopId);
     if (!shop) return;
 
+    // Только блюда из каталога — то же правило, что и на сервере.
+    const knownProductIds = new Set(products.map((p) => p.id));
+    if (knownProductIds.size > 0) {
+      items = Object.fromEntries(Object.entries(items).filter(([pid]) => knownProductIds.has(pid)));
+    }
+
     // Who is actually holding this device, if it went through registration — a point can have
     // several managers (plus a barista), and picking "the" shop_manager for the point used to
     // mean whichever one happened to be first in the array, so every submission from that point
@@ -590,19 +674,20 @@ export default function App() {
       // A rejected request used to slip through as success: only a dropped connection was
       // caught, never an error the server actually answered with.
       if (!res.ok) throw new Error(`Сервер ответил ${res.status}`);
-      return res;
+      return res.json().catch(() => ({}));
     };
 
     const sendToServer = () =>
       queueOrderRequest(shopId, async () => {
         setOrderSync((prev) => ({ ...prev, [shopId]: { status: 'sending', isSubmit, retry: sendToServer } }));
+        let result: any;
         try {
-          await writeOnce();
+          result = await writeOnce();
         } catch (first) {
           // One quiet retry, so a momentary blip on a shop's connection doesn't raise an alarm.
           await new Promise((r) => setTimeout(r, 2000));
           try {
-            await writeOnce();
+            result = await writeOnce();
           } catch (second) {
             console.error('Failed to sync order to server:', second);
             // The optimistic state said "submitted". It isn't — put it back to a draft so the
@@ -620,7 +705,12 @@ export default function App() {
         }
         clearOrderSync(shopId);
         if (isSubmit) {
-          showToast(`✅ Заявка для точки «${shop.district.trim() || shop.address}» отправлена в производство`);
+          const dropped = Array.isArray(result?.droppedItems) ? result.droppedItems.length : 0;
+          showToast(
+            dropped > 0
+              ? `✅ Заявка отправлена. Убрано позиций, которых больше нет в каталоге: ${dropped}`
+              : `✅ Заявка для точки «${shop.district.trim() || shop.address}» отправлена в производство`
+          );
         }
       });
 
@@ -1219,6 +1309,28 @@ export default function App() {
               onApproved={grantAccess}
               onRefresh={refreshInitialData}
             />
+          ) : (currentRole === 'manager' || currentRole === 'territorial') && !serverDataLoaded ? (
+            // Пока настоящий каталог не загружен, собирать заявку нельзя: раньше на этом месте
+            // был встроенный демо-список, и по нему уходили заявки на несуществующие блюда.
+            <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-2xl p-6 text-center space-y-3 shadow-sm">
+              {initialDataError ? (
+                <>
+                  <p className="text-base font-bold text-slate-900">Не удалось загрузить каталог</p>
+                  <p className="text-sm text-slate-500">
+                    Проверьте интернет. Пока каталог не загружен, собрать заявку нельзя — пробуем ещё раз
+                    автоматически.
+                  </p>
+                  <button
+                    onClick={refreshInitialData}
+                    className="w-full min-h-[48px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl"
+                  >
+                    Повторить сейчас
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm font-bold text-slate-500 py-4">Загружаем каталог…</p>
+              )}
+            </div>
           ) : currentRole === 'manager' ? (
             <ManagerView
               orderDeadline={orderDeadline}
