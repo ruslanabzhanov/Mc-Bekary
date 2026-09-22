@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   CoffeeShop, StaffMember, StaffRole, RegistrationRequest, POSITION_OPTIONS, positionValueOf,
 } from '../types';
-import { UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle, Search } from 'lucide-react';
+import { UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle, Search, Trash2 } from 'lucide-react';
 
 interface PersonnelManagerProps {
   shops: CoffeeShop[];
@@ -12,6 +12,9 @@ interface PersonnelManagerProps {
   onUpdateRegistrationRequest: (requestId: string, updates: Partial<RegistrationRequest>) => void;
   onApproveRegistrationRequest: (requestId: string) => void;
   onRejectRegistrationRequest: (requestId: string) => void;
+  // Only the Owner and «Заведующий производством» reach this screen at all (gated one level up,
+  // same as everything else in the «Цех» cabinet) — no extra role check needed here.
+  onDeleteStaffMember: (staffId: string) => void;
 }
 
 // Fallback wording for a request saved before positions existed, which has only a role.
@@ -36,7 +39,8 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
   onUpdateStaffMember,
   onUpdateRegistrationRequest,
   onApproveRegistrationRequest,
-  onRejectRegistrationRequest
+  onRejectRegistrationRequest,
+  onDeleteStaffMember
 }) => {
   const [activeTab, setActiveTab] = useState<'staff' | 'requests'>('staff');
   const [staffView, setStaffView] = useState<'internal' | 'shop'>('shop');
@@ -73,6 +77,11 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
             other.requestedRole !== 'employee' &&
             pointsOf(other).some((id) => pointsOf(req).includes(id))
         );
+
+  const handleDeleteMember = (member: StaffMember) => {
+    if (!window.confirm(`Удалить «${member.name}»? Это действие нельзя отменить.`)) return;
+    onDeleteStaffMember(member.id);
+  };
 
   const currentViewMembers = staff.filter((s) =>
     STAFF_VIEWS.find((v) => v.key === staffView)!.roles.includes(s.role)
@@ -188,8 +197,19 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredMembers.map((member) => (
                 <div key={member.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-2">
-                  <div className="font-bold text-slate-900 text-sm">{member.name}</div>
-                  {member.phone && <div className="text-[11px] text-slate-500">{member.phone}</div>}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 text-sm truncate">{member.name}</div>
+                      {member.phone && <div className="text-[11px] text-slate-500">{member.phone}</div>}
+                    </div>
+                    <button
+                      onClick={() => handleDeleteMember(member)}
+                      title="Удалить сотрудника"
+                      className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
 
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">

@@ -707,6 +707,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               onUpdateRegistrationRequest={onUpdateRegistrationRequest}
               onApproveRegistrationRequest={onApproveRegistrationRequest}
               onRejectRegistrationRequest={onRejectRegistrationRequest}
+              onDeleteStaffMember={onDeleteStaffMember}
             />
           </div>
         </div>
