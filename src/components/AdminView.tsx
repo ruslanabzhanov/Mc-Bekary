@@ -34,6 +34,18 @@ import {
   Clock
 } from 'lucide-react';
 
+// Все цеха, у которых есть чек-лист. Раньше в меню было вписано вручную только четыре из шести,
+// и «Сэндвичи и завтраки» с «Новинками» распечатать было нельзя вовсе.
+type ChecklistDeptKey = 'bakery' | 'sandwiches' | 'desserts' | 'bar_prep' | 'kitchen_prep' | 'new_items';
+const CHECKLIST_DEPTS: { key: ChecklistDeptKey; icon: string; label: string }[] = [
+  { key: 'bakery', icon: '🥐', label: 'Круассаны и слойки' },
+  { key: 'sandwiches', icon: '🥪', label: 'Сэндвичи и завтраки' },
+  { key: 'desserts', icon: '🍰', label: 'Кондитерка (Десерты)' },
+  { key: 'bar_prep', icon: '🧃', label: 'Заготовки Бара' },
+  { key: 'kitchen_prep', icon: '👨‍🍳', label: 'Заготовки Кухни' },
+  { key: 'new_items', icon: '⚡', label: 'Новинки (колд-брю)' },
+];
+
 interface AdminViewProps {
   orderDeadline: string;
   onEditDeadline: () => void;
@@ -127,7 +139,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   orderDeadline,
   onEditDeadline,
 }) => {
-  const [selectedPrintDept, setSelectedPrintDept] = useState<'bakery' | 'desserts' | 'bar_prep' | 'kitchen_prep' | null>(null);
+  const [selectedPrintDept, setSelectedPrintDept] = useState<ChecklistDeptKey | null>(null);
   const [isChecklistsMenuOpen, setIsChecklistsMenuOpen] = useState(false);
   const [isPersonnelModalOpen, setIsPersonnelModalOpen] = useState(false);
   const [isSalesPointsModalOpen, setIsSalesPointsModalOpen] = useState(false);
@@ -151,6 +163,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
     (o) => o.status === 'submitted' || o.status === 'accepted'
   ).length;
   const acceptedCount = allOrdersList.filter((o) => o.status === 'accepted').length;
+
+  // Сколько чего заказано сегодня — по тем же заявкам, что берёт чек-лист (отправленные и принятые).
+  const orderedToday = new Map<string, number>();
+  allOrdersList
+    .filter((o) => o.status === 'submitted' || o.status === 'accepted')
+    .forEach((o) =>
+      Object.entries(o.items || {}).forEach(([pid, q]) => {
+        const n = Number(q) || 0;
+        if (n > 0) orderedToday.set(pid, (orderedToday.get(pid) || 0) + n);
+      })
+    );
+  const productName = new Map(products.map((p) => [p.id, p.name]));
+  const deptsOf = (pid: string) =>
+    CHECKLIST_DEPTS.filter((d) => (checklistAssignments[d.key] || []).includes(pid)).map((d) => d.label);
+  // Не попадёт в чек-лист и блюдо без цеха, и блюдо, которого нет в каталоге: чек-лист строит
+  // список по каталогу, и такой позиции он просто не найдёт.
+  const missingFromChecklists = [...orderedToday]
+    .filter(([pid]) => !productName.has(pid) || deptsOf(pid).length === 0)
+    .map(([pid, qty]) => ({ id: pid, name: productName.get(pid), qty }))
+    .sort((a, b) => b.qty - a.qty);
+  const inSeveralChecklists = [...orderedToday.keys()]
+    .filter((pid) => productName.has(pid) && deptsOf(pid).length > 1)
+    .map((pid) => ({ id: pid, name: productName.get(pid), depts: deptsOf(pid) }));
   const pendingCount = 27 - submittedCount;
 
   let networkAnomalies = 0;
@@ -446,86 +481,63 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
 
         {isChecklistsMenuOpen && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* Print 1: Bakery */}
-          <button
-            id="btn-print-bakery"
-            onClick={() => { setSelectedPrintDept('bakery'); setIsChecklistsMenuOpen(false); }}
-            className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xl">🥐</span>
-              <span className="text-[9px] font-black uppercase bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
-                6 поз
-              </span>
-            </div>
-            <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-xs">
-              Круассаны и слойки
-            </h4>
-            <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-              Миндальный, Фисташковый...
-            </p>
-          </button>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {CHECKLIST_DEPTS.map((d) => {
+              const ids = checklistAssignments[d.key] || [];
+              const todayQty = ids.reduce((n, id) => n + (orderedToday.get(id) || 0), 0);
+              return (
+                <button
+                  key={d.key}
+                  id={`btn-print-${d.key.replace('_', '-')}`}
+                  onClick={() => { setSelectedPrintDept(d.key); setIsChecklistsMenuOpen(false); }}
+                  className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xl">{d.icon}</span>
+                    <span className="text-[9px] font-black uppercase bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
+                      {ids.length} поз
+                    </span>
+                  </div>
+                  <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-xs">{d.label}</h4>
+                  <p className={`text-[10px] mt-1 ${todayQty > 0 ? 'text-indigo-700 font-bold' : 'text-slate-400'}`}>
+                    {todayQty > 0 ? `Сегодня: ${todayQty} шт` : 'Сегодня заказов нет'}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
 
-          {/* Print 3: Desserts */}
-          <button
-            id="btn-print-desserts"
-            onClick={() => { setSelectedPrintDept('desserts'); setIsChecklistsMenuOpen(false); }}
-            className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xl">🍰</span>
-              <span className="text-[9px] font-black uppercase bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
-                15 поз
-              </span>
+          {/* Блюдо, которое заказали, но которого нет ни в одном чек-листе, не увидит ни один цех —
+              его просто не приготовят. Раньше это ничем не было заметно. */}
+          {missingFromChecklists.length > 0 && (
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-900 space-y-1.5">
+              <p className="font-bold">
+                ⚠️ Сегодня не попали ни в один чек-лист: {missingFromChecklists.length} поз.,{' '}
+                {missingFromChecklists.reduce((n, m) => n + m.qty, 0)} шт — их не увидит ни один цех
+              </p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {missingFromChecklists.map((m) => (
+                  <li key={m.id}>
+                    {m.name ? m.name : <>«{m.id}» — <b>нет в каталоге блюд</b></>} — {m.qty} шт
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-rose-800">
+                Чтобы блюдо попало в цех: откройте чек-лист нужного цеха → шестерёнка «Настройки» → добавьте блюдо.
+              </p>
             </div>
-            <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-xs">
-              Кондитерка (Десерты)
-            </h4>
-            <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-              Чизкейки, Медовик...
-            </p>
-          </button>
-
-          {/* Print 4: Bar Prep */}
-          <button
-            id="btn-print-bar-prep"
-            onClick={() => { setSelectedPrintDept('bar_prep'); setIsChecklistsMenuOpen(false); }}
-            className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xl">🧃</span>
-              <span className="text-[9px] font-black uppercase bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
-                12 поз
-              </span>
+          )}
+          {inSeveralChecklists.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1">
+              <p className="font-bold">Попадают сразу в несколько чек-листов — их могут приготовить дважды:</p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {inSeveralChecklists.map((m) => (
+                  <li key={m.id}>{m.name} — {m.depts.join(', ')}</li>
+                ))}
+              </ul>
             </div>
-            <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-xs">
-              Заготовки Бара
-            </h4>
-            <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-              Сиропы, Сырная пена...
-            </p>
-          </button>
-
-          {/* Print 5: Kitchen Prep */}
-          <button
-            id="btn-print-kitchen-prep"
-            onClick={() => { setSelectedPrintDept('kitchen_prep'); setIsChecklistsMenuOpen(false); }}
-            className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 text-left transition-all duration-150 group shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xl">👨‍🍳</span>
-              <span className="text-[9px] font-black uppercase bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
-                8 поз
-              </span>
-            </div>
-            <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-xs">
-              Заготовки Кухни
-            </h4>
-            <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-              Полуфабрикат котлет...
-            </p>
-          </button>
+          )}
         </div>
         )}
       </div>
