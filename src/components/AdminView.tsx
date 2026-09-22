@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest, AdvanceRequest, RawMaterial, ChecklistAssignments, RolePermissions } from '../types';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
+import { PRODUCTS as DEMO_PRODUCTS } from '../data/mockData';
 import { CostingsManager } from './CostingsManager';
 import { PersonnelManager } from './PersonnelManager';
 import { SalesPointsManager } from './SalesPointsManager';
@@ -177,12 +178,30 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const productName = new Map(products.map((p) => [p.id, p.name]));
   const deptsOf = (pid: string) =>
     CHECKLIST_DEPTS.filter((d) => (checklistAssignments[d.key] || []).includes(pid)).map((d) => d.label);
-  // Не попадёт в чек-лист и блюдо без цеха, и блюдо, которого нет в каталоге: чек-лист строит
-  // список по каталогу, и такой позиции он просто не найдёт.
-  const missingFromChecklists = [...orderedToday]
-    .filter(([pid]) => !productName.has(pid) || deptsOf(pid).length === 0)
-    .map(([pid, qty]) => ({ id: pid, name: productName.get(pid), qty }))
+  // Блюдо из каталога, не привязанное ни к одному цеху, — в чек-лист не попадёт.
+  const notAssignedToday = [...orderedToday]
+    .filter(([pid]) => productName.has(pid) && deptsOf(pid).length === 0)
+    .map(([pid, qty]) => ({ id: pid, name: productName.get(pid) as string, qty }))
     .sort((a, b) => b.qty - a.qty);
+  // Позиция, которой вообще нет в каталоге, — это встроенный в приложение демо-список: у точки не
+  // загрузился настоящий каталог, и она заказала из него. Показываем человеческое название из
+  // демо-списка (а не служебный код) и какая точка это заказала — чтобы было кому позвонить.
+  const demoName = new Map(DEMO_PRODUCTS.map((p) => [p.id, p.name]));
+  const notInCatalogToday = [...orderedToday]
+    .filter(([pid]) => !productName.has(pid))
+    .map(([pid, qty]) => ({
+      id: pid,
+      name: demoName.get(pid) || pid,
+      qty,
+      shops: shops
+        .filter((s) => {
+          const o = orders[s.id];
+          return o && (o.status === 'submitted' || o.status === 'accepted') && (Number(o.items?.[pid]) || 0) > 0;
+        })
+        .map((s) => s.district?.trim() || s.address),
+    }))
+    .sort((a, b) => b.qty - a.qty);
+  const notInCatalogShops = [...new Set(notInCatalogToday.flatMap((m) => m.shops))];
   const inSeveralChecklists = [...orderedToday.keys()]
     .filter((pid) => productName.has(pid) && deptsOf(pid).length > 1)
     .map((pid) => ({ id: pid, name: productName.get(pid), depts: deptsOf(pid) }));
@@ -510,22 +529,41 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
           {/* Блюдо, которое заказали, но которого нет ни в одном чек-листе, не увидит ни один цех —
               его просто не приготовят. Раньше это ничем не было заметно. */}
-          {missingFromChecklists.length > 0 && (
+          {notAssignedToday.length > 0 && (
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-900 space-y-1.5">
               <p className="font-bold">
-                ⚠️ Сегодня не попали ни в один чек-лист: {missingFromChecklists.length} поз.,{' '}
-                {missingFromChecklists.reduce((n, m) => n + m.qty, 0)} шт — их не увидит ни один цех
+                ⚠️ Не привязаны ни к одному цеху: {notAssignedToday.length} поз.,{' '}
+                {notAssignedToday.reduce((n, m) => n + m.qty, 0)} шт — их сегодня не увидит ни один цех
               </p>
               <ul className="list-disc pl-4 space-y-0.5">
-                {missingFromChecklists.map((m) => (
-                  <li key={m.id}>
-                    {m.name ? m.name : <>«{m.id}» — <b>нет в каталоге блюд</b></>} — {m.qty} шт
-                  </li>
+                {notAssignedToday.map((m) => (
+                  <li key={m.id}>{m.name} — {m.qty} шт</li>
                 ))}
               </ul>
               <p className="text-[11px] text-rose-800">
                 Чтобы блюдо попало в цех: откройте чек-лист нужного цеха → шестерёнка «Настройки» → добавьте блюдо.
               </p>
+            </div>
+          )}
+          {notInCatalogToday.length > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-900 space-y-1.5">
+              <p className="font-bold">
+                ⚠️ Заказаны позиции, которых нет в вашем каталоге: {notInCatalogToday.length} поз.,{' '}
+                {notInCatalogToday.reduce((n, m) => n + m.qty, 0)} шт
+                {notInCatalogShops.length > 0 && <> — заказала {notInCatalogShops.length === 1 ? 'точка' : 'точки'} {notInCatalogShops.join(', ')}</>}
+              </p>
+              <p className="text-[11px] text-orange-800">
+                Это позиции из старого демонстрационного списка, встроенного в приложение: у точки не загрузился
+                ваш каталог, и она собрала заявку по нему. Ни в один цех они не попадут — уточните у точки, что
+                она хотела заказать на самом деле.
+              </p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {notInCatalogToday.map((m) => (
+                  <li key={m.id}>
+                    {m.name} — {m.qty} шт{notInCatalogShops.length > 1 && m.shops.length > 0 && <> ({m.shops.join(', ')})</>}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           {inSeveralChecklists.length > 0 && (
