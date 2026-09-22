@@ -9,6 +9,7 @@ import { RolePermissionsModal } from './RolePermissionsModal';
 import { TimesheetManager } from './TimesheetManager';
 import { DishPollsManager } from './DishPollsManager';
 import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
+import { AnalyticsView } from './AnalyticsView';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
   ShieldCheck,
@@ -33,7 +34,8 @@ import {
   Crown,
   HandCoins,
   Vote,
-  Clock
+  Clock,
+  BarChart3
 } from 'lucide-react';
 
 // Все цеха, у которых есть чек-лист. Раньше в меню было вписано вручную только четыре из шести,
@@ -151,6 +153,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isDishPollsOpen, setIsDishPollsOpen] = useState(false);
   const [isHistoryDaysOpen, setIsHistoryDaysOpen] = useState(false);
   const [isRolePermissionsOpen, setIsRolePermissionsOpen] = useState(false);
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // These full-screen panels are rendered inline here (unlike the standalone Modal components
@@ -162,6 +165,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   useTelegramBackButton(isTimesheetOpen, () => setIsTimesheetOpen(false));
   useTelegramBackButton(isAdvanceModalOpen, () => setIsAdvanceModalOpen(false));
   useTelegramBackButton(isDishPollsOpen && !!isOwner, () => setIsDishPollsOpen(false));
+  useTelegramBackButton(isAnalyticsOpen, () => setIsAnalyticsOpen(false));
 
   // Owner always has every capability; admin is gated by the permission matrix
   // the Owner configures (defaults to "everything on", matching pre-existing behavior).
@@ -503,6 +507,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
               Точки ({shops.length})
             </span>
             <Store className="w-6 h-6 text-slate-900 mt-1.5" />
+          </button>
+
+          <button
+            id="btn-open-analytics"
+            onClick={() => setIsAnalyticsOpen(true)}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+          >
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Аналитика
+            </span>
+            <BarChart3 className="w-6 h-6 text-slate-900 mt-1.5" />
           </button>
 
           {isOwner && (
@@ -850,6 +865,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
           <div className="p-4 sm:p-6 max-w-3xl mx-auto">
             <DishPollsManager telegramInitData={telegramInitData} />
+          </div>
+        </div>
+      )}
+
+      {isAnalyticsOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-50 overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <BarChart3 className="w-5 h-5 text-indigo-600" />
+              <span>Аналитика · все точки</span>
+            </h2>
+            <button
+              onClick={() => setIsAnalyticsOpen(false)}
+              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+            <AnalyticsView shops={shops} />
           </div>
         </div>
       )}

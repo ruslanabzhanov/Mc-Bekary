@@ -2246,6 +2246,338 @@ export function createApiApp() {
     }
   });
 
+  // ---- Analytics (Territorial / Owner / Заведующий производством) ----
+  // There is no separate POS/kassa in this app — "sales" here means submitted orders
+  // (order_history), the same source every other history screen already uses.
+
+  type AnalyticsPeriod = 'day' | 'week' | 'month' | 'year';
+  type SeriesBucket = { bucket: string; label: string; qty: number; sum: number };
+
+  const RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const RU_MONTHS_FULL = [
+    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+  ];
+  const RU_WEEKDAY_SHORT = ['ВС', 'ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ']; // index = getUTCDay()
+
+  function addDays(dateStr: string, days: number): string {
+    const d = new Date(`${dateStr}T12:00:00+05:00`);
+    return new Date(d.getTime() + days * 24 * 60 * 60 * 1000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+  }
+  function almatyWeekdayIndex(dateStr: string): number {
+    return new Date(`${dateStr}T12:00:00+05:00`).getUTCDay();
+  }
+  // Monday-start week, matching every other calendar in this app (see EmployeeView's timesheet).
+  function almatyWeekStart(dateStr: string): string {
+    const mondayOffset = (almatyWeekdayIndex(dateStr) + 6) % 7;
+    return addDays(dateStr, -mondayOffset);
+  }
+  function formatDayMonth(dateStr: string): string {
+    const [, m, d] = dateStr.split('-').map(Number);
+    return `${d} ${RU_MONTHS_SHORT[m - 1]}`;
+  }
+
+  function periodRange(period: AnalyticsPeriod, dateStr: string): { start: string; end: string; label: string } {
+    if (period === 'day') {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return { start: dateStr, end: addDays(dateStr, 1), label: `${d} ${RU_MONTHS_SHORT[m - 1]} ${y}` };
+    }
+    if (period === 'week') {
+      const start = almatyWeekStart(dateStr);
+      const end = addDays(start, 7);
+      return { start, end, label: `${formatDayMonth(start)} – ${formatDayMonth(addDays(start, 6))}` };
+    }
+    if (period === 'month') {
+      const [y, m] = dateStr.split('-').map(Number);
+      const start = `${y}-${String(m).padStart(2, '0')}-01`;
+      const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      return { start, end: addDays(start, daysInMonth), label: `${RU_MONTHS_FULL[m - 1]} ${y}` };
+    }
+    const year = Number(dateStr.slice(0, 4));
+    return { start: `${year}-01-01`, end: `${year + 1}-01-01`, label: String(year) };
+  }
+
+  function previousPeriodRange(period: AnalyticsPeriod, dateStr: string): { start: string; end: string; label: string } {
+    if (period === 'day') return { start: addDays(dateStr, -1), end: dateStr, label: 'вчера' };
+    if (period === 'week') {
+      const start = addDays(almatyWeekStart(dateStr), -7);
+      return { start, end: addDays(start, 7), label: 'прошлая неделя' };
+    }
+    if (period === 'month') {
+      const [y, m] = dateStr.split('-').map(Number);
+      const prevMonth = m === 1 ? 12 : m - 1;
+      const prevYear = m === 1 ? y - 1 : y;
+      const start = `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`;
+      const daysInPrevMonth = new Date(Date.UTC(prevYear, prevMonth, 0)).getUTCDate();
+      return { start, end: addDays(start, daysInPrevMonth), label: 'прошлый месяц' };
+    }
+    const year = Number(dateStr.slice(0, 4));
+    return { start: `${year - 1}-01-01`, end: `${year}-01-01`, label: 'прошлый год' };
+  }
+
+  // One bucket per hour (day), per day (week/month) or per month (year), pre-seeded with zeros
+  // so a quiet hour/day/month shows as a flat point on the chart rather than a gap.
+  function buildAnalyticsSeries(
+    period: AnalyticsPeriod,
+    rangeStart: string,
+    rows: { submitted_at: string; items: Record<string, number> }[],
+    priceById: Map<string, number>
+  ): SeriesBucket[] {
+    const buckets = new Map<string, { qty: number; sum: number }>();
+    const order: string[] = [];
+    const ensure = (key: string) => {
+      if (!buckets.has(key)) {
+        buckets.set(key, { qty: 0, sum: 0 });
+        order.push(key);
+      }
+      return buckets.get(key)!;
+    };
+
+    if (period === 'day') {
+      for (let h = 0; h < 24; h++) ensure(String(h).padStart(2, '0'));
+    } else if (period === 'week') {
+      for (let i = 0; i < 7; i++) ensure(addDays(rangeStart, i));
+    } else if (period === 'month') {
+      const [y, m] = rangeStart.split('-').map(Number);
+      const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      for (let i = 0; i < daysInMonth; i++) ensure(addDays(rangeStart, i));
+    } else {
+      const year = rangeStart.slice(0, 4);
+      for (let m = 1; m <= 12; m++) ensure(`${year}-${String(m).padStart(2, '0')}`);
+    }
+
+    for (const row of rows) {
+      const instant = new Date(row.submitted_at);
+      let key: string;
+      if (period === 'day') {
+        // Exact UTC+5 arithmetic rather than Intl hour formatting — some Intl implementations
+        // print midnight as "24" instead of "00" with hour12:false, which would split one hour
+        // into two buckets.
+        const almatyHour = Math.floor((instant.getTime() + 5 * 60 * 60 * 1000) / (60 * 60 * 1000)) % 24;
+        key = String(almatyHour).padStart(2, '0');
+      } else {
+        const localDate = instant.toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+        key = period === 'year' ? localDate.slice(0, 7) : localDate;
+      }
+      const b = ensure(key);
+      Object.entries(row.items || {}).forEach(([pid, qtyVal]) => {
+        const n = Number(qtyVal) || 0;
+        if (n <= 0) return;
+        b.qty += n;
+        b.sum += n * (priceById.get(pid) || 0);
+      });
+    }
+
+    return order.map((key) => {
+      const b = buckets.get(key)!;
+      let label: string;
+      if (period === 'day') label = `${key}:00`;
+      else if (period === 'week') label = `${RU_WEEKDAY_SHORT[almatyWeekdayIndex(key)]} ${Number(key.split('-')[2])}`;
+      else if (period === 'month') label = String(Number(key.split('-')[2]));
+      else label = RU_MONTHS_SHORT[Number(key.split('-')[1]) - 1];
+      return { bucket: key, label, qty: b.qty, sum: Math.round(b.sum) };
+    });
+  }
+
+  // Last real 7 calendar days: for each shop in scope, when it submitted (if at all) and who —
+  // a lightweight punctuality/attendance view independent of whatever period is selected above.
+  async function buildLast7Days(shopIds: number[]) {
+    const today = almatyToday();
+    const startDate = addDays(today, -6);
+    const { startIso } = almatyDayRangeUtc(startDate);
+    const { endIso } = almatyDayRangeUtc(today);
+
+    const [{ data: rows }, { data: shopRows }] = await Promise.all([
+      supabase
+        .from('order_history')
+        .select('shop_id, submitted_at, manager_name')
+        .in('shop_id', shopIds)
+        .gte('submitted_at', startIso)
+        .lt('submitted_at', endIso)
+        .order('submitted_at', { ascending: true }),
+      supabase.from('shops').select('id, address, district').in('id', shopIds),
+    ]);
+
+    // Keep only the latest submission per shop per day — a resubmission replaces the earlier
+    // one for "when did they actually finish", same convention as everywhere else history is shown.
+    const latest = new Map<string, any>();
+    for (const row of rows || []) {
+      const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+      latest.set(`${row.shop_id}:${day}`, row);
+    }
+
+    const dates: string[] = [];
+    for (let i = 0; i < 7; i++) dates.push(addDays(startDate, i));
+
+    const shopsMeta = (shopRows || []).map((r: any) => ({
+      id: r.id,
+      name: (r.district || '').trim() || r.address || `Точка №${r.id}`,
+    }));
+
+    const shopsOut = shopsMeta.map((s: any) => {
+      const days: Record<string, { time: string; managerName: string } | null> = {};
+      for (const d of dates) {
+        const row = latest.get(`${s.id}:${d}`);
+        days[d] = row
+          ? {
+              time: new Date(row.submitted_at).toLocaleTimeString('ru-RU', {
+                timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hour12: false,
+              }),
+              managerName: row.manager_name || '',
+            }
+          : null;
+      }
+      return { shopId: s.id, shopName: s.name, days };
+    });
+
+    return { dates, shops: shopsOut };
+  }
+
+  app.get('/api/analytics', async (req, res) => {
+    try {
+      const shopIds = String(req.query.shopIds || '')
+        .split(',')
+        .map((s) => parseInt(s, 10))
+        .filter((n) => Number.isFinite(n));
+      if (shopIds.length === 0) return res.status(400).json({ error: 'shopIds is required' });
+
+      const period: AnalyticsPeriod = (['day', 'week', 'month', 'year'] as const).includes(req.query.period as any)
+        ? (req.query.period as AnalyticsPeriod)
+        : 'day';
+      const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : almatyToday();
+
+      const current = periodRange(period, dateStr);
+      const previous = previousPeriodRange(period, dateStr);
+
+      const { startIso: queryStartIso } = almatyDayRangeUtc(previous.start);
+      const { startIso: currentStartIso } = almatyDayRangeUtc(current.start);
+      const { startIso: queryEndIso } = almatyDayRangeUtc(current.end);
+
+      const [{ data: rows, error: rowsErr }, { data: productRows, error: prodErr }, { data: shopRows }] = await Promise.all([
+        supabase
+          .from('order_history')
+          .select('shop_id, items, manager_name, submitted_at')
+          .in('shop_id', shopIds)
+          .gte('submitted_at', queryStartIso)
+          .lt('submitted_at', queryEndIso),
+        supabase.from('products').select('id, name, price, category, category_label'),
+        supabase.from('shops').select('id, address, district').in('id', shopIds),
+      ]);
+      if (rowsErr) throw rowsErr;
+      if (prodErr) throw prodErr;
+
+      const priceById = new Map<string, number>();
+      const catById = new Map<string, { key: string; label: string }>();
+      const nameById = new Map<string, string>();
+      (productRows || []).forEach((p: any) => {
+        priceById.set(p.id, Number(p.price) || 0);
+        catById.set(p.id, { key: p.category || 'other', label: p.category_label || p.category || 'Другое' });
+        nameById.set(p.id, p.name);
+      });
+
+      // Only the latest submission per (shop, Almaty day) counts — a resubmission replaces the
+      // earlier one, same rule as /api/order-history/days.
+      const latestByShopDay = new Map<string, any>();
+      for (const row of rows || []) {
+        const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+        const key = `${row.shop_id}:${day}`;
+        const existing = latestByShopDay.get(key);
+        if (!existing || new Date(row.submitted_at) > new Date(existing.submitted_at)) {
+          latestByShopDay.set(key, row);
+        }
+      }
+      const dedupedRows = Array.from(latestByShopDay.values());
+      const currentRows = dedupedRows.filter((r) => new Date(r.submitted_at) >= new Date(currentStartIso));
+      const previousRows = dedupedRows.filter((r) => new Date(r.submitted_at) < new Date(currentStartIso));
+
+      const series = buildAnalyticsSeries(period, current.start, currentRows, priceById);
+
+      let totalQty = 0;
+      let totalSum = 0;
+      const categoryQty = new Map<string, { label: string; qty: number }>();
+      const productQty = new Map<string, number>();
+      for (const row of currentRows) {
+        Object.entries(row.items || {}).forEach(([pid, qtyVal]) => {
+          const n = Number(qtyVal) || 0;
+          if (n <= 0) return;
+          totalQty += n;
+          totalSum += n * (priceById.get(pid) || 0);
+          const cat = catById.get(pid) || { key: 'other', label: 'Другое' };
+          const c = categoryQty.get(cat.key) || { label: cat.label, qty: 0 };
+          c.qty += n;
+          categoryQty.set(cat.key, c);
+          productQty.set(pid, (productQty.get(pid) || 0) + n);
+        });
+      }
+      const categoryBreakdown = Array.from(categoryQty.entries())
+        .map(([key, v]) => ({ category: key, label: v.label, qty: v.qty }))
+        .sort((a, b) => b.qty - a.qty);
+      const topProducts = Array.from(productQty.entries())
+        .map(([id, qty]) => ({ id, name: nameById.get(id) || id, qty }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+
+      let prevQty = 0;
+      let prevSum = 0;
+      for (const row of previousRows) {
+        Object.entries(row.items || {}).forEach(([pid, qtyVal]) => {
+          const n = Number(qtyVal) || 0;
+          if (n <= 0) return;
+          prevQty += n;
+          prevSum += n * (priceById.get(pid) || 0);
+        });
+      }
+      const pct = (curr: number, prev: number) => (prev === 0 ? null : Math.round(((curr - prev) / prev) * 1000) / 10);
+
+      let peakBucket: SeriesBucket | null = null;
+      for (const s of series) {
+        if (!peakBucket || s.sum > peakBucket.sum) peakBucket = s;
+      }
+      const peakLabel = period === 'day' ? 'Пиковый час' : period === 'year' ? 'Лучший месяц' : 'Лучший день';
+
+      let notSubmittedToday: { count: number; shopNames: string[] } | null = null;
+      if (period === 'day' && dateStr === almatyToday()) {
+        const { data: todayOrders } = await supabase
+          .from('orders')
+          .select('shop_id, status')
+          .eq('order_date', dateStr)
+          .in('shop_id', shopIds);
+        const submittedSet = new Set(
+          (todayOrders || []).filter((o: any) => o.status !== 'draft').map((o: any) => o.shop_id)
+        );
+        const missingShops = (shopRows || []).filter((s: any) => !submittedSet.has(s.id));
+        notSubmittedToday = {
+          count: missingShops.length,
+          shopNames: missingShops.map((s: any) => (s.district || '').trim() || s.address || `Точка №${s.id}`),
+        };
+      }
+
+      const last7Days = await buildLast7Days(shopIds);
+
+      res.json({
+        period,
+        range: current,
+        totals: { qty: totalQty, sum: Math.round(totalSum) },
+        series,
+        categoryBreakdown,
+        topProducts,
+        peak: peakBucket ? { label: peakLabel, bucketLabel: peakBucket.label, qty: peakBucket.qty, sum: peakBucket.sum } : null,
+        notSubmittedToday,
+        comparison: {
+          label: previous.label,
+          qty: prevQty,
+          sum: Math.round(prevSum),
+          deltaQtyPct: pct(totalQty, prevQty),
+          deltaSumPct: pct(totalSum, prevSum),
+        },
+        last7Days,
+      });
+    } catch (e) {
+      console.error('Failed to compute analytics:', e);
+      res.status(500).json({ error: 'Failed to compute analytics' });
+    }
+  });
+
   // Update order status (accept / reject / submitted)
   app.patch('/api/orders/:shopId/status', async (req, res) => {
     try {
