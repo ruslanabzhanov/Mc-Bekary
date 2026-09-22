@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, Wallet, ChevronLeft, ChevronRight, BadgeCheck, HandCoins, Clock,
-  CheckCircle2, XCircle, X, Banknote,
+  CheckCircle2, XCircle, X, Banknote, ClipboardList,
 } from 'lucide-react';
-import { StaffMember, Shift, AdvanceRequest } from '../types';
+import {
+  StaffMember, Shift, AdvanceRequest, CoffeeShop, Product, ShopOrder, ChecklistAssignments,
+  DishCosting, SemiFinishedProduct, RawMaterial,
+} from '../types';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
+import { PrintChecklistsModal, DEPARTMENT_CONFIG, ChecklistDeptKey } from './PrintChecklistsModal';
 
 interface EmployeeViewProps {
   employee: StaffMember | null;
@@ -14,7 +18,31 @@ interface EmployeeViewProps {
   onPickEmployee?: (staffId: string) => void;
   advanceRequests: AdvanceRequest[];
   onSubmitAdvanceRequest: (request: { staffId: string; staffName: string; amount: number; kaspiPhone: string }) => void;
+  // For the read-only «Чек-листы» tile — same data AdminView's own checklist screen uses.
+  shops: CoffeeShop[];
+  products: Product[];
+  orders: Record<number, ShopOrder>;
+  checklistAssignments: ChecklistAssignments;
+  dishCostings: Record<string, DishCosting>;
+  semiFinishedList: SemiFinishedProduct[];
+  rawMaterials: RawMaterial[];
 }
+
+// Best-effort guess at which checklist a position mostly cares about — shown first, but the
+// small department row under the tile lets anyone switch (covering a shift, checking another
+// cex, etc.). Positions with no clean 1:1 fit (a generic helper, or the production manager who
+// already has the full admin view) start on 'bakery' rather than guessing wrong.
+const POSITION_DEPARTMENT: Partial<Record<string, ChecklistDeptKey>> = {
+  'Шеф-пекарь': 'bakery',
+  'Пекарь': 'bakery',
+  'Ночной пекарь': 'bakery',
+  'Кондитер': 'desserts',
+  'Заготовщик бара': 'bar_prep',
+  'Заготовщик кухни': 'kitchen_prep',
+  'Ночной заготовщик кухни': 'kitchen_prep',
+  'Заготовщик полуфабрикатов': 'kitchen_prep',
+};
+const CHECKLIST_DEPT_ORDER: ChecklistDeptKey[] = ['bakery', 'desserts', 'sandwiches', 'bar_prep', 'kitchen_prep', 'new_items'];
 
 const MONTHS = [
   'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -49,6 +77,13 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   onPickEmployee,
   advanceRequests,
   onSubmitAdvanceRequest,
+  shops,
+  products,
+  orders,
+  checklistAssignments,
+  dishCostings,
+  semiFinishedList,
+  rawMaterials,
 }) => {
   const [month, setMonth] = useState<string>(() => monthKey(almatyToday()));
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -56,6 +91,16 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [kaspiPhone, setKaspiPhone] = useState('');
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
+  const [checklistDept, setChecklistDept] = useState<ChecklistDeptKey>(
+    () => (employee?.position && POSITION_DEPARTMENT[employee.position]) || 'bakery'
+  );
+  const [isChecklistOpen, setIsChecklistOpen] = useState(false);
+
+  // Re-guess whenever the viewed person changes (Owner switching preview, or the device's own
+  // employee record — shouldn't change, but keeps this from ever showing a stale guess).
+  useEffect(() => {
+    setChecklistDept((employee?.position && POSITION_DEPARTMENT[employee.position]) || 'bakery');
+  }, [employee?.id]);
 
   const staffId = employee?.id;
 
@@ -212,6 +257,59 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         </div>
         <ChevronRight className="w-5 h-5 text-slate-300 shrink-0" />
       </button>
+
+      {/* Чек-листы — read-only: no settings gear, can't change what's assigned (see
+          onUpdateChecklistAssignments left unset below). */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <button
+          id="btn-open-my-checklist"
+          onClick={() => setIsChecklistOpen(true)}
+          className="w-full p-4 flex items-center justify-between gap-3 hover:bg-indigo-50/40 transition-all"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 shrink-0 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 flex items-center justify-center">
+              <ClipboardList className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="text-sm font-black text-slate-900">Чек-листы</p>
+              <p className="text-xs text-slate-500 truncate">
+                {DEPARTMENT_CONFIG[checklistDept].icon} {DEPARTMENT_CONFIG[checklistDept].shortTitle}
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300 shrink-0" />
+        </button>
+
+        <div className="px-4 pb-3.5 pt-1 flex items-center gap-1.5 overflow-x-auto">
+          {CHECKLIST_DEPT_ORDER.map((key) => (
+            <button
+              key={key}
+              onClick={() => setChecklistDept(key)}
+              title={DEPARTMENT_CONFIG[key].shortTitle}
+              className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-base border transition-colors ${
+                checklistDept === key
+                  ? 'bg-indigo-600 border-indigo-600'
+                  : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              {DEPARTMENT_CONFIG[key].icon}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <PrintChecklistsModal
+        isOpen={isChecklistOpen}
+        onClose={() => setIsChecklistOpen(false)}
+        departmentKey={checklistDept}
+        shops={shops}
+        products={products}
+        orders={orders}
+        checklistAssignments={checklistAssignments}
+        dishCostings={dishCostings}
+        semiFinishedList={semiFinishedList}
+        rawMaterials={rawMaterials}
+      />
 
       {/* Advance request — only for a real employee looking at their own cabinet, not the
           Owner previewing someone else's (see allEmployees on the props). */}

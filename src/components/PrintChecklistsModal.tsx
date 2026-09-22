@@ -4,15 +4,20 @@ import { CoffeeShop, Product, ShopOrder, ChecklistAssignments, DishCosting, Semi
 import { Printer, X, Settings, Plus, Search, ClipboardList, Store, FileSpreadsheet } from 'lucide-react';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
+export type ChecklistDeptKey = 'bakery' | 'desserts' | 'sandwiches' | 'bar_prep' | 'kitchen_prep' | 'new_items';
+
 interface PrintChecklistsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  departmentKey: 'bakery' | 'desserts' | 'sandwiches' | 'bar_prep' | 'kitchen_prep' | 'new_items' | null;
+  departmentKey: ChecklistDeptKey | null;
   shops: CoffeeShop[];
   products: Product[];
   orders: Record<number, ShopOrder>;
   checklistAssignments: ChecklistAssignments;
-  onUpdateChecklistAssignments: (next: ChecklistAssignments) => void;
+  // Omitted entirely (rather than a separate `readOnly` boolean) means "this caller can't edit
+  // assignments" — hides the settings gear and its panel. Used from EmployeeView, where a
+  // plain employee can look at a checklist but must not be able to change what's on it.
+  onUpdateChecklistAssignments?: (next: ChecklistAssignments) => void;
   dishCostings: Record<string, DishCosting>;
   semiFinishedList: SemiFinishedProduct[];
   rawMaterials: RawMaterial[];
@@ -46,7 +51,11 @@ const GROUP_ORDER = [
   'Упаковка и расходники',
 ];
 
-const DEPARTMENT_CONFIG = {
+// Exported so EmployeeView can label its own department picker with the same names/icons
+// instead of duplicating them.
+export const DEPARTMENT_CONFIG: Record<ChecklistDeptKey, {
+  title: string; shortTitle: string; subtitle: string; icon: string; category: string; code: string;
+}> = {
   bakery: {
     title: 'ЦЕХ КРУАССАНОВ И ВЫПЕЧКИ',
     shortTitle: 'Чек-лист Пекарей',
@@ -345,6 +354,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   };
 
   const handleAddToChecklist = (entryId: string) => {
+    if (!onUpdateChecklistAssignments) return;
     onUpdateChecklistAssignments({
       ...checklistAssignments,
       [departmentKey]: [...assignedIds, entryId],
@@ -353,6 +363,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   };
 
   const handleRemoveFromChecklist = (entryId: string) => {
+    if (!onUpdateChecklistAssignments) return;
     onUpdateChecklistAssignments({
       ...checklistAssignments,
       [departmentKey]: assignedIds.filter((id) => id !== entryId),
@@ -394,18 +405,20 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
             </div>
 
             <div className="flex items-center space-x-2">
-              <button
-                id="btn-toggle-checklist-settings"
-                onClick={() => setIsSettingsOpen((v) => !v)}
-                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-                  isSettingsOpen
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900'
-                }`}
-                title="Настройки чек-листа"
-              >
-                <Settings className="w-4.5 h-4.5" />
-              </button>
+              {onUpdateChecklistAssignments && (
+                <button
+                  id="btn-toggle-checklist-settings"
+                  onClick={() => setIsSettingsOpen((v) => !v)}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+                    isSettingsOpen
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900'
+                  }`}
+                  title="Настройки чек-листа"
+                >
+                  <Settings className="w-4.5 h-4.5" />
+                </button>
+              )}
               <button
                 id="btn-close-print-modal"
                 onClick={onClose}

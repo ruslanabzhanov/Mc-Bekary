@@ -1355,6 +1355,13 @@ export default function App() {
               onPickEmployee={isOwnerVerified ? setPreviewEmployeeId : undefined}
               advanceRequests={advanceRequests}
               onSubmitAdvanceRequest={handleSubmitAdvanceRequest}
+              shops={shops}
+              products={products}
+              orders={orders}
+              checklistAssignments={checklistAssignments}
+              dishCostings={dishCostings}
+              semiFinishedList={semiFinishedList}
+              rawMaterials={rawMaterials}
             />
           ) : currentRole === 'admin' || currentRole === 'owner' ? (
             <AdminView
