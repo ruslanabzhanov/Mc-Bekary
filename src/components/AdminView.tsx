@@ -525,7 +525,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <div className="space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {CHECKLIST_DEPTS.map((d) => {
-              const ids = checklistAssignments[d.key] || [];
+              // Считаем только то, что реально попадёт в чек-лист: блюда из каталога и
+              // полуфабрикаты. Коды, которых в каталоге нет, чек-лист всё равно пропускает.
+              const ids = (checklistAssignments[d.key] || []).filter(
+                (id) => id.startsWith('semi:') || productName.has(id)
+              );
               const todayQty = ids.reduce((n, id) => n + (orderedToday.get(id) || 0), 0);
               return (
                 <button

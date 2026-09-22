@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { CoffeeShop, Product, ShopOrder, ChecklistAssignments, DishCosting, SemiFinishedProduct, RawMaterial } from '../types';
-import { Printer, X, Settings, Plus, Search, ClipboardList, Store } from 'lucide-react';
+import { Printer, X, Settings, Plus, Search, ClipboardList, Store, FileSpreadsheet } from 'lucide-react';
 
 interface PrintChecklistsModalProps {
   isOpen: boolean;
@@ -117,22 +117,25 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   // чтобы всё содержимое легло на одну страницу. Вне печати — null, экран не трогаем.
   const [printFit, setPrintFit] = useState<{ width: number; zoom: number } | null>(null);
 
-  // Чек-лист печатается на один лист A3 книжной ориентации. Общий @page в index.css — A3
-  // альбомный (он нужен табелю), поэтому здесь переопределяем его, только пока окно открыто.
+  // Чек-лист печатается на один лист A3 (цеховой — книжный, сводный — альбомный). Общий @page в
+  // index.css переопределяем здесь, только пока окно открыто.
   // Подгонка срабатывает на beforeprint, а не на нашей кнопке, чтобы работала и печать по Ctrl+P.
   useEffect(() => {
     if (!isOpen) return;
+    // Цеховой — книжный: три колонки калькулятора в высоту. Сводный по точкам — альбомный: это
+    // широкая таблица «27 точек × позиции цеха», в книжном её пришлось бы ужать до нечитаемого.
+    const landscape = activeView === 'summary';
     const style = document.createElement('style');
-    style.textContent = '@page { size: A3 portrait; margin: 8mm; }';
+    style.textContent = `@page { size: A3 ${landscape ? 'landscape' : 'portrait'}; margin: 8mm; }`;
     document.head.appendChild(style);
 
     const fitToOnePage = () => {
       const el = printBodyRef.current;
       if (!el) return;
-      // A3 — 297×420 мм, минус поля по 8 мм → 281×404 мм; в CSS 96 px на дюйм.
+      // A3 — 297×420 мм, минус поля по 8 мм → 281×404 мм (в альбомном наоборот); в CSS 96 px на дюйм.
       const mm = 96 / 25.4;
-      const pageW = 281 * mm;
-      const pageH = 404 * mm;
+      const pageW = (landscape ? 404 : 281) * mm;
+      const pageH = (landscape ? 281 : 404) * mm;
       // Уменьшая лист в z раз, верстаем его во столько же раз шире — так после уменьшения он
       // ровно во всю ширину бумаги. Шире вёрстка — меньше переносов и ниже таблица, поэтому
       // «влезает ли при таком z» проверяем настоящим замером, а наибольший подходящий z ищем
@@ -167,7 +170,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
       window.removeEventListener('afterprint', reset);
       style.remove();
     };
-  }, [isOpen]);
+  }, [isOpen, activeView]);
 
   if (!isOpen || !departmentKey) return null;
 
@@ -318,6 +321,24 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
 
   const handlePrint = () => {
     window.print();
+  };
+
+  // Файл собирает сервер по тем же правилам, что эта таблица. Внутри Telegram скачать можно только
+  // файл по настоящему адресу — сгенерированный на странице не сохранится.
+  const handleDownloadSummaryExcel = () => {
+    const url = `${window.location.origin}/api/checklists/${departmentKey}/summary.xlsx`;
+    const fileName = `Сводный чек-лист — ${dept.shortTitle}.xlsx`;
+    const tg = (window as any).Telegram?.WebApp;
+    if (typeof tg?.downloadFile === 'function') {
+      tg.downloadFile({ url, file_name: fileName });
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
   const handleAddToChecklist = (entryId: string) => {
@@ -509,14 +530,28 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
             </button>
           </div>
 
-          <button
-            id="btn-trigger-print"
-            onClick={handlePrint}
-            className="w-full flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-3.5 rounded-lg text-sm uppercase tracking-wider shadow-sm animate-pulse-glow hover:animate-none hover:scale-[1.01] active:scale-[0.99] transition-transform"
-          >
-            <Printer className="w-5 h-5 text-white" />
-            <span>Распечатать {activeView === 'production' ? 'цеховой' : 'сводный'} чек-лист</span>
-          </button>
+          <div className={activeView === 'summary' ? 'grid grid-cols-2 gap-2' : ''}>
+            <button
+              id="btn-trigger-print"
+              onClick={handlePrint}
+              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-3.5 rounded-lg text-sm uppercase tracking-wider shadow-sm animate-pulse-glow hover:animate-none hover:scale-[1.01] active:scale-[0.99] transition-transform"
+            >
+              <Printer className="w-5 h-5 text-white shrink-0" />
+              <span>
+                {activeView === 'production' ? 'Распечатать цеховой чек-лист' : 'Распечатать'}
+              </span>
+            </button>
+            {activeView === 'summary' && (
+              <button
+                id="btn-download-summary-excel"
+                onClick={handleDownloadSummaryExcel}
+                className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-3.5 rounded-lg text-sm uppercase tracking-wider shadow-sm transition-all"
+              >
+                <FileSpreadsheet className="w-5 h-5 text-white shrink-0" />
+                <span>Скачать Excel</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* PRINTABLE BODY CONTENT */}
@@ -757,7 +792,13 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
               Чек-лист распределения и фасовки по 27 точкам:
             </h3>
 
-            <div className="border border-slate-200 print:border-slate-400 rounded-lg overflow-hidden">
+            {/* На экране широкая таблица прокручивается вбок, а не обрезается. На время подгонки к
+                печати прокрутку снимаем — иначе замер не увидел бы, что таблица шире листа. */}
+            <div
+              className={`border border-slate-200 print:border-slate-400 rounded-lg print:overflow-visible ${
+                printFit ? 'overflow-visible' : 'overflow-x-auto'
+              }`}
+            >
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 print:border-slate-400 uppercase text-[10px] tracking-wider">
                   <tr>

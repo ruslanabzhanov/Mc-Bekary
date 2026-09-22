@@ -1504,6 +1504,154 @@ export function createApiApp() {
     }
   });
 
+  // Сводный чек-лист цеха «по точкам» файлом Excel — та же таблица, что на экране: заявки на
+  // сегодня (отправленные и принятые), блюда цеха из настроек чек-листа, которые хоть кто-то
+  // заказал, все 27 точек. Лист сразу настроен печататься на один A3 альбомный.
+  const CHECKLIST_DEPT_LABELS: Record<string, string> = {
+    bakery: 'Цех круассанов и выпечки',
+    sandwiches: 'Цех сэндвичей и завтраков',
+    desserts: 'Кондитерский цех (десерты)',
+    bar_prep: 'Цех заготовок бара',
+    kitchen_prep: 'Цех заготовок кухни',
+    new_items: 'Цех новинок (колд-брю)',
+  };
+  app.get('/api/checklists/:dept/summary.xlsx', async (req, res) => {
+    try {
+      const dept = String(req.params.dept);
+      const deptLabel = CHECKLIST_DEPT_LABELS[dept];
+      if (!deptLabel) return res.status(404).json({ error: 'Нет такого цеха' });
+      const today = almatyToday();
+      const [shopsR, productsR, ordersR, assignR] = await Promise.all([
+        supabase.from('shops').select('*'),
+        supabase.from('products').select('*'),
+        supabase.from('orders').select('*').eq('order_date', today),
+        supabase.from('checklist_assignments').select('*').eq('department_key', dept).maybeSingle(),
+      ]);
+      for (const r of [shopsR, productsR, ordersR, assignR]) if (r.error) throw r.error;
+
+      const shops = (shopsR.data || []).map(shopFromDb);
+      const productById = new Map((productsR.data || []).map((r: any) => [r.id, productFromDb(r)]));
+      const itemsByShop = new Map<number, Record<string, number>>();
+      (ordersR.data || []).map(orderFromDb).forEach((o: any) => {
+        if (o.status === 'submitted' || o.status === 'accepted') itemsByShop.set(o.shopId, o.items || {});
+      });
+      const qty = (shopId: number, pid: string) => Number(itemsByShop.get(shopId)?.[pid]) || 0;
+      const assigned: string[] = ((assignR.data as any)?.product_ids || []).filter((id: string) => !id.startsWith('semi:'));
+      const deptProducts = assigned
+        .map((id) => productById.get(id))
+        .filter((p: any) => p && shops.some((s: any) => qty(s.id, p.id) > 0)) as any[];
+      const productTotal = (pid: string) => shops.reduce((n: number, s: any) => n + qty(s.id, pid), 0);
+      const shopTotal = (shopId: number) => deptProducts.reduce((n, p) => n + qty(shopId, p.id), 0);
+      const grandTotal = deptProducts.reduce((n, p) => n + productTotal(p.id), 0);
+      const dateRu = new Date(`${today}T12:00:00+05:00`).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' });
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Master Bakery';
+      const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F1F3' } };
+      const thin: Partial<ExcelJS.Borders> = {
+        top: { style: 'thin', color: { argb: 'FF94A3B8' } }, left: { style: 'thin', color: { argb: 'FF94A3B8' } },
+        bottom: { style: 'thin', color: { argb: 'FF94A3B8' } }, right: { style: 'thin', color: { argb: 'FF94A3B8' } },
+      };
+      const boxRow = (row: ExcelJS.Row, from: number, to: number) => {
+        for (let c = from; c <= to; c++) row.getCell(c).border = thin;
+      };
+
+      // --- Лист 1: по точкам ---
+      const ws = wb.addWorksheet('По точкам', {
+        pageSetup: {
+          // В Excel A3 — код 8; в перечислении типов ExcelJS его нет, хотя сам формат его знает.
+          paperSize: 8 as unknown as ExcelJS.PaperSize,
+          orientation: 'landscape',
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 1,
+          margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+        },
+      });
+      const lastCol = 4 + deptProducts.length + 2;
+      ws.addRow([`${deptLabel} — сводный чек-лист по точкам`]).font = { bold: true, size: 14 };
+      ws.addRow([`Дата: ${dateRu} · заявок учтено: ${itemsByShop.size} · всего к выпуску: ${grandTotal} шт`]);
+      ws.addRow([]);
+      const head = ws.addRow(['№', 'Точка', 'Адрес', 'Менеджер', ...deptProducts.map((p) => p.name), 'Итого', 'Отметка цеха']);
+      head.font = { bold: true };
+      head.height = 42;
+      head.eachCell((c) => {
+        c.fill = headerFill;
+        c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      });
+      boxRow(head, 1, lastCol);
+      shops.forEach((s: any) => {
+        const address = String(s.name || '').replace(`Кофейня №${s.id} — `, '') || s.address;
+        const row = ws.addRow([
+          `#${s.id}`,
+          (s.district || '').trim(),
+          address,
+          s.manager || '',
+          ...deptProducts.map((p) => qty(s.id, p.id) || null),
+          shopTotal(s.id) || null,
+          '',
+        ]);
+        row.getCell(4 + deptProducts.length + 1).font = { bold: true };
+        for (let c = 5; c <= lastCol; c++) row.getCell(c).alignment = { horizontal: 'center' };
+        boxRow(row, 1, lastCol);
+      });
+      const foot = ws.addRow(['', 'ИТОГО К ВЫПУСКУ', '', '', ...deptProducts.map((p) => productTotal(p.id)), grandTotal, 'Подпись']);
+      foot.font = { bold: true };
+      foot.eachCell((c) => { c.fill = headerFill; });
+      for (let c = 5; c <= lastCol; c++) foot.getCell(c).alignment = { horizontal: 'center' };
+      boxRow(foot, 1, lastCol);
+      ws.addRow([]);
+      ws.addRow(['', 'Начальник цеха: ____________________', '', '', 'Экспедитор / фасовка: ____________________']);
+      ws.views = [{ state: 'frozen', xSplit: 2, ySplit: 4 }];
+      ws.getColumn(1).width = 6;
+      ws.getColumn(2).width = 22;
+      ws.getColumn(3).width = 34;
+      ws.getColumn(4).width = 18;
+      for (let c = 5; c <= 4 + deptProducts.length; c++) ws.getColumn(c).width = 13;
+      ws.getColumn(4 + deptProducts.length + 1).width = 10;
+      ws.getColumn(lastCol).width = 12;
+      ws.pageSetup.printTitlesRow = '4:4';
+
+      // --- Лист 2: сводная потребность по позициям ---
+      const need = wb.addWorksheet('Сводная потребность', {
+        pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+      });
+      need.addRow([`${deptLabel} — сводная потребность`]).font = { bold: true, size: 14 };
+      need.addRow([`Дата: ${dateRu}`]);
+      need.addRow([]);
+      const nh = need.addRow(['№', 'Наименование', 'Вес', 'Срок годности', 'Количество', 'Ед.']);
+      nh.font = { bold: true };
+      nh.eachCell((c) => { c.fill = headerFill; });
+      boxRow(nh, 1, 6);
+      deptProducts.forEach((p, i) => {
+        const r = need.addRow([i + 1, p.name, p.unitWeight || '', p.shelfLife || '', productTotal(p.id), p.unit || 'шт']);
+        r.getCell(5).font = { bold: true };
+        boxRow(r, 1, 6);
+      });
+      const nf = need.addRow(['', 'Итого', '', '', grandTotal, '']);
+      nf.font = { bold: true };
+      boxRow(nf, 1, 6);
+      need.getColumn(1).width = 6;
+      need.getColumn(2).width = 40;
+      need.getColumn(3).width = 12;
+      need.getColumn(4).width = 16;
+      need.getColumn(5).width = 14;
+      need.getColumn(6).width = 8;
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const fileName = `Сводный чек-лист — ${deptLabel} — ${dateRu}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="checklist-${dept}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+      );
+      res.send(Buffer.from(buffer as ArrayBuffer));
+    } catch (e) {
+      console.error('Failed to export checklist summary:', e);
+      res.status(500).json({ error: 'Не удалось собрать файл' });
+    }
+  });
+
   // Результаты голосования одним файлом Excel. Собирается на сервере, а не в браузере: в
   // Telegram скачать файл, сгенерированный на странице, нельзя — нужен настоящий адрес, как у QR.
   // Считается тем же способом, что и экран аналитики, чтобы цифры в файле и на экране совпадали.
