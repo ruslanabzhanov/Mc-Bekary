@@ -228,6 +228,7 @@ export const advanceRequestFromDb = (r: any) => ({
   kaspiPhone: r.kaspi_phone,
   status: r.status || 'pending',
   submittedAt: r.submitted_at,
+  createdAt: r.created_at || undefined,
 });
 export const advanceRequestToDb = (r: any) => ({
   id: r.id,

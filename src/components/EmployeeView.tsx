@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Wallet, ChevronLeft, ChevronRight, BadgeCheck, HandCoins, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import {
+  CalendarDays, Wallet, ChevronLeft, ChevronRight, BadgeCheck, HandCoins, Clock,
+  CheckCircle2, XCircle, X, Banknote,
+} from 'lucide-react';
 import { StaffMember, Shift, AdvanceRequest } from '../types';
+import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface EmployeeViewProps {
   employee: StaffMember | null;
@@ -32,6 +36,12 @@ const formatDay = (iso: string) => {
 
 const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const weekdayOf = (iso: string) => WEEKDAYS[new Date(`${iso}T12:00:00+05:00`).getDay()];
+// Monday-first index (0=пн…6=вс), for laying the calendar grid out the way a Russian wall
+// calendar reads, not the JS/Intl default of Sunday-first.
+const mondayIndexOf = (iso: string) => (WEEKDAYS.indexOf(weekdayOf(iso)) + 6) % 7;
+const WEEKDAY_HEADERS = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'];
+
+const daysInMonth = (year: number, month1: number) => new Date(Date.UTC(year, month1, 0)).getUTCDate();
 
 export const EmployeeView: React.FC<EmployeeViewProps> = ({
   employee,
@@ -45,6 +55,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [kaspiPhone, setKaspiPhone] = useState('');
+  const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
 
   const staffId = employee?.id;
 
@@ -77,6 +88,12 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
     [shifts]
   );
 
+  const shiftByDate = useMemo(() => {
+    const m = new Map<string, Shift>();
+    shifts.forEach((s) => m.set(s.workDate, s));
+    return m;
+  }, [shifts]);
+
   // Kaspi number defaults to whatever's on file, but stays editable — a payout number isn't
   // always the same as the contact number registration captured.
   useEffect(() => {
@@ -92,6 +109,18 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   );
   const pendingAdvance = myAdvanceRequests.find((r) => r.status === 'pending');
   const lastDecidedAdvance = myAdvanceRequests.find((r) => r.status !== 'pending');
+
+  // What was actually paid out ahead of time for the month currently open in the tile — only
+  // createdAt (a real timestamp) can say which month an advance belongs to; submittedAt is just
+  // an "HH:MM" string with no date.
+  const advanceTakenThisMonth = useMemo(
+    () =>
+      myAdvanceRequests
+        .filter((r) => r.status === 'approved' && r.createdAt && monthKey(r.createdAt) === month)
+        .reduce((sum, r) => sum + r.amount, 0),
+    [myAdvanceRequests, month]
+  );
+  const netPayout = earned - advanceTakenThisMonth;
 
   const handleAdvanceSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,6 +138,9 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
 
   const [yearNum, monthNum] = month.split('-').map(Number);
   const isCurrentMonth = month === monthKey(almatyToday());
+  const today = almatyToday();
+
+  useTelegramBackButton(isTimesheetOpen, () => setIsTimesheetOpen(false));
 
   if (!employee) {
     return (
@@ -120,6 +152,10 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
       </div>
     );
   }
+
+  const dayCount = daysInMonth(yearNum, monthNum);
+  const monthDayIso = (d: number) => `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const leadingBlanks = mondayIndexOf(monthDayIso(1));
 
   return (
     <div className="space-y-5 pb-10">
@@ -157,106 +193,25 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         )}
       </div>
 
-      {/* Month picker */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs flex items-center justify-between gap-2">
-        <button
-          onClick={() => shiftMonth(-1)}
-          className="w-11 h-11 shrink-0 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 flex items-center justify-center transition-colors"
-          aria-label="Предыдущий месяц"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <div className="text-center min-w-0">
-          <p className="text-sm font-extrabold text-slate-900 truncate">
-            {MONTHS[monthNum - 1]} {yearNum}
-          </p>
-          {isCurrentMonth && (
-            <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 mt-0.5">
-              текущий месяц
+      {/* Табель — a tile, not the report itself; tapping it opens the calendar below. */}
+      <button
+        id="btn-open-my-timesheet"
+        onClick={() => setIsTimesheetOpen(true)}
+        className="w-full bg-white rounded-2xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40 transition-all shadow-xs p-4 flex items-center justify-between gap-3"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-11 h-11 shrink-0 rounded-xl bg-teal-50 border border-teal-100 text-teal-700 flex items-center justify-center">
+            <CalendarDays className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 text-left">
+            <p className="text-sm font-black text-slate-900">Табель</p>
+            <p className="text-xs text-slate-500 truncate">
+              {isLoading ? 'Загружаем…' : `${shiftCount} ${shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен'} · ${formatMoney(earned)}`}
             </p>
-          )}
-        </div>
-        <button
-          onClick={() => shiftMonth(1)}
-          disabled={isCurrentMonth}
-          className="w-11 h-11 shrink-0 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 border border-slate-200 text-slate-700 flex items-center justify-center transition-colors"
-          aria-label="Следующий месяц"
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* The two numbers this screen exists for */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
-          <div className="flex items-center gap-1.5 text-slate-400 mb-1.5">
-            <CalendarDays className="w-3.5 h-3.5" />
-            <span className="text-[10px] font-black uppercase tracking-wider">Отработано</span>
           </div>
-          <p className="text-3xl font-black text-slate-900 tabular-nums leading-none">
-            {shiftCount}
-          </p>
-          <p className="text-xs text-slate-500 mt-1.5">
-            {shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен'}
-          </p>
         </div>
-
-        <div className="bg-emerald-50/70 rounded-2xl border border-emerald-200 p-4 shadow-xs">
-          <div className="flex items-center gap-1.5 text-emerald-700/70 mb-1.5">
-            <Wallet className="w-3.5 h-3.5" />
-            <span className="text-[10px] font-black uppercase tracking-wider">Заработано</span>
-          </div>
-          <p className="text-2xl font-black text-emerald-900 tabular-nums leading-none break-all">
-            {formatMoney(earned)}
-          </p>
-          <p className="text-xs text-emerald-700/80 mt-1.5">за месяц</p>
-        </div>
-      </div>
-
-      {/* Day by day */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-        <div className="px-4 py-3 border-b border-slate-100">
-          <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">
-            Смены по дням
-          </h3>
-        </div>
-
-        {isLoading ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-400">Загружаем…</p>
-        ) : shifts.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-400">
-            В этом месяце смен пока нет
-          </p>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {shifts.map((s) => (
-              <div key={s.id} className="px-4 py-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900 tabular-nums">
-                    {formatDay(s.workDate)}
-                    <span className="ml-2 text-xs font-medium text-slate-400">
-                      {weekdayOf(s.workDate)}
-                    </span>
-                  </p>
-                  {s.note && <p className="text-xs text-slate-500 mt-0.5">{s.note}</p>}
-                </div>
-                <p className="text-sm font-black text-slate-900 tabular-nums whitespace-nowrap">
-                  {formatMoney(s.rate)}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {shifts.length > 0 && (
-          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-            <span className="text-xs font-black uppercase tracking-wider text-slate-500">Итого</span>
-            <span className="text-base font-black text-slate-900 tabular-nums">
-              {formatMoney(earned)}
-            </span>
-          </div>
-        )}
-      </div>
+        <ChevronRight className="w-5 h-5 text-slate-300 shrink-0" />
+      </button>
 
       {/* Advance request — only for a real employee looking at their own cabinet, not the
           Owner previewing someone else's (see allEmployees on the props). */}
@@ -342,6 +297,191 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
       <p className="text-xs text-slate-400 text-center px-4">
         Табель ведёт управляющий. Если в нём чего-то не хватает — скажите ему.
       </p>
+
+      {/* TIMESHEET FULLSCREEN WINDOW */}
+      {isTimesheetOpen && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-teal-600" />
+              <span>Табель</span>
+            </h2>
+            <button
+              onClick={() => setIsTimesheetOpen(false)}
+              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6 max-w-md mx-auto space-y-4">
+            {/* Month picker */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs flex items-center justify-between gap-2">
+              <button
+                onClick={() => shiftMonth(-1)}
+                className="w-11 h-11 shrink-0 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 flex items-center justify-center transition-colors"
+                aria-label="Предыдущий месяц"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <div className="text-center min-w-0">
+                <p className="text-sm font-extrabold text-slate-900 truncate">
+                  {MONTHS[monthNum - 1]} {yearNum}
+                </p>
+                {isCurrentMonth && (
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 mt-0.5">
+                    текущий месяц
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => shiftMonth(1)}
+                disabled={isCurrentMonth}
+                className="w-11 h-11 shrink-0 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 border border-slate-200 text-slate-700 flex items-center justify-center transition-colors"
+                aria-label="Следующий месяц"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* The numbers this screen exists for */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                <div className="flex items-center gap-1.5 text-slate-400 mb-1.5">
+                  <Banknote className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">Ставка/день</span>
+                </div>
+                <p className="text-xl font-black text-slate-900 tabular-nums leading-none">
+                  {employee.shiftRate ? formatMoney(employee.shiftRate) : '—'}
+                </p>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                <div className="flex items-center gap-1.5 text-slate-400 mb-1.5">
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">Отработано</span>
+                </div>
+                <p className="text-xl font-black text-slate-900 tabular-nums leading-none">
+                  {shiftCount} {shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен'}
+                </p>
+              </div>
+
+              <div className="bg-amber-50/70 rounded-2xl border border-amber-200 p-4 shadow-xs">
+                <div className="flex items-center gap-1.5 text-amber-700/70 mb-1.5">
+                  <HandCoins className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">Аванс</span>
+                </div>
+                <p className="text-xl font-black text-amber-900 tabular-nums leading-none break-all">
+                  {advanceTakenThisMonth > 0 ? formatMoney(advanceTakenThisMonth) : '—'}
+                </p>
+              </div>
+
+              <div className="bg-emerald-50/70 rounded-2xl border border-emerald-200 p-4 shadow-xs">
+                <div className="flex items-center gap-1.5 text-emerald-700/70 mb-1.5">
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">К выплате</span>
+                </div>
+                <p className={`text-xl font-black tabular-nums leading-none break-all ${netPayout < 0 ? 'text-rose-700' : 'text-emerald-900'}`}>
+                  {formatMoney(netPayout)}
+                </p>
+              </div>
+            </div>
+
+            {/* Calendar */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+              <div className="grid grid-cols-7 gap-1.5 mb-1.5">
+                {WEEKDAY_HEADERS.map((w) => (
+                  <div key={w} className="text-center text-[10px] font-black text-slate-400">
+                    {w}
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-1.5">
+                {Array.from({ length: leadingBlanks }).map((_, i) => (
+                  <div key={`blank-${i}`} />
+                ))}
+                {Array.from({ length: dayCount }, (_, i) => i + 1).map((d) => {
+                  const iso = monthDayIso(d);
+                  const shift = shiftByDate.get(iso);
+                  const worked = !!shift;
+                  const wd = weekdayOf(iso);
+                  const isWeekend = wd === 'вс' || wd === 'сб';
+                  const isToday = iso === today;
+                  const cellCls = worked
+                    ? 'bg-emerald-500 text-white'
+                    : isWeekend
+                    ? 'bg-amber-300 text-amber-900'
+                    : 'bg-slate-100 text-slate-500';
+                  return (
+                    <div
+                      key={iso}
+                      title={worked ? `${formatDay(iso)} — ${formatMoney(shift!.rate)}` : formatDay(iso)}
+                      className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold tabular-nums ${cellCls} ${isToday ? 'ring-2 ring-indigo-500 ring-offset-1' : ''}`}
+                    >
+                      {d}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded bg-emerald-500 inline-block" /> отработано
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded bg-amber-300 inline-block" /> выходной
+                </span>
+              </div>
+            </div>
+
+            {/* Day by day, for anyone who wants the detail behind the calendar */}
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+              <div className="px-4 py-3 border-b border-slate-100">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">
+                  Смены по дням
+                </h3>
+              </div>
+
+              {isLoading ? (
+                <p className="px-4 py-8 text-center text-sm text-slate-400">Загружаем…</p>
+              ) : shifts.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-slate-400">
+                  В этом месяце смен пока нет
+                </p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {[...shifts]
+                    .sort((a, b) => a.workDate.localeCompare(b.workDate))
+                    .map((s) => (
+                      <div key={s.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-900 tabular-nums">
+                            {formatDay(s.workDate)}
+                            <span className="ml-2 text-xs font-medium text-slate-400">
+                              {weekdayOf(s.workDate)}
+                            </span>
+                          </p>
+                          {s.note && <p className="text-xs text-slate-500 mt-0.5">{s.note}</p>}
+                        </div>
+                        <p className="text-sm font-black text-slate-900 tabular-nums whitespace-nowrap">
+                          {formatMoney(s.rate)}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {shifts.length > 0 && (
+                <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-500">Итого</span>
+                  <span className="text-base font-black text-slate-900 tabular-nums">
+                    {formatMoney(earned)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

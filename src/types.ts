@@ -209,6 +209,8 @@ export interface AdvanceRequest {
   kaspiPhone: string;
   status: AdvanceRequestStatus;
   submittedAt: string; // HH:MM, Kazakhstan time — same convention as RegistrationRequest
+  createdAt?: string; // full ISO timestamp (DB's created_at) — submittedAt alone has no date,
+  // so this is what lets an approved advance be attributed to a calendar month (see EmployeeView)
 }
 
 export type DishPollStatus = 'active' | 'closed';
