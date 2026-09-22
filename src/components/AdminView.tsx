@@ -202,6 +202,28 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }))
     .sort((a, b) => b.qty - a.qty);
   const notInCatalogShops = [...new Set(notInCatalogToday.flatMap((m) => m.shops))];
+  // Кто именно отправил такие заявки и как с ним связаться — чтобы было кому позвонить.
+  const notInCatalogSenders = shops
+    .filter((s) => {
+      const o = orders[s.id];
+      return (
+        o &&
+        (o.status === 'submitted' || o.status === 'accepted') &&
+        Object.keys(o.items || {}).some((pid) => !productName.has(pid) && (Number(o.items[pid]) || 0) > 0)
+      );
+    })
+    .map((s) => {
+      const o = orders[s.id];
+      const person = staff.find((m) => m.shopId === s.id && m.name === o.managerName);
+      return {
+        shopId: s.id,
+        shop: s.district?.trim() || s.address,
+        who: o.managerName || 'имя не указано',
+        at: o.submittedAt,
+        phone: person?.phone,
+        accepted: o.status === 'accepted',
+      };
+    });
   const inSeveralChecklists = [...orderedToday.keys()]
     .filter((pid) => productName.has(pid) && deptsOf(pid).length > 1)
     .map((pid) => ({ id: pid, name: productName.get(pid), depts: deptsOf(pid) }));
@@ -552,6 +574,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {notInCatalogToday.reduce((n, m) => n + m.qty, 0)} шт
                 {notInCatalogShops.length > 0 && <> — заказала {notInCatalogShops.length === 1 ? 'точка' : 'точки'} {notInCatalogShops.join(', ')}</>}
               </p>
+              {notInCatalogSenders.map((s) => (
+                <p key={s.shopId} className="bg-white/70 border border-orange-200 rounded-lg px-2.5 py-1.5">
+                  Отправил(а): <b>{s.who}</b> ({s.shop}){s.at && <> в {s.at}</>}
+                  {s.phone && (
+                    <>
+                      {' '}· <a href={`tel:+${s.phone.replace(/\D/g, '')}`} className="underline font-bold">+{s.phone.replace(/\D/g, '')}</a>
+                    </>
+                  )}
+                  {s.accepted && <> · <b>заявка уже принята</b></>}
+                </p>
+              ))}
               <p className="text-[11px] text-orange-800">
                 Это позиции из старого демонстрационного списка, встроенного в приложение: у точки не загрузился
                 ваш каталог, и она собрала заявку по нему. Ни в один цех они не попадут — уточните у точки, что
