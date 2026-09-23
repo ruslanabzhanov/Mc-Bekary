@@ -173,7 +173,11 @@ const DISH_POLL_BOT_USERNAME = 'Master_Bekarybot';
 
 // A point's order has just gone in. Nobody was told about this before — supervision had to
 // open the app and look, and the point's other staff had no way to know it was already done.
-async function notifyOrderSubmitted(shopId: number, order: any) {
+// `reopenedFrom` is set when this submission replaces an order supervision had *already
+// accepted* — the point edited it after the fact, which silently reset it back to "submitted"
+// with nothing telling supervision to look again. When set, supervisors get a sharper message
+// naming exactly what changed instead of the ordinary "new order" one.
+async function notifyOrderSubmitted(shopId: number, order: any, reopenedFrom?: Record<string, any>) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) return;
 
@@ -183,9 +187,18 @@ async function notifyOrderSubmitted(shopId: number, order: any) {
   const size = await orderSizeLabel(order);
 
   const send = makeSender(botToken, WEB_APP_URL);
-  const supervisorText =
+  let supervisorText =
     `📥 <b>Заявка подана</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}\n\n` +
     `Принять или отклонить — в «Реестре заявок».`;
+  if (reopenedFrom) {
+    const { data: productRows } = await supabase.from('products').select('id, name');
+    const nameById = new Map<string, string>((productRows || []).map((r: any) => [r.id, r.name]));
+    const changes = describeOrderChanges(reopenedFrom, order.items || {}, nameById);
+    supervisorText =
+      `♻️ <b>Уже принятую заявку изменили</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}` +
+      (changes ? `\n\n✏️ <b>Что изменилось:</b>\n${changes}` : '') +
+      `\n\nПринятие снято — нужна повторная проверка в «Реестре заявок».`;
+  }
   const teamText =
     `📥 <b>Заявка вашей точки подана</b>\n\n🏪 ${shopLabel}\n👤 ${order.managerName || '—'}\n📦 ${size}\n\n` +
     `Ждём решения управляющего производством.`;
@@ -2132,7 +2145,8 @@ export function createApiApp() {
       // After the response: supervision needs to know there's something to decide on, and the
       // point's other staff need to know it's already been sent so nobody sends it twice.
       if (status === 'submitted') {
-        notifyOrderSubmitted(shopId, order).catch((e) =>
+        const reopenedFrom = existingOrder?.status === 'accepted' ? existingOrder.items : undefined;
+        notifyOrderSubmitted(shopId, order, reopenedFrom).catch((e) =>
           console.error(`Failed to notify about submitted order for shop ${shopId}:`, e)
         );
       }

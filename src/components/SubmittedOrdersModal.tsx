@@ -12,7 +12,8 @@ import {
   PackageSearch,
   Trash2,
   Calendar,
-  Loader2
+  Loader2,
+  RotateCcw
 } from 'lucide-react';
 import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole, RolePermissions } from '../types';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
@@ -41,6 +42,18 @@ const STATUS_BADGE: Record<'accepted' | 'submitted' | 'rejected' | 'draft', { la
   rejected: { label: 'Отклонена', className: 'bg-rose-100 text-rose-700 border border-rose-200' },
   draft: { label: 'Не подана', className: 'bg-slate-100 text-slate-600 border border-slate-200' }
 };
+
+// A point can edit and resend an order that's already been accepted — the status correctly
+// drops back to "submitted" so nobody trusts a stale approval on now-different contents, but
+// on its own that looks identical to an order that was simply never reviewed yet. Both
+// timestamps are plain "HH:MM" for today, so a later submittedAt than acceptedAt is exactly
+// this case — flagged here so it stands out in the registry instead of quietly blending in.
+const wasReopenedAfterAcceptance = (order?: ShopOrder): boolean =>
+  !!order &&
+  order.status === 'submitted' &&
+  !!order.acceptedAt &&
+  !!order.submittedAt &&
+  order.submittedAt > order.acceptedAt;
 
 export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   isOpen,
@@ -327,6 +340,13 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                 )}
               </div>
 
+              {wasReopenedAfterAcceptance(detailOrder) && (
+                <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1.5 text-xs font-bold">
+                  <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                  <span>Точка изменила заявку после принятия — нужна повторная проверка</span>
+                </div>
+              )}
+
               {detailLines.length === 0 ? (
                 <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-300">
                   <PackageSearch className="w-7 h-7 text-slate-400 mx-auto mb-2" />
@@ -427,6 +447,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                   const order = displayOrders[shop.id];
                   const status = order?.status || 'draft';
                   const badge = STATUS_BADGE[status];
+                  const reopened = wasReopenedAfterAcceptance(order);
                   const { pcs, sum } = getOrderSummary(order);
                   const cleanShopName = shop.name.replace(`Кофейня №${shop.id} — `, '');
 
@@ -434,7 +455,11 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                     <div
                       key={shop.id}
                       onClick={() => setDetailShopId(shop.id)}
-                      className="p-3 rounded-lg border border-slate-200 bg-white space-y-2.5 cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors"
+                      className={`p-3 rounded-lg border bg-white space-y-2.5 cursor-pointer transition-colors ${
+                        reopened
+                          ? 'border-emerald-400 ring-1 ring-emerald-300 hover:bg-emerald-50/40'
+                          : 'border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30'
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center space-x-2.5 min-w-0">
@@ -450,6 +475,13 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                           {badge.label}
                         </span>
                       </div>
+
+                      {reopened && (
+                        <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1.5 text-[11px] font-bold">
+                          <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                          <span>Изменена после принятия — нужна повторная проверка</span>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
@@ -554,6 +586,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                       const order = displayOrders[shop.id];
                       const status = order?.status || 'draft';
                       const badge = STATUS_BADGE[status];
+                      const reopened = wasReopenedAfterAcceptance(order);
                       const { pcs, sum } = getOrderSummary(order);
                       const cleanShopName = shop.name.replace(`Кофейня №${shop.id} — `, '');
 
@@ -561,7 +594,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                         <tr
                           key={shop.id}
                           onClick={() => setDetailShopId(shop.id)}
-                          className="hover:bg-slate-50 cursor-pointer"
+                          className={`cursor-pointer ${reopened ? 'bg-emerald-50/60 hover:bg-emerald-50' : 'hover:bg-slate-50'}`}
                         >
                           <td className="py-2.5 px-3">
                             <div className="flex items-center space-x-2">
@@ -604,6 +637,14 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                               <span className={`px-2 py-1 rounded text-[10px] font-bold ${badge.className}`}>
                                 {badge.label}
                               </span>
+                              {reopened && (
+                                <span
+                                  title="Изменена после принятия — нужна повторная проверка"
+                                  className="flex items-center gap-1 px-1.5 py-1 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                </span>
+                              )}
                               {status === 'accepted' && canManage && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'rejected'); }}
