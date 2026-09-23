@@ -485,6 +485,41 @@ export default function App() {
             if (!confirmedOwner) {
               setCurrentRole((role) => (role === 'owner' ? 'manager' : role));
             }
+            // Self-heal a device that's stuck showing the wrong identity — this is exactly how
+            // one production manager ended up permanently seeing a shop's ordering screen: his
+            // device still had an old registration id cached from before he'd re-registered
+            // elsewhere, that old request's row happened to still say "approved" (its own staff
+            // record had since been deleted as a duplicate, but the request row wasn't), and
+            // RegistrationGate trusted it once and locked the device into that wrong shop —
+            // silently, with nothing to undo it afterwards. Scoped to a device that's currently
+            // showing the plain "manager" default/grandfathered state (never admin/territorial/
+            // employee, and never the Owner, checked above) — those already have a deliberate
+            // path to their identity and shouldn't be reassigned out from under someone using
+            // the shared PIN or a preview.
+            if (!confirmedOwner && currentRole === 'manager') {
+              fetch('/api/registration/recognize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ initData: tg.initData }),
+              })
+                .then((r) => r.json())
+                .then((rec) => {
+                  const staff = rec?.staff;
+                  // Only act when this device's real Telegram identity resolves to a *different*
+                  // staff record than whatever is currently cached — a correctly-configured shop
+                  // device (or one that simply never registered) is left alone.
+                  if (staff && staff.id !== myStaffId) {
+                    grantAccess({
+                      staffId: staff.id,
+                      role: staff.role,
+                      shopId: staff.shopId ?? null,
+                      assignedShopIds: staff.assignedShopIds,
+                      position: staff.position,
+                    });
+                  }
+                })
+                .catch((e) => console.error('Failed to self-check Telegram identity:', e));
+            }
           })
           .catch((e) => console.error('Failed to verify Telegram owner:', e));
         return;
