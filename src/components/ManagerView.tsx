@@ -17,7 +17,8 @@ import {
   Zap,
   TrendingUp,
   Info,
-  History
+  History,
+  Lock
 } from 'lucide-react';
 import { OrderHistoryModal } from './OrderHistoryModal';
 
@@ -175,6 +176,20 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   // Shop notifications for this shop
   const shopNotifications = notifications.filter((n) => n.shopId === selectedShopId);
 
+  // Once a point sends its order in, only the production manager or Owner may change it from
+  // here on — a point editing it themselves is exactly what used to silently drop an already
+  // accepted order back to "submitted" with no explanation. Draft is still freely editable;
+  // that's normal ordering, nothing has been sent to anyone yet.
+  const isLocked = currentOrder.status !== 'draft';
+  const submittedLines = Object.entries(shopOrderItems)
+    .map(([pId, qtyVal]) => {
+      const qty = Number(qtyVal) || 0;
+      const product = products.find((p) => p.id === pId);
+      return { id: pId, name: product?.name || pId, qty, sum: qty * (product?.price || 0) };
+    })
+    .filter((l) => l.qty > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
   return (
     <div className="space-y-6 pb-28">
       
@@ -290,7 +305,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         </div>
       </div>
 
-      {/* STEP 2: Category Navigation Tabs */}
+      {/* STEP 2: Category Navigation Tabs — no point browsing the catalog once the order can't
+          be touched from here any more. */}
+      {!isLocked && (
       <div className="flex p-1.5 gap-1 bg-slate-100 border border-slate-200 rounded-xl sticky top-16 z-30 shadow-sm overflow-hidden">
         <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar w-full py-0.5">
           <button
@@ -383,16 +400,43 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           </button>
         </div>
       </div>
+      )}
 
       {/* Validation Error Message Alert */}
-      {validationError && (
+      {!isLocked && validationError && (
         <div className="bg-red-500/10 border border-red-500/30 text-red-600 p-4 rounded-xl flex items-center space-x-3 text-sm animate-shake">
           <AlertTriangle className="w-5 h-5 flex-shrink-0" />
           <span>{validationError}</span>
         </div>
       )}
 
-      {/* PRODUCTS WORKSPACE GRID - COMPACT MOBILE TILE GRID (4 items fit on mobile screen) */}
+      {/* Locked read-only receipt: the order is out of the point's hands once it's no longer a
+          draft — this replaces the whole editable grid rather than just disabling controls on
+          it, so there's nothing on screen that still looks tappable. */}
+      {isLocked ? (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-start gap-2.5">
+            <Lock className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-slate-600">
+              Заявка {currentOrder.status === 'accepted' ? 'принята' : 'отправлена'} и закрыта для
+              изменений отсюда. Нужно что-то поправить — обратитесь к управляющему производством
+              или владельцу, менять заявку теперь может только он.
+            </p>
+          </div>
+          {submittedLines.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-slate-400 italic">Заявка пуста</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {submittedLines.map((line) => (
+                <div key={line.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold text-slate-800 truncate">{line.name}</span>
+                  <span className="text-sm font-black text-slate-900 shrink-0">{line.qty} шт</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
       <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-4">
         {filteredProducts.map((product) => {
           const isFrequent = frequentProductIds.includes(product.id);
@@ -537,6 +581,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           );
         })}
       </div>
+      )}
 
       {/* FORM FOOTER STICKY BAR: only while composing a draft with at least 1 item, hides once submitted */}
       {totalPcs > 0 && currentOrder.status === 'draft' && (

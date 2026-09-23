@@ -13,7 +13,11 @@ import {
   Trash2,
   Calendar,
   Loader2,
-  RotateCcw
+  RotateCcw,
+  Pencil,
+  Plus,
+  Minus,
+  Save
 } from 'lucide-react';
 import { CoffeeShop, Product, ShopOrder, OrderStatus, UserRole, RolePermissions } from '../types';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
@@ -32,6 +36,10 @@ interface SubmittedOrdersModalProps {
   permissions: RolePermissions;
   onUpdateOrderStatus: (shopId: number, status: OrderStatus) => void;
   onDeleteOrder: (shopId: number) => void;
+  // Only the production manager and Owner may edit a submitted order's contents (see canManage
+  // below) — everyone else, including the point itself once it's no longer a draft, is locked
+  // out (ManagerView enforces that half).
+  onUpdateOrder: (shopId: number, items: Record<string, number>, status?: 'draft' | 'submitted') => void;
 }
 
 type StatusFilter = 'all' | 'submitted' | 'accepted' | 'rejected' | 'draft';
@@ -65,10 +73,13 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
   permissions,
   onUpdateOrderStatus,
   onDeleteOrder,
+  onUpdateOrder,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [detailShopId, setDetailShopId] = useState<number | null>(null);
+  const [editItems, setEditItems] = useState<Record<string, number> | null>(null);
+  const [editSearch, setEditSearch] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => almatyDateStr(new Date()));
   const [historyOrders, setHistoryOrders] = useState<Record<number, ShopOrder>>({});
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
@@ -113,11 +124,22 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
     };
   }, [selectedDate, isToday, isOpen]);
 
+  // Leaving edit mode whenever the shop being looked at changes (including closing the detail
+  // view) — an in-progress edit for one point must never carry over and get saved onto another.
+  useEffect(() => {
+    setEditItems(null);
+    setEditSearch('');
+  }, [detailShopId]);
+
   // What the list/detail actually render from — live data for today (actionable), a read-only
   // snapshot built from order_history for any other date.
   const displayOrders = isToday ? orders : historyOrders;
 
-  useTelegramBackButton(isOpen, () => (detailShopId != null ? setDetailShopId(null) : onClose()));
+  useTelegramBackButton(isOpen, () => {
+    if (editItems !== null) setEditItems(null);
+    else if (detailShopId != null) setDetailShopId(null);
+    else onClose();
+  });
 
   if (!isOpen) return null;
 
@@ -125,6 +147,25 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
     if (!window.confirm(`Удалить заявку точки «${shopLabel}»? Точка вернётся в состояние «не подана». Действие нельзя отменить.`)) return;
     onDeleteOrder(shopId);
     if (detailShopId === shopId) setDetailShopId(null);
+  };
+
+  const startEditing = (order: ShopOrder) => {
+    setEditItems({ ...(order.items || {}) });
+    setEditSearch('');
+  };
+  const setEditQty = (productId: string, qty: number) => {
+    setEditItems((prev) => {
+      const next = { ...(prev || {}) };
+      if (qty <= 0) delete next[productId];
+      else next[productId] = qty;
+      return next;
+    });
+  };
+  const saveEdits = (shopId: number) => {
+    if (!editItems) return;
+    onUpdateOrder(shopId, editItems, 'submitted');
+    setEditItems(null);
+    setEditSearch('');
   };
 
   // Calculate stats
@@ -200,6 +241,28 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
         })
         .filter((l): l is { name: string; qty: number; unit: string; sum: number } => Boolean(l))
     : [];
+
+  // Same shape as detailLines, but from the in-progress edit and carrying the product id (a
+  // stepper needs it to change one line without touching the others).
+  const editLines = editItems
+    ? (Object.entries(editItems) as [string, number][])
+        .map(([pId, qty]) => {
+          const p = products.find((prod) => prod.id === pId);
+          return p && qty > 0 ? { id: pId, name: p.name, qty, unit: p.unit, sum: qty * p.price } : null;
+        })
+        .filter((l): l is { id: string; name: string; qty: number; unit: string; sum: number } => Boolean(l))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    : [];
+  const editSearchLower = editSearch.trim().toLowerCase();
+  const editSearchResults = editSearchLower
+    ? products
+        .filter((p) => !editItems?.[p.id] && p.name.toLowerCase().includes(editSearchLower))
+        .slice(0, 8)
+    : [];
+  const editTotals = editLines.reduce(
+    (acc, l) => ({ pcs: acc.pcs + l.qty, sum: acc.sum + l.sum }),
+    { pcs: 0, sum: 0 }
+  );
 
   return (
     <div
@@ -347,7 +410,88 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                 </div>
               )}
 
-              {detailLines.length === 0 ? (
+              {editItems !== null ? (
+                <>
+                  {editLines.length === 0 ? (
+                    <p className="text-center py-6 text-xs text-slate-400 italic">Позиций не осталось</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {editLines.map((line) => (
+                        <div
+                          key={line.id}
+                          className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs"
+                        >
+                          <span className="font-semibold text-slate-800 truncate pr-2">{line.name}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => setEditQty(line.id, line.qty - 1)}
+                              className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="w-8 text-center font-bold text-slate-900 tabular-nums">{line.qty}</span>
+                            <button
+                              onClick={() => setEditQty(line.id, line.qty + 1)}
+                              className="w-7 h-7 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-bold">
+                    <span>Итого: {editTotals.pcs} шт</span>
+                    <span>{editTotals.sum.toLocaleString('ru-RU')} ₸</span>
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                    <input
+                      type="text"
+                      value={editSearch}
+                      onChange={(e) => setEditSearch(e.target.value)}
+                      placeholder="Добавить блюдо…"
+                      className="w-full pl-8 pr-2 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    {editSearchResults.length > 0 && (
+                      <div className="mt-1 border border-slate-200 rounded-lg bg-white shadow-sm divide-y divide-slate-100 overflow-hidden">
+                        {editSearchResults.map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={() => {
+                              setEditQty(p.id, 1);
+                              setEditSearch('');
+                            }}
+                            className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-indigo-50 text-left"
+                          >
+                            <span className="font-semibold text-slate-800 truncate pr-2">{p.name}</span>
+                            <Plus className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      onClick={() => setEditItems(null)}
+                      className="py-2 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700"
+                    >
+                      Отменить
+                    </button>
+                    <button
+                      onClick={() => saveEdits(detailShop.id)}
+                      className="py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1.5"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>Сохранить</span>
+                    </button>
+                  </div>
+                </>
+              ) : detailLines.length === 0 ? (
                 <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-300">
                   <PackageSearch className="w-7 h-7 text-slate-400 mx-auto mb-2" />
                   <p className="text-sm font-bold text-slate-700">Заказ пуст</p>
@@ -383,7 +527,17 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                 </>
               )}
 
-              {canManage && detailOrder && (
+              {canManage && detailOrder && editItems === null && detailOrder.status !== 'draft' && (
+                <button
+                  onClick={() => startEditing(detailOrder)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Редактировать заявку</span>
+                </button>
+              )}
+
+              {canManage && detailOrder && editItems === null && (
                 <div className="pt-1">
                   {detailOrder.status === 'accepted' ? (
                     <button
@@ -418,7 +572,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
                 </div>
               )}
 
-              {canManage && detailOrder && (
+              {canManage && detailOrder && editItems === null && (
                 <button
                   onClick={() => handleDeleteOrder(detailShop.id, detailShop.district.trim() || detailShop.name)}
                   className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 border border-dashed border-rose-200"

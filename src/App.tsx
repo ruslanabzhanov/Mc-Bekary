@@ -1461,6 +1461,7 @@ export default function App() {
         permissions={rolePermissions}
         onUpdateOrderStatus={handleUpdateOrderStatus}
         onDeleteOrder={handleDeleteOrder}
+        onUpdateOrder={handleUpdateOrder}
       />
 
       {/* Bottom Status Bar. The old three-column "AI Engine / Anomaly Detection" strip wrapped
