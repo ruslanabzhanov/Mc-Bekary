@@ -157,14 +157,17 @@ export default function App() {
   // Who this device turned out to be. Normally read off the approved request; if that row was
   // lost, off the staff record the approval created — which is the durable record of the two.
   const grantAccess = (identity: {
-    requestId: string;
+    // Either a fresh approval (derive the id the same way handleApproveRegistrationRequest
+    // does) or an existing staff record recognized by verified Telegram id on a new device
+    // (see RegistrationGate's up-front recognize check) — exactly one of these two is given.
+    requestId?: string;
+    staffId?: string;
     role: StaffRole;
     shopId: number | null;
     assignedShopIds?: number[];
     position?: string;
   }) => {
-    // Same deterministic id handleApproveRegistrationRequest gives the new staff record.
-    const staffId = `staff-from-${identity.requestId}`;
+    const staffId = identity.staffId || `staff-from-${identity.requestId}`;
     window.localStorage.setItem(STAFF_ID_STORAGE_KEY, staffId);
     if (identity.role === 'shop_manager') {
       if (identity.shopId != null) setSelectedShopId(identity.shopId);
@@ -190,7 +193,7 @@ export default function App() {
       setCurrentRole('employee');
     }
     setHasAccess(true);
-    showToast('✅ Заявка одобрена! Добро пожаловать.');
+    showToast(identity.requestId ? '✅ Заявка одобрена! Добро пожаловать.' : '✅ С возвращением!');
   };
   const [shops, setShops, hydrateShops] = useSyncedState<CoffeeShop[]>(COFFEE_SHOPS, '/api/shops', 'shops');
   // Каталог — только с сервера. Встроенный демо-список здесь больше не используется: если

@@ -28,7 +28,8 @@ interface RegistrationGateProps {
   registrationRequests: RegistrationRequest[];
   onSubmit: (request: Omit<RegistrationRequest, 'id' | 'submittedAt' | 'status'>) => string;
   onApproved: (identity: {
-    requestId: string;
+    requestId?: string;
+    staffId?: string;
     role: StaffRole;
     shopId: number | null;
     assignedShopIds?: number[];
@@ -70,6 +71,34 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
 
   const myRequest = pendingId ? registrationRequests.find((r) => r.id === pendingId) : null;
 
+  // A brand-new device has no localStorage, so this component would otherwise always start the
+  // mandatory form from scratch — even for someone already approved elsewhere, who just opened
+  // from a different device (a laptop instead of their phone). Their real Telegram id is proof
+  // enough: if it already has an approved staff record, let them straight in.
+  const recognizeExistingStaff = async (initData: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/registration/recognize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData }),
+      });
+      const data = await res.json();
+      if (data?.staff) {
+        onApproved({
+          staffId: data.staff.id,
+          role: data.staff.role,
+          shopId: data.staff.shopId,
+          assignedShopIds: data.staff.assignedShopIds,
+          position: data.staff.position,
+        });
+        return true;
+      }
+    } catch (e) {
+      console.error('Failed to check for an existing staff record:', e);
+    }
+    return false;
+  };
+
   const checkContactStatus = async (): Promise<boolean> => {
     const tg = (window as any).Telegram?.WebApp;
     if (!tg?.initData) return false;
@@ -105,9 +134,18 @@ export const RegistrationGate: React.FC<RegistrationGateProps> = ({
       return;
     }
     setContactState('checking');
-    checkContactStatus().then((ready) => {
-      if (!ready) setContactState('need-contact');
+    let cancelled = false;
+    recognizeExistingStaff(tg.initData).then((recognized) => {
+      // onApproved already fired inside recognizeExistingStaff — App.tsx is about to swap this
+      // screen out, nothing left to do here.
+      if (recognized || cancelled) return;
+      checkContactStatus().then((ready) => {
+        if (!cancelled && !ready) setContactState('need-contact');
+      });
     });
+    return () => {
+      cancelled = true;
+    };
   }, [pendingId]);
 
   useEffect(() => {

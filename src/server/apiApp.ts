@@ -1056,6 +1056,34 @@ export function createApiApp() {
     }
   });
 
+  // A brand-new device/browser has no localStorage, so RegistrationGate treats it as never
+  // registered — even for someone already approved, who just opened from a laptop instead of
+  // their phone. Before making them fill the form again, check whether their real (Telegram-
+  // verified, not client-claimed) id already has an approved staff record; if so, the caller
+  // can grant this device access outright. Found via real data: one production manager alone
+  // had re-registered 4 times this way, and 5 other people at least once each.
+  app.post('/api/registration/recognize', async (req, res) => {
+    try {
+      const { initData } = req.body || {};
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (!botToken || !initData) return res.json({ staff: null });
+      const { valid, userId } = verifyTelegramInitData(String(initData), botToken);
+      if (!valid || userId == null) return res.json({ staff: null });
+      const { data, error } = await supabase
+        .from('staff')
+        .select('*')
+        .eq('telegram_user_id', String(userId))
+        .order('id', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      const row = (data || [])[0];
+      res.json({ staff: row ? staffFromDb(row) : null });
+    } catch (e) {
+      console.error('Failed to recognize staff by Telegram id:', e);
+      res.status(500).json({ staff: null });
+    }
+  });
+
   // One person submits their own registration. Writes exactly their row: during a hiring push
   // a dozen phones register within minutes, each holding a list loaded when it opened the app,
   // and a whole-table write from any of them erases everyone who registered since. That is what
