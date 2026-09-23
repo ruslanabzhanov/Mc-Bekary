@@ -4,6 +4,12 @@ import { CoffeeShop, Product, ShopOrder, Category } from '../types';
 // Отклонения от ИИ-нормы дня отключены вместе с «Заявкой в один клик» — сама норма
 // ещё не готова к запуску, показывать по ней предупреждения преждевременно.
 const ANOMALY_DETECTION_ENABLED = false;
+
+// The six tabs below are fixed — a custom dish category made in «Блюда и ТКК» (CostingsManager)
+// gets none of them, and until now had no tab of its own here either: its dishes existed only
+// in the catalog, reachable solely through "Все товары" — invisible under any category, which
+// read as "some products just don't show up". See extraCategoryTabs below.
+const HARDCODED_CATEGORIES: string[] = ['croissants', 'sandwiches', 'desserts', 'bar_prep', 'kitchen_prep', 'new_items'];
 import {
   Sparkles,
   AlertTriangle,
@@ -55,7 +61,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   actingAs,
   orderDeadline,
 }) => {
-  const [activeTab, setActiveTab] = useState<Category | 'all'>('all');
+  const [activeTab, setActiveTab] = useState<Category | 'all' | string>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   // productId -> адрес фото, которое не открылось. Сравниваем именно адрес: как только у
@@ -77,6 +83,21 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     if (activeTab === 'all') return products;
     return products.filter((p) => p.category === activeTab);
   }, [products, activeTab]);
+
+  // Any category actually in use that isn't one of the six fixed tabs — derived straight from
+  // the products themselves (not the category registry), so a dish shows up here even if its
+  // category was since renamed or dropped from the registry. Label comes from the product's own
+  // denormalized categoryLabel, same reason.
+  const extraCategoryTabs = useMemo(() => {
+    const byKey = new Map<string, { label: string; count: number }>();
+    products.forEach((p) => {
+      if (HARDCODED_CATEGORIES.includes(p.category)) return;
+      const entry = byKey.get(p.category) || { label: p.categoryLabel || p.category, count: 0 };
+      entry.count += 1;
+      byKey.set(p.category, entry);
+    });
+    return [...byKey.entries()].map(([key, v]) => ({ key, ...v }));
+  }, [products]);
 
   // Quantity updates with validation
   const handleQuantityChange = (productId: string, val: string) => {
@@ -327,77 +348,49 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
           <div className="h-6 w-px bg-slate-300 mx-1 flex-shrink-0" />
 
-          <button
-            id="tab-croissants"
-            onClick={() => setActiveTab('croissants')}
-            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
-              activeTab === 'croissants'
-                ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            🥐 Круассаны и слойки (6)
-          </button>
+          {/* Counts here used to be typed-in numbers that drifted from the real catalog the
+              moment anyone added or moved a dish (bar_prep read "12" while it actually held 17)
+              — now counted live, same as "Все товары" already was. */}
+          {([
+            { key: 'croissants', icon: '🥐', label: 'Круассаны и слойки' },
+            { key: 'sandwiches', icon: '🥪', label: 'Сэндвичи и завтраки' },
+            { key: 'desserts', icon: '🍰', label: 'Десерты' },
+            { key: 'bar_prep', icon: '🧃', label: 'Заготовки бара' },
+            { key: 'kitchen_prep', icon: '👨‍🍳', label: 'Заготовки кухня' },
+            { key: 'new_items', icon: '⚡', label: 'Новинки' },
+          ] as const).map((tab) => {
+            const count = products.filter((p) => p.category === tab.key).length;
+            return (
+              <button
+                key={tab.key}
+                id={`tab-${tab.key.replace('_', '-')}`}
+                onClick={() => setActiveTab(tab.key)}
+                className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
+                  activeTab === tab.key
+                    ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                {tab.icon} {tab.label} ({count})
+              </button>
+            );
+          })}
 
-          <button
-            id="tab-sandwiches"
-            onClick={() => setActiveTab('sandwiches')}
-            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
-              activeTab === 'sandwiches'
-                ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            🥪 Сэндвичи и завтраки (14)
-          </button>
-
-          <button
-            id="tab-desserts"
-            onClick={() => setActiveTab('desserts')}
-            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
-              activeTab === 'desserts'
-                ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            🍰 Десерты (15)
-          </button>
-
-          <button
-            id="tab-bar-prep"
-            onClick={() => setActiveTab('bar_prep')}
-            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
-              activeTab === 'bar_prep'
-                ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            🧃 Заготовки бара (12)
-          </button>
-
-          <button
-            id="tab-kitchen-prep"
-            onClick={() => setActiveTab('kitchen_prep')}
-            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
-              activeTab === 'kitchen_prep'
-                ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            👨‍🍳 Заготовки кухня (8)
-          </button>
-
-          <button
-            id="tab-new-items"
-            onClick={() => setActiveTab('new_items')}
-            className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
-              activeTab === 'new_items'
-                ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            ⚡ Новинки (3)
-          </button>
+          {/* Any category made in «Блюда и ТКК» beyond the six above — without this, its dishes
+              were only reachable via «Все товары», invisible under any category tab. */}
+          {extraCategoryTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`min-h-[44px] px-3.5 text-xs font-bold uppercase rounded-lg tracking-wider transition-all whitespace-nowrap ${
+                activeTab === tab.key
+                  ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              🍽️ {tab.label} ({tab.count})
+            </button>
+          ))}
         </div>
       </div>
       )}
