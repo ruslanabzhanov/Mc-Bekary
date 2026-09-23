@@ -574,11 +574,11 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
         <div
           ref={printBodyRef}
           style={printFit ? { width: printFit.width, maxWidth: 'none', zoom: printFit.zoom, flex: 'none' } : undefined}
-          className="p-8 overflow-y-auto space-y-6 flex-1 text-slate-800 bg-white print:bg-white print:overflow-visible"
+          className="p-6 overflow-y-auto space-y-4 flex-1 text-slate-800 bg-white print:bg-white print:overflow-visible"
         >
-          
+
           {/* Official Department Production Header */}
-          <div className="border-b-2 border-slate-200 print:border-slate-400 pb-4 flex items-start justify-between">
+          <div className="border-b-2 border-slate-200 print:border-slate-400 pb-2 flex items-start justify-between">
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-2xl print:text-xl">{dept.icon}</span>
@@ -587,7 +587,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                 </h1>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">{dept.subtitle}</p>
-              <p className="text-xs font-bold text-indigo-700 mt-2 uppercase tracking-wider">
+              <p className="text-xs font-bold text-indigo-700 mt-1.5 uppercase tracking-wider">
                 СЕТЬ 27 КОФЕЕН "MASTER BAKERY" •{' '}
                 {activeView === 'production' ? 'ЗАДАНИЕ НА ЗАГОТОВКУ ДЛЯ ЦЕХА' : 'СВОДНАЯ ВЕДОМОСТЬ ПО ТОЧКАМ'}
               </p>
@@ -640,9 +640,9 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                         <div
                           className={`${
                             badge ? 'bg-violet-800' : 'bg-indigo-900'
-                          } text-white px-3 py-1.5 flex items-center justify-between gap-2`}
+                          } text-white px-2.5 py-1.5 flex items-center justify-between gap-2`}
                         >
-                          <h4 className="font-black uppercase text-[11px] tracking-tight truncate flex items-center gap-1.5">
+                          <h4 className="font-black uppercase text-xs tracking-tight truncate flex items-center gap-1.5">
                             {badge && (
                               <span className="text-[8px] font-black bg-white/20 px-1 py-0.5 rounded shrink-0">
                                 {badge}
@@ -650,22 +650,22 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                             )}
                             {title}
                           </h4>
-                          <span className="text-[11px] font-bold whitespace-nowrap">{planLabel}</span>
+                          <span className="text-xs font-bold whitespace-nowrap">{planLabel}</span>
                         </div>
                         {allNeeds.length === 0 ? (
-                          <p className="text-[11px] text-slate-400 italic px-3 py-2">
+                          <p className="text-xs text-slate-400 italic px-2.5 py-1.5">
                             Состав не заполнен (заполните в «Блюда и ТКК»)
                           </p>
                         ) : (
-                          <table className="w-full text-[11px]">
+                          <table className="w-full text-xs">
                             <tbody className="divide-y divide-slate-100 print:divide-slate-300">
                               {allNeeds.map((n, i) => (
                                 <tr key={i}>
-                                  <td className="px-3 py-1 text-slate-700">{n.name}</td>
-                                  <td className="px-2 py-1 text-slate-400 text-right whitespace-nowrap">
+                                  <td className="px-2.5 py-0.5 font-semibold text-slate-700">{n.name}</td>
+                                  <td className="px-1.5 py-0.5 text-slate-400 text-right whitespace-nowrap">
                                     {formatAmount(n.perUnit, n.unit)}
                                   </td>
-                                  <td className="px-3 py-1 font-bold text-indigo-900 text-right whitespace-nowrap">
+                                  <td className="px-2.5 py-0.5 font-bold text-indigo-900 text-right whitespace-nowrap">
                                     {formatAmount(n.amount, n.unit)}
                                   </td>
                                 </tr>
@@ -690,16 +690,16 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                       sortedAggregatedGroups.map(([groupLabel, items], gi) => (
                         <div key={groupLabel}>
                           <div
-                            className={`${GROUP_COLORS[gi % GROUP_COLORS.length]} text-white px-3 py-1.5 text-[11px] font-black uppercase tracking-wide`}
+                            className={`${GROUP_COLORS[gi % GROUP_COLORS.length]} text-white px-2.5 py-1.5 text-xs font-black uppercase tracking-wide`}
                           >
                             {gi + 1}. {groupLabel}
                           </div>
                           <ul className="divide-y divide-dashed divide-slate-200 print:divide-slate-300">
                             {items.map((it, i) => (
-                              <li key={i} className="flex items-center gap-2 px-3 py-1.5">
+                              <li key={i} className="flex items-center gap-2 px-2.5 py-1">
                                 <span className="w-3 h-3 border border-slate-400 print:border-slate-400 shrink-0" />
-                                <span className="flex-1 text-[11px] text-slate-800 truncate">{it.name}</span>
-                                <span className="text-[11px] font-black text-indigo-900 whitespace-nowrap">
+                                <span className="flex-1 text-xs font-semibold text-slate-800 truncate">{it.name}</span>
+                                <span className="text-xs font-black text-indigo-900 whitespace-nowrap">
                                   {formatAmount(it.amount, it.unit)}
                                 </span>
                               </li>
@@ -815,34 +815,34 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                 printFit ? 'overflow-visible' : 'overflow-x-auto'
               }`}
             >
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 print:border-slate-400 uppercase text-[10px] tracking-wider">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 text-slate-700 font-black border-b-2 border-slate-300 print:border-slate-400 uppercase text-[11px] tracking-wide">
                   <tr>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400 w-12 text-center">№</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400">Кофейня / Адрес</th>
+                    <th className="py-1.5 px-2 w-10 text-center">№</th>
+                    <th className="py-1.5 px-2">Кофейня</th>
                     {deptProducts.map((p) => (
-                      <th key={p.id} className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400 text-center">
+                      <th key={p.id} className="py-1.5 px-1.5 text-center leading-tight">
                         {p.name}
                       </th>
                     ))}
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400 text-center font-extrabold">Итого</th>
-                    <th className="py-2.5 px-3 text-center w-24">Отметка цеха</th>
+                    <th className="py-1.5 px-2 text-center font-extrabold">Итого</th>
+                    <th className="py-1.5 px-2 text-center w-14">Отметка</th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-100 print:divide-slate-300 bg-white">
+                <tbody className="divide-y divide-slate-200 print:divide-slate-300 bg-white">
                   {activeShops.map(({ shop, items, deptTotal, isSubmitted }) => (
-                    <tr key={shop.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 text-center font-bold text-slate-500 border-r border-slate-200 print:border-slate-400">
+                    <tr key={shop.id}>
+                      <td className="py-1 px-2 text-center font-bold text-slate-500">
                         #{shop.id}
                       </td>
 
-                      <td className="py-2 px-3 border-r border-slate-200 print:border-slate-400">
-                        <div className="font-bold text-slate-900">
+                      <td className="py-1 px-2">
+                        <div className="font-bold text-slate-900 leading-tight">
                           {shop.name.replace(`Кофейня №${shop.id} — `, '')}
                         </div>
-                        <div className="text-[10px] text-slate-500">
-                          {shop.district} | Менеджер: {shop.manager}
+                        <div className="text-[10px] font-medium text-slate-500 leading-tight">
+                          {shop.manager}
                         </div>
                       </td>
 
@@ -851,43 +851,43 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                         return (
                           <td
                             key={p.id}
-                            className={`py-2 px-3 text-center border-r border-slate-200 print:border-slate-400 font-semibold ${
-                              qty > 0 ? 'text-slate-900 font-bold' : 'text-slate-300'
+                            className={`py-1 px-1.5 text-center ${
+                              qty > 0 ? 'text-slate-900 font-extrabold' : 'text-slate-300 font-semibold'
                             }`}
                           >
-                            {qty > 0 ? `${qty} шт` : '—'}
+                            {qty > 0 ? qty : '—'}
                           </td>
                         );
                       })}
 
-                      <td className="py-2 px-3 text-center font-black text-indigo-900 border-r border-slate-200 print:border-slate-400">
-                        {deptTotal} шт
+                      <td className="py-1 px-2 text-center font-black text-indigo-900">
+                        {deptTotal}
                       </td>
 
-                      <td className="py-2 px-3 text-center">
+                      <td className="py-1 px-2 text-center">
                         <div className="w-4 h-4 border-2 border-slate-400 print:border-slate-400 rounded mx-auto" />
                       </td>
                     </tr>
                   ))}
                 </tbody>
 
-                <tfoot className="bg-slate-50 font-extrabold text-slate-900 border-t-2 border-slate-200 print:border-slate-400">
+                <tfoot className="bg-slate-100 font-extrabold text-slate-900 border-t-2 border-slate-300 print:border-slate-400">
                   <tr>
-                    <td colSpan={2} className="py-3 px-3 border-r border-slate-200 print:border-slate-400 text-right uppercase text-[10px]">
+                    <td colSpan={2} className="py-2 px-2 text-right uppercase text-[11px]">
                       ИТОГО К ВЫПУСКУ:
                     </td>
                     {deptProducts.map((p) => {
                       const total = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
                       return (
-                        <td key={p.id} className="py-3 px-3 text-center border-r border-slate-200 print:border-slate-400 text-indigo-900">
-                          {total} шт
+                        <td key={p.id} className="py-2 px-1.5 text-center text-indigo-900">
+                          {total}
                         </td>
                       );
                     })}
-                    <td className="py-3 px-3 text-center text-indigo-900 text-sm font-black">
-                      {grandDeptTotal} шт
+                    <td className="py-2 px-2 text-center text-indigo-900 text-base font-black">
+                      {grandDeptTotal}
                     </td>
-                    <td className="py-3 px-3 text-center font-normal text-[10px] text-slate-500">
+                    <td className="py-2 px-2 text-center font-normal text-[10px] text-slate-500">
                       Подпись
                     </td>
                   </tr>
