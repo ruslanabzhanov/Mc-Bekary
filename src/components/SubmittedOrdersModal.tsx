@@ -5,7 +5,9 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Lock,
+  Send,
+  User,
+  ChevronRight,
   AlertCircle,
   FileCheck2,
   ArrowLeft,
@@ -49,6 +51,37 @@ const STATUS_BADGE: Record<'accepted' | 'submitted' | 'rejected' | 'draft', { la
   submitted: { label: 'Поданная', className: 'bg-amber-100 text-amber-800 border border-amber-200' },
   rejected: { label: 'Отклонена', className: 'bg-rose-100 text-rose-700 border border-rose-200' },
   draft: { label: 'Не подана', className: 'bg-slate-100 text-slate-600 border border-slate-200' }
+};
+
+// Плитка точки в реестре — цвет самой плитки, не только бейджа, чтобы поданные заявки было
+// видно с одного взгляда на сетку, без клика в каждую (тот же приём, что и у территориального
+// управляющего). Принятая — зелёная, ожидает подтверждения — жёлтая, отклонённая — красная,
+// не подана вовсе — нейтральная.
+const TILE_LOOK: Record<'accepted' | 'submitted' | 'rejected' | 'draft', { label: string; Icon: typeof CheckCircle2; tile: string; badge: string }> = {
+  accepted: {
+    label: 'Принята',
+    Icon: CheckCircle2,
+    tile: 'bg-emerald-50 border-emerald-200 hover:border-emerald-400',
+    badge: 'bg-emerald-100 text-emerald-800',
+  },
+  submitted: {
+    label: 'Ожидает подтверждения',
+    Icon: Send,
+    tile: 'bg-amber-50 border-amber-200 hover:border-amber-400',
+    badge: 'bg-amber-100 text-amber-800',
+  },
+  rejected: {
+    label: 'Отклонена',
+    Icon: XCircle,
+    tile: 'bg-rose-50 border-rose-200 hover:border-rose-400',
+    badge: 'bg-rose-100 text-rose-800',
+  },
+  draft: {
+    label: 'Не подана',
+    Icon: Clock,
+    tile: 'bg-white border-slate-200 hover:border-slate-400',
+    badge: 'bg-slate-100 text-slate-600',
+  },
 };
 
 // A point can edit and resend an order that's already been accepted — the status correctly
@@ -291,7 +324,7 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
             )}
             <div className="min-w-0">
               <h3 className="text-base font-bold text-slate-900 truncate">
-                {detailShop ? detailShop.name.replace(`Кофейня №${detailShop.id} — `, '') : 'Реестр заявок'}
+                {detailShop ? `№${detailShop.id} · ${detailShop.district.trim() || detailShop.address}` : 'Реестр заявок'}
               </h3>
               <p className="text-[11px] text-slate-500 truncate">
                 {detailShop
@@ -594,282 +627,70 @@ export const SubmittedOrdersModal: React.FC<SubmittedOrdersModalProps> = ({
               </button>
             </div>
           ) : (
-            <>
-              {/* MOBILE CARDS VIEW */}
-              <div className="block sm:hidden space-y-2">
-                {filteredShops.map((shop) => {
-                  const order = displayOrders[shop.id];
-                  const status = order?.status || 'draft';
-                  const badge = STATUS_BADGE[status];
-                  const reopened = wasReopenedAfterAcceptance(order);
-                  const { pcs, sum } = getOrderSummary(order);
-                  const cleanShopName = shop.name.replace(`Кофейня №${shop.id} — `, '');
+            // Плитки точек, как у территориального управляющего: цвет плитки — статус заявки,
+            // так что поданные (и особенно принятые — горят зелёным) видно сразу на сетке, без
+            // клика в каждую. Клик по плитке открывает состав заявки и действия — то же, что
+            // раньше было построчно в таблице/карточках, теперь только в детальном экране.
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredShops.map((shop) => {
+                const order = displayOrders[shop.id];
+                const status = order?.status || 'draft';
+                const look = TILE_LOOK[status];
+                const reopened = wasReopenedAfterAcceptance(order);
+                const { pcs, sum } = getOrderSummary(order);
+                const cleanShopName = shop.district.trim() || shop.address;
 
-                  return (
-                    <div
-                      key={shop.id}
-                      onClick={() => setDetailShopId(shop.id)}
-                      className={`p-3 rounded-lg border bg-white space-y-2.5 cursor-pointer transition-colors ${
-                        reopened
-                          ? 'border-emerald-400 ring-1 ring-emerald-300 hover:bg-emerald-50/40'
-                          : 'border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center space-x-2.5 min-w-0">
-                          <span className="w-8 h-8 rounded-lg bg-indigo-900 text-white font-bold text-[11px] flex items-center justify-center shrink-0">
-                            №{shop.id}
-                          </span>
-                          <div className="min-w-0">
-                            <h4 className="font-bold text-slate-900 text-sm truncate">{cleanShopName}</h4>
-                            <p className="text-[11px] text-slate-500 truncate">{shop.district}</p>
-                          </div>
-                        </div>
-                        <span className={`shrink-0 px-2 py-1 rounded text-[10px] font-bold ${badge.className}`}>
-                          {badge.label}
+                return (
+                  <button
+                    key={shop.id}
+                    onClick={() => setDetailShopId(shop.id)}
+                    className={`text-left rounded-xl p-3.5 shadow-sm border transition-all ${
+                      reopened
+                        ? 'bg-emerald-50 border-emerald-400 ring-1 ring-emerald-300 hover:border-emerald-500'
+                        : look.tile
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${look.badge}`}>
+                        <look.Icon className="w-3 h-3" />
+                        {look.label}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                    </div>
+
+                    <div className="font-bold text-slate-900 text-sm truncate">
+                      №{shop.id} · {cleanShopName}
+                    </div>
+                    <div className="text-[11px] text-slate-500 truncate">{shop.address}</div>
+
+                    {reopened && (
+                      <div className="flex items-center gap-1 mt-1.5 text-[10px] font-bold text-emerald-800">
+                        <RotateCcw className="w-3 h-3 shrink-0" />
+                        <span>Изменена после принятия — нужна проверка</span>
+                      </div>
+                    )}
+
+                    <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-600 truncate">
+                      <User className="w-3 h-3 text-slate-400 shrink-0" />
+                      {order?.managerName || shop.manager}
+                    </div>
+
+                    <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px]">
+                      <span className="text-slate-500 shrink-0">
+                        {status !== 'draft' ? order?.submittedAt || '—' : 'Не подана'}
+                      </span>
+                      {pcs > 0 ? (
+                        <span className="font-bold text-slate-900 truncate">
+                          {pcs} шт · <span className="text-indigo-700">{sum.toLocaleString('ru-RU')} ₸</span>
                         </span>
-                      </div>
-
-                      {reopened && (
-                        <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1.5 text-[11px] font-bold">
-                          <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                          <span>Изменена после принятия — нужна повторная проверка</span>
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-                          <span className="text-[9px] font-bold uppercase text-slate-400 block">Менеджер</span>
-                          <span className="font-bold text-slate-800 text-xs block truncate">
-                            {order?.managerName || shop.manager}
-                          </span>
-                        </div>
-                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-                          <span className="text-[9px] font-bold uppercase text-slate-400 block">Время подачи</span>
-                          <span className="font-bold text-slate-800 text-xs block">
-                            {status !== 'draft' ? order?.submittedAt || '—' : 'Не подана'}
-                          </span>
-                        </div>
-                        <div className="col-span-2 bg-slate-50 border border-slate-200 rounded-lg p-2 flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase">Объём и сумма</span>
-                          {pcs > 0 ? (
-                            <span className="font-bold text-slate-900 text-xs">
-                              {pcs} шт · <span className="text-indigo-700">{sum.toLocaleString('ru-RU')} ₸</span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 italic text-xs">Заказ пуст</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {canManage ? (
-                        status === 'accepted' ? (
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'rejected'); }}
-                              className="py-2 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
-                            >
-                              Отклонить
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
-                              className="py-2 rounded-lg text-xs font-bold bg-white hover:bg-rose-50 text-rose-600 border border-dashed border-rose-200 flex items-center justify-center gap-1.5"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Удалить</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'accepted'); }}
-                              className="py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1.5"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Принять</span>
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'rejected'); }}
-                              disabled={status === 'rejected'}
-                              className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 ${
-                                status === 'rejected'
-                                  ? 'bg-rose-50 text-rose-400 border border-rose-100 cursor-default'
-                                  : 'bg-rose-600 hover:bg-rose-700 text-white'
-                              }`}
-                            >
-                              <XCircle className="w-4 h-4" />
-                              <span>{status === 'rejected' ? 'Отклонена' : 'Отклонить'}</span>
-                            </button>
-                            {order && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
-                                className="col-span-2 py-2 rounded-lg text-xs font-bold bg-white hover:bg-rose-50 text-rose-600 border border-dashed border-rose-200 flex items-center justify-center gap-1.5"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Удалить заявку</span>
-                              </button>
-                            )}
-                          </div>
-                        )
                       ) : (
-                        <div className="flex items-center justify-center gap-1.5 py-1.5 bg-slate-50 rounded-lg text-[11px] font-semibold text-slate-500 border border-slate-200">
-                          <Lock className="w-3 h-3" />
-                          <span>{isToday ? 'Доступно только Управляющему' : 'История — только просмотр'}</span>
-                        </div>
+                        <span className="text-slate-400 italic">Заказ пуст</span>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-
-              {/* DESKTOP TABLE VIEW */}
-              <div className="hidden sm:block border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                    <tr>
-                      <th className="py-2.5 px-3">Точка</th>
-                      <th className="py-2.5 px-3">Менеджер</th>
-                      <th className="py-2.5 px-3">Время</th>
-                      <th className="py-2.5 px-3">Заказ</th>
-                      <th className="py-2.5 px-3">Статус</th>
-                      <th className="py-2.5 px-3 text-right">Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredShops.map((shop) => {
-                      const order = displayOrders[shop.id];
-                      const status = order?.status || 'draft';
-                      const badge = STATUS_BADGE[status];
-                      const reopened = wasReopenedAfterAcceptance(order);
-                      const { pcs, sum } = getOrderSummary(order);
-                      const cleanShopName = shop.name.replace(`Кофейня №${shop.id} — `, '');
-
-                      return (
-                        <tr
-                          key={shop.id}
-                          onClick={() => setDetailShopId(shop.id)}
-                          className={`cursor-pointer ${reopened ? 'bg-emerald-50/60 hover:bg-emerald-50' : 'hover:bg-slate-50'}`}
-                        >
-                          <td className="py-2.5 px-3">
-                            <div className="flex items-center space-x-2">
-                              <span className="w-6 h-6 rounded bg-indigo-100 text-indigo-900 font-bold text-[11px] flex items-center justify-center shrink-0">
-                                {shop.id}
-                              </span>
-                              <div className="min-w-0">
-                                <div className="font-bold text-slate-900">{cleanShopName}</div>
-                                <div className="text-[10px] text-slate-400">{shop.district}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-3">
-                            <div className="font-semibold text-slate-800">{order?.managerName || shop.manager}</div>
-                          </td>
-                          <td className="py-2.5 px-3">
-                            {status !== 'draft' ? (
-                              <div className="flex items-center space-x-1 text-slate-700 font-medium">
-                                <Clock className="w-3.5 h-3.5 text-slate-400" />
-                                <span>{order?.submittedAt || '—'}</span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">Не подана</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3">
-                            {pcs > 0 ? (
-                              <div>
-                                <span className="font-bold text-slate-900">{pcs} шт</span>
-                                <span className="text-[10px] text-indigo-700 block font-bold">
-                                  {sum.toLocaleString('ru-RU')} ₸
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`px-2 py-1 rounded text-[10px] font-bold ${badge.className}`}>
-                                {badge.label}
-                              </span>
-                              {reopened && (
-                                <span
-                                  title="Изменена после принятия — нужна повторная проверка"
-                                  className="flex items-center gap-1 px-1.5 py-1 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300"
-                                >
-                                  <RotateCcw className="w-3 h-3" />
-                                </span>
-                              )}
-                              {status === 'accepted' && canManage && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'rejected'); }}
-                                  className="text-slate-400 hover:text-rose-600 p-1"
-                                  title="Отклонить принятую заявку"
-                                >
-                                  <XCircle className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-3 text-right">
-                            {canManage ? (
-                              status === 'accepted' ? (
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <span className="text-emerald-700 font-bold text-xs">Принята</span>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
-                                    className="text-slate-400 hover:text-rose-600 p-1"
-                                    title="Удалить заявку"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'accepted'); }}
-                                    className="px-2.5 py-1 rounded text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
-                                  >
-                                    Принять
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); onUpdateOrderStatus(shop.id, 'rejected'); }}
-                                    disabled={status === 'rejected'}
-                                    className={`px-2.5 py-1 rounded text-xs font-bold ${
-                                      status === 'rejected'
-                                        ? 'bg-rose-50 text-rose-400 cursor-default'
-                                        : 'bg-rose-600 hover:bg-rose-700 text-white'
-                                    }`}
-                                  >
-                                    {status === 'rejected' ? 'Отклонена' : 'Отклонить'}
-                                  </button>
-                                  {order && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); handleDeleteOrder(shop.id, cleanShopName); }}
-                                      className="text-slate-400 hover:text-rose-600 p-1"
-                                      title="Удалить заявку"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                </div>
-                              )
-                            ) : (
-                              <span
-                                className="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-slate-100 px-2 py-1 rounded"
-                                title={isToday ? 'Изменение статусов доступно только Управляющему' : 'История — только просмотр'}
-                              >
-                                <Lock className="w-3 h-3" />
-                                <span>{isToday ? 'Только Управляющий' : 'История'}</span>
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
