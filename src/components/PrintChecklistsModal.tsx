@@ -839,7 +839,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
 
                       <td className="py-1 px-2">
                         <div className="font-bold text-slate-900 leading-tight">
-                          {shop.name.replace(`Кофейня №${shop.id} — `, '')}
+                          {shop.district.trim() || shop.address}
                         </div>
                         <div className="text-[10px] font-medium text-slate-500 leading-tight">
                           {shop.manager}
