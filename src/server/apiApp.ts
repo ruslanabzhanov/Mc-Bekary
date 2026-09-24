@@ -629,6 +629,7 @@ export function createApiApp() {
         dishCostings,
         dishCategoryDefs,
         checklistAssignments,
+        checklistSummaryAssignments,
         staff,
         registrationRequests,
         rolePermissions,
@@ -646,6 +647,7 @@ export function createApiApp() {
         supabase.from('dish_costings').select('*'),
         supabase.from('dish_category_defs').select('*'),
         supabase.from('checklist_assignments').select('*'),
+        supabase.from('checklist_summary_assignments').select('*'),
         supabase.from('staff').select('*'),
         supabase.from('registration_requests').select('*'),
         supabase.from('role_permissions').select('*'),
@@ -654,10 +656,19 @@ export function createApiApp() {
 
       for (const r of [
         shops, products, orders, notifications, rawMaterials, rawCategoryDefs,
-        semiFinished, semiCategoryDefs, dishCostings, dishCategoryDefs, checklistAssignments, staff,
-        registrationRequests, rolePermissions, advanceRequests,
+        semiFinished, semiCategoryDefs, dishCostings, dishCategoryDefs, checklistAssignments,
+        staff, registrationRequests, rolePermissions, advanceRequests,
       ]) {
         if (r.error) throw r.error;
+      }
+      // checklist_summary_assignments is a newer, optional table — a database that hasn't run
+      // that migration yet just gets "no summary overrides" (every department's summary mirrors
+      // its production checklist, today's existing behavior) instead of a broken initial load.
+      if (checklistSummaryAssignments.error) {
+        console.warn(
+          'checklist_summary_assignments unavailable (migration pending?):',
+          checklistSummaryAssignments.error.message
+        );
       }
 
       const ordersRecord: Record<number, any> = {};
@@ -677,6 +688,11 @@ export function createApiApp() {
         checklistAssignmentsRecord[r.department_key] = r.product_ids || [];
       });
 
+      const checklistSummaryAssignmentsRecord: Record<string, string[]> = {};
+      (checklistSummaryAssignments.data || []).forEach((r: any) => {
+        checklistSummaryAssignmentsRecord[r.department_key] = r.product_ids || [];
+      });
+
       res.json({
         shops: (shops.data || []).map(shopFromDb),
         products: (products.data || []).map(productFromDb),
@@ -689,6 +705,7 @@ export function createApiApp() {
         dishCostings: dishCostingsRecord,
         dishCategoryDefs: (dishCategoryDefs.data || []).map((r: any) => ({ key: r.key, label: r.label })),
         checklistAssignments: checklistAssignmentsRecord,
+        checklistSummaryAssignments: checklistSummaryAssignmentsRecord,
         staff: (staff.data || []).map(staffFromDb),
         registrationRequests: (registrationRequests.data || []).map(registrationRequestFromDb),
         rolePermissions: buildRolePermissions(rolePermissions.data || []),
@@ -932,6 +949,33 @@ export function createApiApp() {
     } catch (e) {
       console.error('Failed to save checklist assignments:', e);
       res.status(500).json({ error: 'Failed to save checklist assignments' });
+    }
+  });
+
+  // Persist which products are assigned to each department's *summary* ("по точкам") table —
+  // independent from /api/checklist-assignments above, so a dish can be prepped by one
+  // department's checklist but tallied under a different department in the summary. A
+  // department with no row here simply has no override; the client falls back to mirroring its
+  // production assignment (see PrintChecklistsModal's summaryAssignedIds).
+  app.post('/api/checklist-summary-assignments', async (req, res) => {
+    try {
+      if (req.body?.checklistSummaryAssignments && typeof req.body.checklistSummaryAssignments === 'object') {
+        const rows = Object.entries(req.body.checklistSummaryAssignments).map(([key, ids]) => ({
+          department_key: key,
+          product_ids: ids,
+        }));
+        await replaceTable('checklist_summary_assignments', 'department_key', rows);
+      }
+      const { data, error } = await supabase.from('checklist_summary_assignments').select('*');
+      if (error) throw error;
+      const record: Record<string, string[]> = {};
+      (data || []).forEach((r: any) => {
+        record[r.department_key] = r.product_ids || [];
+      });
+      res.json({ success: true, checklistSummaryAssignments: record });
+    } catch (e) {
+      console.error('Failed to save checklist summary assignments:', e);
+      res.status(500).json({ error: 'Failed to save checklist summary assignments' });
     }
   });
 
@@ -1562,29 +1606,70 @@ export function createApiApp() {
       const deptLabel = CHECKLIST_DEPT_LABELS[dept];
       if (!deptLabel) return res.status(404).json({ error: 'Нет такого цеха' });
       const today = almatyToday();
-      const [shopsR, productsR, ordersR, assignR] = await Promise.all([
+      // Optional ?date=YYYY-MM-DD to pull a past day's checklist instead of today's live orders —
+      // same underlying source (order_history) the "Реестр заявок" date picker already uses.
+      const requestedDate =
+        typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : null;
+      const isToday = !requestedDate || requestedDate === today;
+      const targetDate = requestedDate || today;
+
+      const [shopsR, productsR, assignR, summaryAssignR] = await Promise.all([
         supabase.from('shops').select('*'),
         supabase.from('products').select('*'),
-        supabase.from('orders').select('*').eq('order_date', today),
         supabase.from('checklist_assignments').select('*').eq('department_key', dept).maybeSingle(),
+        supabase.from('checklist_summary_assignments').select('*').eq('department_key', dept).maybeSingle(),
       ]);
-      for (const r of [shopsR, productsR, ordersR, assignR]) if (r.error) throw r.error;
+      for (const r of [shopsR, productsR, assignR]) if (r.error) throw r.error;
+      // Same optional-table tolerance as /api/initial-data — missing table just means "no
+      // summary override yet", not a broken export.
+      if (summaryAssignR.error) {
+        console.warn(
+          'checklist_summary_assignments unavailable (migration pending?):',
+          summaryAssignR.error.message
+        );
+      }
 
       const shops = (shopsR.data || []).map(shopFromDb);
       const productById = new Map((productsR.data || []).map((r: any) => [r.id, productFromDb(r)]));
       const itemsByShop = new Map<number, Record<string, number>>();
-      (ordersR.data || []).map(orderFromDb).forEach((o: any) => {
-        if (o.status === 'submitted' || o.status === 'accepted') itemsByShop.set(o.shopId, o.items || {});
-      });
+      if (isToday) {
+        const ordersR = await supabase.from('orders').select('*').eq('order_date', today);
+        if (ordersR.error) throw ordersR.error;
+        (ordersR.data || []).map(orderFromDb).forEach((o: any) => {
+          if (o.status === 'submitted' || o.status === 'accepted') itemsByShop.set(o.shopId, o.items || {});
+        });
+      } else {
+        const { startIso, endIso } = almatyDayRangeUtc(targetDate);
+        const histR = await supabase
+          .from('order_history')
+          .select('*')
+          .gte('submitted_at', startIso)
+          .lt('submitted_at', endIso)
+          .order('submitted_at', { ascending: false });
+        if (histR.error) throw histR.error;
+        const latestPerShop = new Map<number, any>();
+        for (const row of histR.data || []) {
+          if (!latestPerShop.has(row.shop_id)) latestPerShop.set(row.shop_id, row);
+        }
+        latestPerShop.forEach((row) => {
+          const o = orderHistoryFromDb(row);
+          if (o.status === 'submitted' || o.status === 'accepted') itemsByShop.set(o.shopId, o.items || {});
+        });
+      }
       const qty = (shopId: number, pid: string) => Number(itemsByShop.get(shopId)?.[pid]) || 0;
-      const assigned: string[] = ((assignR.data as any)?.product_ids || []).filter((id: string) => !id.startsWith('semi:'));
+      // No explicit summary override row for this department -> mirrors the production checklist
+      // assignment, same fallback the on-screen table uses (see PrintChecklistsModal).
+      const assignedRaw: string[] = summaryAssignR.data
+        ? ((summaryAssignR.data as any).product_ids || [])
+        : ((assignR.data as any)?.product_ids || []);
+      const assigned: string[] = assignedRaw.filter((id: string) => !id.startsWith('semi:'));
       const deptProducts = assigned
         .map((id) => productById.get(id))
         .filter((p: any) => p && shops.some((s: any) => qty(s.id, p.id) > 0)) as any[];
       const productTotal = (pid: string) => shops.reduce((n: number, s: any) => n + qty(s.id, pid), 0);
       const shopTotal = (shopId: number) => deptProducts.reduce((n, p) => n + qty(shopId, p.id), 0);
       const grandTotal = deptProducts.reduce((n, p) => n + productTotal(p.id), 0);
-      const dateRu = new Date(`${today}T12:00:00+05:00`).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' });
+      const dateRu = new Date(`${targetDate}T12:00:00+05:00`).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' });
 
       const wb = new ExcelJS.Workbook();
       wb.creator = 'Master Bakery';

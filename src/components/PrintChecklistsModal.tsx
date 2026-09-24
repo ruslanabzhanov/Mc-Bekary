@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { CoffeeShop, Product, ShopOrder, ChecklistAssignments, DishCosting, SemiFinishedProduct, RawMaterial } from '../types';
-import { Printer, X, Settings, Plus, Search, ClipboardList, Store, FileSpreadsheet } from 'lucide-react';
+import { Printer, X, Settings, Plus, Search, ClipboardList, Store, FileSpreadsheet, Calendar, Loader2 } from 'lucide-react';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 export type ChecklistDeptKey = 'bakery' | 'desserts' | 'sandwiches' | 'bar_prep' | 'kitchen_prep' | 'new_items';
+
+// 'YYYY-MM-DD' for the given instant, as an Asia/Almaty calendar date (en-CA locale formats
+// dates in that exact order) — matches how the server buckets order_history by date.
+const almatyDateStr = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Almaty' });
 
 interface PrintChecklistsModalProps {
   isOpen: boolean;
@@ -18,6 +22,13 @@ interface PrintChecklistsModalProps {
   // assignments" — hides the settings gear and its panel. Used from EmployeeView, where a
   // plain employee can look at a checklist but must not be able to change what's on it.
   onUpdateChecklistAssignments?: (next: ChecklistAssignments) => void;
+  // The "по точкам" summary table can assign the same dish to a different department than the
+  // production (заготовки) checklist does — e.g. a salmon-and-chicken croissant is prepped by
+  // заготовщики but shown under кондитер in the summary. When this department has no explicit
+  // key here, the summary view just mirrors checklistAssignments (see summaryAssignedIds below),
+  // so nothing changes for a department until it's deliberately split.
+  checklistSummaryAssignments: ChecklistAssignments;
+  onUpdateChecklistSummaryAssignments?: (next: ChecklistAssignments) => void;
   dishCostings: Record<string, DishCosting>;
   semiFinishedList: SemiFinishedProduct[];
   rawMaterials: RawMaterial[];
@@ -115,6 +126,8 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   orders,
   checklistAssignments,
   onUpdateChecklistAssignments,
+  checklistSummaryAssignments,
+  onUpdateChecklistSummaryAssignments,
   dishCostings,
   semiFinishedList,
   rawMaterials,
@@ -122,6 +135,11 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [activeView, setActiveView] = useState<'production' | 'summary'>('production');
+  // Какой день смотрим — по умолчанию сегодня (живые orders); выбор другой даты подтягивает
+  // снимок из order_history, тем же способом, что и «Реестр заявок».
+  const [selectedDate, setSelectedDate] = useState(() => almatyDateStr(new Date()));
+  const [historyOrders, setHistoryOrders] = useState<Record<number, ShopOrder>>({});
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const printBodyRef = useRef<HTMLDivElement>(null);
   // Пока идёт печать: ширина, на которой верстается лист, и во сколько раз его уменьшить,
   // чтобы всё содержимое легло на одну страницу. Вне печати — null, экран не трогаем.
@@ -182,9 +200,40 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
     };
   }, [isOpen, activeView]);
 
+  // Прошедший день — забираем снимок из order_history (тот же источник и та же логика "последняя
+  // заявка точки за день", что уже использует "Реестр заявок"). Сегодня продолжает идти через
+  // живые orders из пропсов — без лишнего похода на сервер.
+  useEffect(() => {
+    const isToday = selectedDate === almatyDateStr(new Date());
+    if (isToday || !isOpen) return;
+    let cancelled = false;
+    setIsHistoryLoading(true);
+    fetch(`/api/order-history-by-date?date=${selectedDate}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        const map: Record<number, ShopOrder> = {};
+        (data.history || []).forEach((entry: any) => {
+          map[entry.shopId] = { shopId: entry.shopId, items: entry.items, status: entry.status };
+        });
+        setHistoryOrders(map);
+      })
+      .catch((e) => console.error('Failed to load checklist history by date:', e))
+      .finally(() => {
+        if (!cancelled) setIsHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, isOpen]);
+
   useTelegramBackButton(isOpen, () => (isSettingsOpen ? setIsSettingsOpen(false) : onClose()));
 
   if (!isOpen || !departmentKey) return null;
+
+  const todayStr = almatyDateStr(new Date());
+  const isToday = selectedDate === todayStr;
+  const effectiveOrders = isToday ? orders : historyOrders;
 
   // На время печати сетки всегда в три колонки — иначе на узком экране (телефон) вёрстка
   // для замера была бы в одну колонку и лист посчитался бы неправильно.
@@ -195,29 +244,56 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   const semiMap = new Map<string, SemiFinishedProduct>(semiFinishedList.map((s) => [s.id, s]));
   const rawCategoryByName = new Map<string, string>(rawMaterials.map((r) => [r.name, r.categoryLabel]));
 
-  // Entries manually assigned to this checklist via the settings panel — dishes are stored as a
-  // bare product id, semi-finished products as `semi:<id>` (same array/column, no schema change).
-  const assignedIds = checklistAssignments[departmentKey] || [];
-  const assignedDishIds = assignedIds.filter((id) => !id.startsWith('semi:'));
-  const assignedSemiIds = assignedIds.filter((id) => id.startsWith('semi:')).map((id) => id.slice(5));
-  const assignedProducts = assignedDishIds
+  const isProductionView = activeView === 'production';
+
+  // Entries manually assigned to the production (заготовки) checklist via the settings panel —
+  // dishes are stored as a bare product id, semi-finished products as `semi:<id>` (same
+  // array/column, no schema change).
+  const productionAssignedIds = checklistAssignments[departmentKey] || [];
+  // The summary ("по точкам") assignment is independent — when this department has no explicit
+  // key here yet, it just mirrors the production list, so existing checklists behave exactly as
+  // before until an admin deliberately splits one apart.
+  const summaryAssignedIds = checklistSummaryAssignments[departmentKey] ?? productionAssignedIds;
+  const summaryIsCustomized = checklistSummaryAssignments[departmentKey] !== undefined;
+
+  const productionAssignedDishIds = productionAssignedIds.filter((id) => !id.startsWith('semi:'));
+  const productionAssignedSemiIds = productionAssignedIds.filter((id) => id.startsWith('semi:')).map((id) => id.slice(5));
+  // The summary table never shows semi-finished products, only finished dishes.
+  const summaryAssignedDishIds = summaryAssignedIds.filter((id) => !id.startsWith('semi:'));
+
+  const productionAssignedProducts = productionAssignedDishIds
     .map((id) => products.find((p) => p.id === id))
     .filter((p): p is Product => Boolean(p));
-  const assignedSemis = assignedSemiIds
+  const summaryAssignedProducts = summaryAssignedDishIds
+    .map((id) => products.find((p) => p.id === id))
+    .filter((p): p is Product => Boolean(p));
+  const assignedSemis = productionAssignedSemiIds
     .map((id) => semiMap.get(id))
     .filter((s): s is SemiFinishedProduct => Boolean(s));
 
+  // What the settings gear edits right now — whichever list the open view actually uses.
+  const settingsAssignedIds = isProductionView ? productionAssignedIds : summaryAssignedIds;
+  const settingsAssignedProducts = isProductionView ? productionAssignedProducts : summaryAssignedProducts;
+  const settingsAssignedSemis = isProductionView ? assignedSemis : [];
+  const settingsSourceMap = isProductionView ? checklistAssignments : checklistSummaryAssignments;
+  const settingsUpdate = isProductionView ? onUpdateChecklistAssignments : onUpdateChecklistSummaryAssignments;
+
   // Orders submitted/accepted today, per shop (this app tracks only the current live order per shop)
   const shopItems = shops.map((shop) => {
-    const order = orders[shop.id];
+    const order = effectiveOrders[shop.id];
     const isSubmitted = order && (order.status === 'submitted' || order.status === 'accepted');
     return { shop, items: isSubmitted ? order.items : {}, isSubmitted };
   });
 
-  // Only include assigned dishes that were actually submitted today by at least one shop
-  const deptProducts = assignedProducts.filter((p) =>
+  // Only include assigned dishes that were actually submitted today by at least one shop —
+  // computed separately per view since the assignment itself can now differ between them.
+  const productionDeptProducts = productionAssignedProducts.filter((p) =>
     shopItems.some(({ items }) => (items[p.id] || 0) > 0)
   );
+  const summaryDeptProducts = summaryAssignedProducts.filter((p) =>
+    shopItems.some(({ items }) => (items[p.id] || 0) > 0)
+  );
+  const deptProducts = isProductionView ? productionDeptProducts : summaryDeptProducts;
 
   const activeShops = shopItems.map(({ shop, items, isSubmitted }) => {
     const deptTotal = deptProducts.reduce((sum, p) => sum + (items[p.id] || 0), 0);
@@ -248,8 +324,9 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
     return total;
   };
 
-  // Per-dish ingredient requirements for the production (shop-floor) checklist
-  const dishCalcTiles = deptProducts.map((p) => {
+  // Per-dish ingredient requirements for the production (shop-floor) checklist — always from the
+  // production assignment, regardless of which view (production/summary) happens to be open.
+  const dishCalcTiles = productionDeptProducts.map((p) => {
     const orderedQty = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
     const costing = dishCostings[p.id];
     const semiNeeds = (costing?.semiFinishedItems || []).map((item) => {
@@ -338,8 +415,8 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   // Файл собирает сервер по тем же правилам, что эта таблица. Внутри Telegram скачать можно только
   // файл по настоящему адресу — сгенерированный на странице не сохранится.
   const handleDownloadSummaryExcel = () => {
-    const url = `${window.location.origin}/api/checklists/${departmentKey}/summary.xlsx`;
-    const fileName = `Сводный чек-лист — ${dept.shortTitle}.xlsx`;
+    const url = `${window.location.origin}/api/checklists/${departmentKey}/summary.xlsx${isToday ? '' : `?date=${selectedDate}`}`;
+    const fileName = `Сводный чек-лист — ${dept.shortTitle} — ${selectedDate}.xlsx`;
     const tg = (window as any).Telegram?.WebApp;
     if (typeof tg?.downloadFile === 'function') {
       tg.downloadFile({ url, file_name: fileName });
@@ -354,38 +431,50 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   };
 
   const handleAddToChecklist = (entryId: string) => {
-    if (!onUpdateChecklistAssignments) return;
-    onUpdateChecklistAssignments({
-      ...checklistAssignments,
-      [departmentKey]: [...assignedIds, entryId],
+    if (!settingsUpdate) return;
+    settingsUpdate({
+      ...settingsSourceMap,
+      [departmentKey]: [...settingsAssignedIds, entryId],
     });
     setProductSearchQuery('');
   };
 
   const handleRemoveFromChecklist = (entryId: string) => {
-    if (!onUpdateChecklistAssignments) return;
-    onUpdateChecklistAssignments({
-      ...checklistAssignments,
-      [departmentKey]: assignedIds.filter((id) => id !== entryId),
+    if (!settingsUpdate) return;
+    settingsUpdate({
+      ...settingsSourceMap,
+      [departmentKey]: settingsAssignedIds.filter((id) => id !== entryId),
     });
   };
 
+  // Drops this department's explicit summary override, so it goes back to mirroring the
+  // production checklist automatically (see summaryAssignedIds above).
+  const resetSummaryToProduction = () => {
+    if (!onUpdateChecklistSummaryAssignments) return;
+    const next = { ...checklistSummaryAssignments };
+    delete next[departmentKey];
+    onUpdateChecklistSummaryAssignments(next);
+  };
+
   const searchQueryLower = productSearchQuery.trim().toLowerCase();
+  const settingsAssignedDishIds = settingsAssignedProducts.map((p) => p.id);
   const dishSearchResults = searchQueryLower
     ? products
-        .filter((p) => !assignedDishIds.includes(p.id) && p.name.toLowerCase().includes(searchQueryLower))
+        .filter((p) => !settingsAssignedDishIds.includes(p.id) && p.name.toLowerCase().includes(searchQueryLower))
         .slice(0, 6)
         .map((p) => ({ kind: 'dish' as const, entryId: p.id, name: p.name, categoryLabel: p.categoryLabel }))
     : [];
-  const semiSearchResults = searchQueryLower
+  // Semi-finished products only make sense on the production checklist — the summary table
+  // never shows them, so don't offer them to add there.
+  const semiSearchResults = isProductionView && searchQueryLower
     ? semiFinishedList
-        .filter((s) => !assignedSemiIds.includes(s.id) && s.name.toLowerCase().includes(searchQueryLower))
+        .filter((s) => !productionAssignedSemiIds.includes(s.id) && s.name.toLowerCase().includes(searchQueryLower))
         .slice(0, 6)
         .map((s) => ({ kind: 'semi' as const, entryId: `semi:${s.id}`, name: s.name, categoryLabel: s.categoryLabel }))
     : [];
   const combinedSearchResults = [...dishSearchResults, ...semiSearchResults].slice(0, 8);
 
-  const todayStr = new Date().toLocaleDateString('ru-RU', {
+  const selectedDateLabel = new Date(`${selectedDate}T12:00:00+05:00`).toLocaleDateString('ru-RU', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -405,7 +494,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
             </div>
 
             <div className="flex items-center space-x-2">
-              {onUpdateChecklistAssignments && (
+              {(onUpdateChecklistAssignments || onUpdateChecklistSummaryAssignments) && (
                 <button
                   id="btn-toggle-checklist-settings"
                   onClick={() => setIsSettingsOpen((v) => !v)}
@@ -431,93 +520,154 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
 
           {isSettingsOpen && (
             <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Блюда и полуфабрикаты, относящиеся к этому чек-листу
+                  {isProductionView
+                    ? 'Блюда и полуфабрикаты в цеховом чек-листе (заготовки)'
+                    : 'Блюда в сводном по точкам'}
                 </h3>
-                <span className="text-[10px] text-slate-400 font-bold">
-                  {assignedProducts.length + assignedSemis.length} назначено
+                <span className="text-[10px] text-slate-400 font-bold shrink-0">
+                  {settingsAssignedProducts.length + settingsAssignedSemis.length} назначено
                 </span>
               </div>
 
+              {/* Сводный по умолчанию зеркалит цеховой список — разводят вручную только когда
+                  нужно, например блюдо заготавливает один цех, а в сводном оно числится за другим. */}
+              {!isProductionView && (
+                summaryIsCustomized ? (
+                  <button
+                    onClick={resetSummaryToProduction}
+                    disabled={!onUpdateChecklistSummaryAssignments}
+                    className="text-[10px] font-bold text-indigo-600 hover:underline disabled:opacity-50 disabled:no-underline"
+                  >
+                    Настроено отдельно от цехового чек-листа — сбросить
+                  </button>
+                ) : (
+                  <p className="text-[10px] text-slate-400 italic">
+                    Пока совпадает с цеховым чек-листом — измените список здесь, чтобы вести его отдельно.
+                  </p>
+                )
+              )}
+
               <div className="flex flex-wrap gap-1.5">
-                {assignedProducts.length === 0 && assignedSemis.length === 0 ? (
+                {settingsAssignedProducts.length === 0 && settingsAssignedSemis.length === 0 ? (
                   <span className="text-[11px] text-slate-400 italic">Нет назначенных позиций</span>
                 ) : (
                   <>
-                    {assignedProducts.map((p) => (
+                    {settingsAssignedProducts.map((p) => (
                       <span
                         key={p.id}
                         className="flex items-center gap-1 bg-indigo-100 text-indigo-800 text-[11px] font-bold pl-2.5 pr-1.5 py-1 rounded-full"
                       >
                         {p.name}
-                        <button
-                          onClick={() => handleRemoveFromChecklist(p.id)}
-                          className="w-4 h-4 rounded-full hover:bg-indigo-200 flex items-center justify-center"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                        {settingsUpdate && (
+                          <button
+                            onClick={() => handleRemoveFromChecklist(p.id)}
+                            className="w-4 h-4 rounded-full hover:bg-indigo-200 flex items-center justify-center"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
                       </span>
                     ))}
-                    {assignedSemis.map((s) => (
+                    {settingsAssignedSemis.map((s) => (
                       <span
                         key={s.id}
                         className="flex items-center gap-1 bg-violet-100 text-violet-800 text-[11px] font-bold pl-2.5 pr-1.5 py-1 rounded-full"
                       >
                         <span className="text-[8px] font-black opacity-70">П/Ф</span>
                         {s.name}
-                        <button
-                          onClick={() => handleRemoveFromChecklist(`semi:${s.id}`)}
-                          className="w-4 h-4 rounded-full hover:bg-violet-200 flex items-center justify-center"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                        {settingsUpdate && (
+                          <button
+                            onClick={() => handleRemoveFromChecklist(`semi:${s.id}`)}
+                            className="w-4 h-4 rounded-full hover:bg-violet-200 flex items-center justify-center"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
                       </span>
                     ))}
                   </>
                 )}
               </div>
 
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                <input
-                  type="text"
-                  value={productSearchQuery}
-                  onChange={(e) => setProductSearchQuery(e.target.value)}
-                  placeholder="Поиск блюда или полуфабриката для добавления..."
-                  className="w-full pl-8 pr-2 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
+              {settingsUpdate && (
+                <>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                    <input
+                      type="text"
+                      value={productSearchQuery}
+                      onChange={(e) => setProductSearchQuery(e.target.value)}
+                      placeholder={isProductionView ? 'Поиск блюда или полуфабриката для добавления...' : 'Поиск блюда для добавления...'}
+                      className="w-full pl-8 pr-2 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
 
-              {productSearchQuery.trim() && (
-                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100">
-                  {combinedSearchResults.length === 0 ? (
-                    <p className="text-[11px] text-slate-400 italic text-center py-2.5">Ничего не найдено</p>
-                  ) : (
-                    combinedSearchResults.map((r) => (
-                      <button
-                        key={r.entryId}
-                        type="button"
-                        onClick={() => handleAddToChecklist(r.entryId)}
-                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 flex items-center justify-between gap-2"
-                      >
-                        <span className="font-medium text-slate-800 truncate flex items-center gap-1.5">
-                          {r.kind === 'semi' && (
-                            <span className="text-[8px] font-black text-violet-700 shrink-0">П/Ф</span>
-                          )}
-                          {r.name}
-                        </span>
-                        <span className="flex items-center gap-1 text-[9px] text-slate-400 shrink-0">
-                          {r.categoryLabel}
-                          <Plus className="w-3 h-3 text-indigo-600" />
-                        </span>
-                      </button>
-                    ))
+                  {productSearchQuery.trim() && (
+                    <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100">
+                      {combinedSearchResults.length === 0 ? (
+                        <p className="text-[11px] text-slate-400 italic text-center py-2.5">Ничего не найдено</p>
+                      ) : (
+                        combinedSearchResults.map((r) => (
+                          <button
+                            key={r.entryId}
+                            type="button"
+                            onClick={() => handleAddToChecklist(r.entryId)}
+                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 flex items-center justify-between gap-2"
+                          >
+                            <span className="font-medium text-slate-800 truncate flex items-center gap-1.5">
+                              {r.kind === 'semi' && (
+                                <span className="text-[8px] font-black text-violet-700 shrink-0">П/Ф</span>
+                              )}
+                              {r.name}
+                            </span>
+                            <span className="flex items-center gap-1 text-[9px] text-slate-400 shrink-0">
+                              {r.categoryLabel}
+                              <Plus className="w-3 h-3 text-indigo-600" />
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
                   )}
-                </div>
+                </>
               )}
             </div>
           )}
+
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1.5 rounded-lg">
+              <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <input
+                type="date"
+                value={selectedDate}
+                max={todayStr}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none"
+              />
+              {!isToday && (
+                <button
+                  onClick={() => setSelectedDate(todayStr)}
+                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 pl-1"
+                >
+                  Сегодня
+                </button>
+              )}
+            </div>
+            {!isToday && (
+              <span className="flex items-center gap-1.5 text-[11px] text-slate-400 italic">
+                {isHistoryLoading ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Загрузка данных за этот день…</span>
+                  </>
+                ) : (
+                  <span>Архив — заявки за выбранный день</span>
+                )}
+              </span>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -597,7 +747,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
               <div className="font-bold bg-slate-100 px-3 py-1 rounded border border-slate-200">
                 Код цеха: {dept.code}
               </div>
-              <div>Дата: <strong>{todayStr}</strong></div>
+              <div>Дата: <strong>{selectedDateLabel}</strong></div>
               {activeView === 'production' && (
                 <>
                   <div className="flex items-center justify-end gap-3">
@@ -619,9 +769,16 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
             </div>
           </div>
 
-          {calcTiles.length === 0 ? (
+          {!isToday && isHistoryLoading ? (
+            <div className="border border-dashed border-slate-300 rounded-lg py-10 text-center text-slate-400 flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Загрузка чек-листа за выбранный день…</span>
+            </div>
+          ) : (isProductionView ? calcTiles.length === 0 : deptProducts.length === 0) ? (
             <div className="border border-dashed border-slate-300 print:border-slate-400 rounded-lg py-10 text-center text-slate-400">
-              Сегодня по этому цеху ещё нет поданных блюд и не требуется заготовка полуфабрикатов.
+              {isToday
+                ? 'Сегодня по этому цеху ещё нет поданных блюд и не требуется заготовка полуфабрикатов.'
+                : 'За этот день по этому цеху не найдено поданных блюд.'}
             </div>
           ) : activeView === 'production' ? (
             <div className="space-y-4">

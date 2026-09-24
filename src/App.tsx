@@ -62,6 +62,12 @@ const DEPT_CATEGORY_MAP: Record<string, string> = {
 const DEFAULT_CHECKLIST_ASSIGNMENTS: ChecklistAssignments = Object.fromEntries(
   Object.keys(DEPT_CATEGORY_MAP).map((deptKey) => [deptKey, [] as string[]])
 );
+// Deliberately empty (no per-department keys, unlike the production default above) — a
+// department with no entry here just mirrors its production checklist assignment (see
+// PrintChecklistsModal's summaryAssignedIds), so every existing checklist keeps behaving exactly
+// as before until an admin explicitly splits one department's summary apart from its production
+// list (e.g. a dish prepped by заготовщики but tallied under кондитер in the "по точкам" table).
+const DEFAULT_CHECKLIST_SUMMARY_ASSIGNMENTS: ChecklistAssignments = {};
 
 // All 27 shops are in Kazakhstan (UTC+5, unified nationwide since 2024). This is only an
 // optimistic local echo of what the server will save (see timeNow() in apiApp.ts, the
@@ -257,6 +263,12 @@ export default function App() {
     '/api/checklist-assignments',
     'checklistAssignments'
   );
+  const [checklistSummaryAssignments, setChecklistSummaryAssignments, hydrateChecklistSummaryAssignments] =
+    useSyncedState<ChecklistAssignments>(
+      DEFAULT_CHECKLIST_SUMMARY_ASSIGNMENTS,
+      '/api/checklist-summary-assignments',
+      'checklistSummaryAssignments'
+    );
   // Deliberately plain state, unlike the catalogs above: these two are written from many
   // devices at once during hiring, and a setter that posts the whole array would have each
   // phone overwrite the table with the list it loaded on open, deleting everyone who
@@ -331,6 +343,7 @@ export default function App() {
         if (data.semiFinishedList) hydrateSemiFinishedList(data.semiFinishedList);
         if (data.dishCostings) hydrateDishCostings(data.dishCostings);
         if (data.checklistAssignments) hydrateChecklistAssignments(data.checklistAssignments);
+        if (data.checklistSummaryAssignments) hydrateChecklistSummaryAssignments(data.checklistSummaryAssignments);
         if (data.rolePermissions) setRolePermissions(data.rolePermissions);
         if (data.staff) hydrateStaff(data.staff);
         if (data.registrationRequests) hydrateRegistrationRequests(data.registrationRequests);
@@ -1397,6 +1410,7 @@ export default function App() {
               products={products}
               orders={orders}
               checklistAssignments={checklistAssignments}
+              checklistSummaryAssignments={checklistSummaryAssignments}
               dishCostings={dishCostings}
               semiFinishedList={semiFinishedList}
               rawMaterials={rawMaterials}
@@ -1437,6 +1451,8 @@ export default function App() {
               setDishCategoryDefs={setDishCategoryDefs}
               checklistAssignments={checklistAssignments}
               onUpdateChecklistAssignments={setChecklistAssignments}
+              checklistSummaryAssignments={checklistSummaryAssignments}
+              onUpdateChecklistSummaryAssignments={setChecklistSummaryAssignments}
               staff={staff}
               registrationRequests={registrationRequests}
               advanceRequests={advanceRequests}

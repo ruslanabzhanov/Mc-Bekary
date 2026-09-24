@@ -23,6 +23,7 @@ interface EmployeeViewProps {
   products: Product[];
   orders: Record<number, ShopOrder>;
   checklistAssignments: ChecklistAssignments;
+  checklistSummaryAssignments: ChecklistAssignments;
   dishCostings: Record<string, DishCosting>;
   semiFinishedList: SemiFinishedProduct[];
   rawMaterials: RawMaterial[];
@@ -81,6 +82,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   products,
   orders,
   checklistAssignments,
+  checklistSummaryAssignments,
   dishCostings,
   semiFinishedList,
   rawMaterials,
@@ -306,6 +308,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         products={products}
         orders={orders}
         checklistAssignments={checklistAssignments}
+        checklistSummaryAssignments={checklistSummaryAssignments}
         dishCostings={dishCostings}
         semiFinishedList={semiFinishedList}
         rawMaterials={rawMaterials}

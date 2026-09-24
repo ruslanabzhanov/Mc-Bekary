@@ -73,6 +73,8 @@ interface AdminViewProps {
   setDishCategoryDefs: React.Dispatch<React.SetStateAction<{ key: string; label: string }[]>>;
   checklistAssignments: ChecklistAssignments;
   onUpdateChecklistAssignments: (next: ChecklistAssignments) => void;
+  checklistSummaryAssignments: ChecklistAssignments;
+  onUpdateChecklistSummaryAssignments: (next: ChecklistAssignments) => void;
   staff: StaffMember[];
   registrationRequests: RegistrationRequest[];
   advanceRequests: AdvanceRequest[];
@@ -118,6 +120,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   setDishCategoryDefs,
   checklistAssignments,
   onUpdateChecklistAssignments,
+  checklistSummaryAssignments,
+  onUpdateChecklistSummaryAssignments,
   staff,
   registrationRequests,
   advanceRequests,
@@ -908,6 +912,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
         orders={orders}
         checklistAssignments={checklistAssignments}
         onUpdateChecklistAssignments={onUpdateChecklistAssignments}
+        checklistSummaryAssignments={checklistSummaryAssignments}
+        onUpdateChecklistSummaryAssignments={onUpdateChecklistSummaryAssignments}
         dishCostings={dishCostings}
         semiFinishedList={semiFinishedList}
         rawMaterials={rawMaterials}

@@ -137,6 +137,16 @@ create table if not exists checklist_assignments (
   product_ids jsonb not null default '[]'
 );
 
+-- Same shape as checklist_assignments, but for the "по точкам" summary table specifically — a
+-- department with no row here has no override and the app falls back to mirroring its
+-- checklist_assignments row, so this table only needs rows for departments an admin has
+-- deliberately split apart (e.g. a dish prepped by one department but tallied under another in
+-- the summary).
+create table if not exists checklist_summary_assignments (
+  department_key text primary key,
+  product_ids jsonb not null default '[]'
+);
+
 create table if not exists staff (
   id text primary key,
   name text not null,
