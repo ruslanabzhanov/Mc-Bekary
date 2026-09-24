@@ -4,6 +4,7 @@ import {
   Flame, AlertTriangle, Users, Clock, ChevronDown, ChevronUp, Loader2,
 } from 'lucide-react';
 import { CoffeeShop } from '../types';
+import { ConsumptionWidget } from './ConsumptionWidget';
 
 interface AnalyticsViewProps {
   shops: CoffeeShop[];
@@ -408,6 +409,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
               </div>
             </div>
           )}
+
+          <ConsumptionWidget shopIdsKey={shopIdsKey} />
 
           {/* Top products */}
           {data.topProducts.length > 0 && (

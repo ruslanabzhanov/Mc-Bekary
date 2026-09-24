@@ -2564,6 +2564,101 @@ export function createApiApp() {
     return { dates, shops: shopsOut };
   }
 
+  // Расход сырья за день/неделю: заявки (последняя за день по точке, как в /api/analytics),
+  // развёрнутые через техкарты блюд — сырьё напрямую и сырьё внутри полуфабрикатов (с учётом
+  // выхода п/ф, так же как считает чек-лист). Стоимость — по текущей цене из справочника сырья,
+  // а если его там нет — по цене, записанной в техкарте.
+  app.get('/api/analytics/consumption', async (req, res) => {
+    try {
+      const shopIds = String(req.query.shopIds || '')
+        .split(',')
+        .map((s) => parseInt(s, 10))
+        .filter((n) => Number.isFinite(n));
+      if (shopIds.length === 0) return res.status(400).json({ error: 'shopIds is required' });
+      const period: AnalyticsPeriod = req.query.period === 'week' ? 'week' : 'day';
+      const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : almatyToday();
+      const range = periodRange(period, dateStr);
+      const { startIso } = almatyDayRangeUtc(range.start);
+      const { startIso: endIso } = almatyDayRangeUtc(range.end);
+
+      const [histR, prodR, costR, semiR, rawR] = await Promise.all([
+        supabase
+          .from('order_history')
+          .select('shop_id, items, submitted_at')
+          .in('shop_id', shopIds)
+          .gte('submitted_at', startIso)
+          .lt('submitted_at', endIso),
+        supabase.from('products').select('id'),
+        supabase.from('dish_costings').select('*'),
+        supabase.from('semi_finished').select('*'),
+        supabase.from('raw_materials').select('*'),
+      ]);
+      for (const r of [histR, prodR, costR, semiR, rawR]) if (r.error) throw r.error;
+
+      const knownProducts = new Set((prodR.data || []).map((p: any) => p.id));
+      const costingById = new Map((costR.data || []).map((r: any) => { const c = dishCostingFromDb(r); return [c.productId, c]; }));
+      const semiById = new Map((semiR.data || []).map((r: any) => { const s = semiFinishedFromDb(r); return [s.id, s]; }));
+      const rawByName = new Map((rawR.data || []).map((r: any) => { const m = rawMaterialFromDb(r); return [m.name, m]; }));
+
+      const latestByShopDay = new Map<string, any>();
+      for (const row of histR.data || []) {
+        const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+        const key = `${row.shop_id}:${day}`;
+        const existing = latestByShopDay.get(key);
+        if (!existing || new Date(row.submitted_at) > new Date(existing.submitted_at)) latestByShopDay.set(key, { ...row, day });
+      }
+
+      const dates: string[] = [];
+      for (let d = range.start; d < range.end; d = addDays(d, 1)) dates.push(d);
+
+      type Agg = { name: string; unit: string; category: string; amount: number; cost: number; byDay: Record<string, number> };
+      const agg = new Map<string, Agg>();
+      const add = (name: string, unit: string, amount: number, fallbackPrice: number, day: string) => {
+        if (!(amount > 0)) return;
+        const raw = rawByName.get(name);
+        const price = raw ? Number(raw.defaultUnitPrice) || 0 : Number(fallbackPrice) || 0;
+        const key = `${name}|${unit}`;
+        const a = agg.get(key) || { name, unit, category: raw?.categoryLabel || 'Прочее сырьё', amount: 0, cost: 0, byDay: {} };
+        a.amount += amount;
+        a.cost += amount * price;
+        a.byDay[day] = (a.byDay[day] || 0) + amount;
+        agg.set(key, a);
+      };
+
+      for (const row of latestByShopDay.values()) {
+        Object.entries(row.items || {}).forEach(([pid, qtyVal]) => {
+          const n = Number(qtyVal) || 0;
+          if (n <= 0 || !knownProducts.has(pid)) return;
+          const costing: any = costingById.get(pid);
+          if (!costing) return;
+          (costing.rawIngredients || []).forEach((it: any) =>
+            add(it.name, it.unit, (Number(it.quantity) || 0) * n, it.unitPrice, row.day)
+          );
+          (costing.semiFinishedItems || []).forEach((it: any) => {
+            const semi: any = semiById.get(it.semiFinishedId);
+            if (!semi) return;
+            const scale = ((Number(it.quantity) || 0) * n) / (Number(semi.yieldQuantity) || 1);
+            (semi.ingredients || []).forEach((ing: any) =>
+              add(ing.rawMaterialName, ing.unit, (Number(ing.quantity) || 0) * scale, ing.unitPrice, row.day)
+            );
+          });
+        });
+      }
+
+      const items = Array.from(agg.values()).sort((a, b) => b.cost - a.cost || b.amount - a.amount);
+      res.json({
+        period,
+        range,
+        dates,
+        totalCost: items.reduce((n, i) => n + i.cost, 0),
+        items,
+      });
+    } catch (e) {
+      console.error('Failed to build consumption analytics:', e);
+      res.status(500).json({ error: 'Failed to build consumption analytics' });
+    }
+  });
+
   app.get('/api/analytics', async (req, res) => {
     try {
       const shopIds = String(req.query.shopIds || '')
