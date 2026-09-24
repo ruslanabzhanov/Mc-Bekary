@@ -311,6 +311,11 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
     onUpdateProduct(selectedProduct.id, { price: Math.max(0, newPrice) });
   };
 
+  const handleDishNameChange = (newName: string) => {
+    if (!selectedProduct) return;
+    onUpdateProduct(selectedProduct.id, { name: newName });
+  };
+
   // Dish Handlers
   const handleUpdateDishSemiQty = (semiId: string, newQty: number) => {
     const updatedSemis = currentDishCosting.semiFinishedItems.map((item) =>
@@ -820,10 +825,15 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
 
             {/* Dish Header Info */}
             <div className="space-y-3 pb-4 border-b border-slate-100">
-              {/* Full-width dish name, one line */}
-              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight truncate">
-                {selectedProduct.name}
-              </h3>
+              {/* Full-width dish name, one line — editable: зав производства и владелец могут
+                  переименовать блюдо (например, если название с ошибкой или устарело). */}
+              <input
+                type="text"
+                value={selectedProduct.name}
+                onChange={(e) => handleDishNameChange(e.target.value)}
+                className="w-full text-xl font-black text-slate-900 uppercase tracking-tight bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 -mx-1"
+                placeholder="Название блюда"
+              />
 
               {/* Active Tiles: bigger Photo on the left, Category & Price (stacked) on the right */}
               <div className="flex flex-col sm:flex-row gap-3">
