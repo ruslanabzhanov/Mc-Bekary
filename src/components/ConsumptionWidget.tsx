@@ -46,7 +46,6 @@ export const ConsumptionWidget: React.FC<{ shopIdsKey: string }> = ({ shopIdsKey
   const [period, setPeriod] = useState<Period>('day');
   const [date, setDate] = useState(() => almatyToday());
   const [selectedKey, setSelectedKey] = useState('');
-  const [measure, setMeasure] = useState<'cost' | 'кг' | 'шт' | 'л'>('кг');
   const [data, setData] = useState<ConsumptionResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -72,14 +71,9 @@ export const ConsumptionWidget: React.FC<{ shopIdsKey: string }> = ({ shopIdsKey
   const isCurrent = period === 'day' ? date === today : weekStart(date) === weekStart(today);
 
   const items = data?.items || [];
-  // Деньги складывают всё вместе; по кг/шт/л — только позиции в этой единице (разные единицы
-  // в одну сумму не сложить).
-  const ranked =
-    measure === 'cost'
-      ? items
-      : items.filter((i) => i.unit === measure).sort((a, b) => b.amount - a.amount);
-  const top = ranked.slice(0, 10);
-  const valueOf = (i: ConsumptionItem) => (measure === 'cost' ? i.cost : i.amount);
+  // Каждая позиция — в своей единице из техкарты; топ по количеству.
+  const top = [...items].sort((a, b) => b.amount - a.amount).slice(0, 10);
+  const valueOf = (i: ConsumptionItem) => i.amount;
   const topTotal = top.reduce((n, i) => n + valueOf(i), 0);
   const selected = selectedKey ? items.find((i) => itemKey(i) === selectedKey) || null : null;
 
@@ -138,22 +132,6 @@ export const ConsumptionWidget: React.FC<{ shopIdsKey: string }> = ({ shopIdsKey
         </div>
         {period === 'week' && data && (
           <p className="text-center text-[11px] font-bold text-slate-500">{data.range.label}</p>
-        )}
-
-        {!selectedKey && (
-          <div className="grid grid-cols-4 gap-1">
-            {(['кг', 'шт', 'л', 'cost'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMeasure(m)}
-                className={`min-h-[30px] rounded-lg text-[11px] font-bold transition-colors ${
-                  measure === m ? 'bg-teal-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {m === 'cost' ? '₸ сумма' : `в ${m}`}
-              </button>
-            ))}
-          </div>
         )}
 
         <select
@@ -221,7 +199,7 @@ export const ConsumptionWidget: React.FC<{ shopIdsKey: string }> = ({ shopIdsKey
         )
       ) : top.length === 0 ? (
         <p className="py-6 text-center text-xs text-slate-400 italic">
-          {items.length === 0 ? 'За этот период заявок с техкартами нет.' : 'Нет расхода в этой единице за период.'}
+          За этот период заявок с техкартами нет.
         </p>
       ) : (
         <>
