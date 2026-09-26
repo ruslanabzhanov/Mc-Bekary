@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { CoffeeShop, Product, ShopOrder, ChecklistAssignments, DishCosting, SemiFinishedProduct, RawMaterial } from '../types';
-import { Printer, X, Settings, Plus, Search, ClipboardList, Store, FileSpreadsheet, Calendar, Loader2 } from 'lucide-react';
+import { Printer, X, Settings, Plus, Search, ClipboardList, Store, FileSpreadsheet, Calendar, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 export type ChecklistDeptKey = 'bakery' | 'desserts' | 'sandwiches' | 'bar_prep' | 'kitchen_prep' | 'new_items';
@@ -135,6 +135,9 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [activeView, setActiveView] = useState<'production' | 'summary'>('production');
+  // На весь экран — чтобы читать состав (сырьё/полуфабрикаты по каждому блюду) не в узкой
+  // колонке, а во всю ширину. Не влияет на печать — там всегда полный размер листа.
+  const [isExpanded, setIsExpanded] = useState(false);
   // Какой день смотрим — по умолчанию сегодня (живые orders); выбор другой даты подтягивает
   // снимок из order_history, тем же способом, что и «Реестр заявок».
   const [selectedDate, setSelectedDate] = useState(() => almatyDateStr(new Date()));
@@ -482,8 +485,16 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
   });
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:static print:h-auto">
-      <div className="bg-white border border-slate-200 rounded-xl w-full max-w-4xl overflow-hidden shadow-xl flex flex-col max-h-[92vh] print:max-w-none print:max-h-none print:border-none print:shadow-none print:bg-white">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:static print:h-auto ${
+        isExpanded ? 'p-0' : 'p-4'
+      }`}
+    >
+      <div
+        className={`bg-white border border-slate-200 overflow-hidden shadow-xl flex flex-col print:max-w-none print:max-h-none print:border-none print:shadow-none print:bg-white print:rounded-none ${
+          isExpanded ? 'w-full h-full max-w-none max-h-none rounded-none' : 'rounded-xl w-full max-w-4xl max-h-[92vh]'
+        }`}
+      >
         
         {/* Modal Header (Hidden on Print) */}
         <div className="p-6 border-b border-slate-100 bg-white print:hidden space-y-4">
@@ -508,6 +519,14 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                   <Settings className="w-4.5 h-4.5" />
                 </button>
               )}
+              <button
+                id="btn-toggle-checklist-expand"
+                onClick={() => setIsExpanded((v) => !v)}
+                className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center transition-colors shrink-0"
+                title={isExpanded ? 'Свернуть' : 'Развернуть на весь экран'}
+              >
+                {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
               <button
                 id="btn-close-print-modal"
                 onClick={onClose}
