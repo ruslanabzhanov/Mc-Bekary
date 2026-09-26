@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Clock, Compass, Crown, ChevronDown, ShieldCheck, Store, Map, HardHat } from 'lucide-react';
+import { Clock, Compass, Crown, ChevronDown, ShieldCheck, Store, Map, HardHat, Maximize2, Minimize2 } from 'lucide-react';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
 import { UserRole } from '../types';
+import { useFullscreenToggle } from '../hooks/useFullscreenToggle';
 
 // Экраны, между которыми переключается Владелец. Он — единственная по-настоящему
 // подтверждённая личность в приложении, поэтому ему можно смотреть любой кабинет; у
@@ -65,13 +66,17 @@ export const Header: React.FC<HeaderProps> = ({
   onEditDeadline,
 }) => {
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
+  const { isFullscreen, toggle: toggleFullscreen, topInset } = useFullscreenToggle();
 
   const percentage = Math.round((submittedCount / totalShops) * 100);
 
   const hasOwnerSwitch = isOwnerVerified && OWNER_VIEWS.some((v) => v.role === currentRole);
 
   return (
-    <header className="bg-white text-slate-900 border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+    <header
+      className="bg-white text-slate-900 border-b border-slate-200 sticky top-0 z-40 shadow-sm"
+      style={topInset ? { paddingTop: topInset } : undefined}
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-row items-center py-2.5 gap-3">
 
@@ -95,6 +100,16 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right side: Live Time & Discipline Bar + Executive Access */}
           <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Развернуть на весь экран / свернуть — видно всем ролям, не только Владельцу. */}
+            <button
+              id="btn-toggle-fullscreen"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Свернуть' : 'Развернуть на весь экран'}
+              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            >
+              {isFullscreen ? <Minimize2 className="w-4.5 h-4.5" /> : <Maximize2 className="w-4.5 h-4.5" />}
+            </button>
+
             {/* Center Info: Live Time & Discipline Bar */}
             <div className="hidden md:flex items-center space-x-4 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
               {onEditDeadline ? (
