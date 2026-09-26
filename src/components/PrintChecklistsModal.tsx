@@ -934,50 +934,6 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
             </div>
           ) : (
           <>
-          {/* Department Product Totals Breakdown */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Сводная потребность по позициям цеха:
-            </h3>
-            <div className="border border-slate-200 print:border-slate-400 rounded-lg overflow-hidden">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 print:border-slate-400 uppercase text-[10px] tracking-wider">
-                  <tr>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400 w-12 text-center">№</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400">Наименование</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400">Вес</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 print:border-slate-400">Срок годности</th>
-                    <th className="py-2.5 px-3 text-center font-extrabold">Количество</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 print:divide-slate-300 bg-white">
-                  {deptProducts.map((p, index) => {
-                    const total = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 text-center font-bold text-slate-500 border-r border-slate-200 print:border-slate-400">
-                          {index + 1}
-                        </td>
-                        <td className="py-2 px-3 font-bold text-slate-900 border-r border-slate-200 print:border-slate-400">
-                          {p.name}
-                        </td>
-                        <td className="py-2 px-3 text-slate-600 border-r border-slate-200 print:border-slate-400">
-                          {p.unitWeight}
-                        </td>
-                        <td className="py-2 px-3 text-slate-600 border-r border-slate-200 print:border-slate-400">
-                          {p.shelfLife}
-                        </td>
-                        <td className="py-2 px-3 text-center font-black text-indigo-900">
-                          {total} {p.unit}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
           {/* Table per Coffee Shop for Dispatch / Packing */}
           <div>
             <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">
@@ -1006,14 +962,14 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-200 print:divide-slate-300 bg-white">
+                <tbody className="divide-y-2 divide-slate-300 print:divide-slate-400 bg-white">
                   {activeShops.map(({ shop, items, deptTotal, isSubmitted }) => (
                     <tr key={shop.id}>
-                      <td className="py-1 px-2 text-center font-bold text-slate-500">
+                      <td className="py-1.5 px-2 text-center font-bold text-slate-500">
                         #{shop.id}
                       </td>
 
-                      <td className="py-1 px-2">
+                      <td className="py-1.5 px-2">
                         <div className="font-bold text-slate-900 leading-tight">
                           {shop.district.trim() || shop.address}
                         </div>
@@ -1027,7 +983,7 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                         return (
                           <td
                             key={p.id}
-                            className={`py-1 px-1.5 text-center ${
+                            className={`py-1.5 px-1.5 text-center text-base ${
                               qty > 0 ? 'text-slate-900 font-extrabold' : 'text-slate-300 font-semibold'
                             }`}
                           >
@@ -1036,11 +992,11 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                         );
                       })}
 
-                      <td className="py-1 px-2 text-center font-black text-indigo-900">
+                      <td className="py-1.5 px-2 text-center text-base font-black text-indigo-900">
                         {deptTotal}
                       </td>
 
-                      <td className="py-1 px-2 text-center">
+                      <td className="py-1.5 px-2 text-center">
                         <div className="w-4 h-4 border-2 border-slate-400 print:border-slate-400 rounded mx-auto" />
                       </td>
                     </tr>
@@ -1055,12 +1011,12 @@ export const PrintChecklistsModal: React.FC<PrintChecklistsModalProps> = ({
                     {deptProducts.map((p) => {
                       const total = activeShops.reduce((sum, s) => sum + (s.items[p.id] || 0), 0);
                       return (
-                        <td key={p.id} className="py-2 px-1.5 text-center text-indigo-900">
+                        <td key={p.id} className="py-2 px-1.5 text-center text-base text-indigo-900">
                           {total}
                         </td>
                       );
                     })}
-                    <td className="py-2 px-2 text-center text-indigo-900 text-base font-black">
+                    <td className="py-2 px-2 text-center text-indigo-900 text-lg font-black">
                       {grandDeptTotal}
                     </td>
                     <td className="py-2 px-2 text-center font-normal text-[10px] text-slate-500">
