@@ -1057,6 +1057,45 @@ export function createApiApp() {
     }
   });
 
+  // Save a single dish photo: uploads it to Supabase Storage and points that one product's
+  // image_url at the resulting public URL — a targeted single-row update, not a full-array
+  // replace via POST /api/products above. Photos used to be saved as base64 straight into
+  // image_url, which made every /api/products and /api/initial-data response several MB (the
+  // catalog is polled every 60s while a manager has the order screen open) and blew through
+  // Vercel's Fast Origin Transfer allowance — see scripts/migrate-photos-to-storage.mjs for the
+  // one-time migration of photos that already existed before this endpoint.
+  const PRODUCT_PHOTOS_BUCKET = 'product-photos';
+  app.post('/api/products/:id/photo', async (req, res) => {
+    try {
+      const productId = String(req.params.id);
+      const dataUrl = String(req.body?.dataUrl || '');
+      const match = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl);
+      if (!match) return res.status(400).json({ error: 'dataUrl must be a base64 data URL' });
+      const mime = match[1];
+      const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+      const buffer = Buffer.from(match[2], 'base64');
+      const path = `${productId}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(PRODUCT_PHOTOS_BUCKET)
+        .upload(path, buffer, { contentType: mime, upsert: true, cacheControl: '31536000' });
+      if (uploadError) throw uploadError;
+
+      const { data: pub } = supabase.storage.from(PRODUCT_PHOTOS_BUCKET).getPublicUrl(path);
+      // Cache-busting query so every device's <img> actually reloads the new photo — the file
+      // name itself doesn't change on a re-upload (upsert), only its contents.
+      const imageUrl = `${pub.publicUrl}?v=${Date.now()}`;
+
+      const { error: updateError } = await supabase.from('products').update({ image_url: imageUrl }).eq('id', productId);
+      if (updateError) throw updateError;
+
+      res.json({ success: true, imageUrl });
+    } catch (e) {
+      console.error('Failed to save product photo:', e);
+      res.status(500).json({ error: 'Failed to save product photo' });
+    }
+  });
+
   // Persist the staff roster.
   // Replaces the WHOLE table with what the caller sends — so it must only ever be used by a
   // caller holding a complete, fresh list. The app itself no longer uses it: every add/edit

@@ -290,12 +290,27 @@ export const CostingsManager: React.FC<CostingsManagerProps> = ({
   };
 
   // Dish Card Handlers (photo, category, price)
+  // Uploads to Supabase Storage via the server (see POST /api/products/:id/photo) and only
+  // keeps the resulting short URL in local state — never the raw base64. Writing the base64
+  // straight into imageUrl (as this used to do) fed it into the next full-catalog save, which
+  // is exactly what made /api/products and /api/initial-data multi-megabyte and blew through
+  // Vercel's traffic allowance in the first place.
   const handleDishPhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedProduct) return;
     const productId = selectedProduct.id;
     compressImage(file)
-      .then((dataUrl) => onUpdateProduct(productId, { imageUrl: dataUrl }))
+      .then((dataUrl) =>
+        fetch(`/api/products/${productId}/photo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataUrl }),
+        }).then((r) => r.json())
+      )
+      .then((result) => {
+        if (result?.imageUrl) onUpdateProduct(productId, { imageUrl: result.imageUrl });
+        else console.error('Failed to save product photo:', result?.error);
+      })
       .catch((err) => console.error('Failed to process product photo:', err));
     e.target.value = '';
   };
