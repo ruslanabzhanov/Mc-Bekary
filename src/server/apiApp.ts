@@ -301,6 +301,24 @@ async function getOrderDeadline(): Promise<string> {
   }
 }
 
+// Same read, but for the automatic schedule specifically (runDeadlineSchedule) — never masks a
+// failed read with the 10:30 default. A one-off Supabase hiccup on the once-a-minute tick used
+// to fall back to "10:30", which is already in the past for nearly the whole business day, so
+// that single bad tick immediately fired a real "дедлайн прошёл" blast to every lagging shop —
+// a false alarm hours before the actual configured deadline. Returns null when the value
+// genuinely can't be read right now; the caller skips that tick instead of guessing, and the
+// next tick a minute later retries with a fresh read.
+async function getOrderDeadlineStrict(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'order_deadline').maybeSingle();
+    if (error) return null;
+    if (!data || !DEADLINE_RE.test(data.value)) return DEFAULT_ORDER_DEADLINE;
+    return data.value;
+  } catch {
+    return null;
+  }
+}
+
 // Двигать дедлайн могут владелец и заведующий производством. Проверяем по подписи Telegram:
 // своего пароля у заведующего нет, но он заходит через Telegram, и его id записан в staff.
 async function canManageDeadline(initData: string): Promise<boolean> {
@@ -373,10 +391,13 @@ async function remindBeforeDeadline(minutesLeft: number, deadline: string) {
 // dryRun — ничего не отправляет и ничего не отмечает, только показывает, что и кому ушло бы;
 // at (только вместе с dryRun) — «а что было бы в такое-то время».
 async function runDeadlineSchedule({ dryRun = false, at }: { dryRun?: boolean; at?: string } = {}) {
-  const deadline = await getOrderDeadline();
+  const deadline = await getOrderDeadlineStrict();
+  if (deadline == null) return { action: 'не удалось прочитать дедлайн — тик пропущен, ничего не отправлено' };
   const today = almatyToday();
   const now = dryRun && at && DEADLINE_RE.test(at) ? at : timeNow();
-  const afterKey = `deadline_reminder_sent:${today}`;
+  // Привязан к конкретному значению дедлайна (как и beforePrefix ниже) — если дедлайн двигали в
+  // течение дня, «итоговое» для нового времени не блокируется отметкой, оставшейся от старого.
+  const afterKey = `deadline_reminder_sent:${today}:${deadline}`;
   const beforePrefix = `deadline_prereminder:${today}:${deadline}:`;
   const { data: marks, error } = await supabase
     .from('app_settings')
