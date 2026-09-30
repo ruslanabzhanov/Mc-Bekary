@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { CoffeeShop, Product, ShopOrder, Category } from '../types';
 
 // Отклонения от ИИ-нормы дня отключены вместе с «Заявкой в один клик» — сама норма
@@ -80,11 +80,38 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   // Compute frequent items for this shop
   const frequentProductIds = selectedShop?.frequentItems || [];
 
-  // Filter products by tab
+  // productId -> its rank in what this point orders most (0 = most often). Products it never
+  // ordered aren't in the map and keep their catalog order after the ranked ones.
+  const [orderRank, setOrderRank] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!selectedShop?.id) return;
+    let cancelled = false;
+    fetch(`/api/orders/${selectedShop.id}/top-products`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !Array.isArray(d?.top)) return;
+        setOrderRank(new Map(d.top.map((t: { productId: string }, i: number) => [t.productId, i])));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedShop?.id]);
+
+  // Filter products by tab, then put this point's usual items first
   const filteredProducts = useMemo(() => {
-    if (activeTab === 'all') return products;
-    return products.filter((p) => p.category === activeTab);
-  }, [products, activeTab]);
+    const inTab = activeTab === 'all' ? products : products.filter((p) => p.category === activeTab);
+    if (orderRank.size === 0) return inTab;
+    return inTab
+      .map((p, i) => ({ p, i, r: orderRank.get(p.id) }))
+      .sort((a, b) => {
+        if (a.r != null && b.r != null) return a.r - b.r;
+        if (a.r != null) return -1;
+        if (b.r != null) return 1;
+        return a.i - b.i;
+      })
+      .map((x) => x.p);
+  }, [products, activeTab, orderRank]);
 
   // Any category actually in use that isn't one of the six fixed tabs — derived straight from
   // the products themselves (not the category registry), so a dish shows up here even if its

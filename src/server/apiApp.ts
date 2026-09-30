@@ -2409,6 +2409,49 @@ export function createApiApp() {
   });
 
   // Past submitted orders for one shop, newest first — powers the manager's order history view
+  // What this point orders most, for sorting its order screen: over the last 60 days, on how
+  // many days it ordered each product (the only submission per day that counts is the latest,
+  // same rule as the analytics), with total pieces as the tie-break. Small by design — just ids
+  // and two numbers — since it's fetched every time the order screen opens.
+  app.get('/api/orders/:shopId/top-products', async (req, res) => {
+    try {
+      const shopId = parseInt(req.params.shopId, 10);
+      if (!Number.isFinite(shopId)) return res.status(400).json({ error: 'bad shopId' });
+      const since = new Date(Date.now() - 60 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from('order_history')
+        .select('items, submitted_at')
+        .eq('shop_id', shopId)
+        .gte('submitted_at', since);
+      if (error) throw error;
+
+      const latestByDay = new Map<string, any>();
+      for (const row of data || []) {
+        const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+        const prev = latestByDay.get(day);
+        if (!prev || new Date(row.submitted_at) > new Date(prev.submitted_at)) latestByDay.set(day, row);
+      }
+      const stats = new Map<string, { days: number; qty: number }>();
+      for (const row of latestByDay.values()) {
+        Object.entries(row.items || {}).forEach(([pid, q]) => {
+          const n = Number(q) || 0;
+          if (n <= 0) return;
+          const s = stats.get(pid) || { days: 0, qty: 0 };
+          s.days += 1;
+          s.qty += n;
+          stats.set(pid, s);
+        });
+      }
+      const top = Array.from(stats.entries())
+        .map(([productId, s]) => ({ productId, ...s }))
+        .sort((a, b) => b.days - a.days || b.qty - a.qty);
+      res.json({ top });
+    } catch (e) {
+      console.error('Failed to build top products:', e);
+      res.status(500).json({ error: 'Failed to build top products' });
+    }
+  });
+
   app.get('/api/orders/:shopId/history', async (req, res) => {
     try {
       const shopId = parseInt(req.params.shopId, 10);
