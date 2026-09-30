@@ -314,7 +314,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                       {member.name}
                     </span>
                     <span className="block text-xs text-slate-500 mt-0.5">
-                      {member.position || 'Сотрудник цеха'}
+                      {member.position || 'Внутренний сотрудник'}
                     </span>
                   </span>
                   <span className="text-sm font-black text-slate-900 tabular-nums whitespace-nowrap">

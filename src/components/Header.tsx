@@ -32,9 +32,9 @@ const OWNER_VIEWS: { role: UserRole; short: string; label: string; hint: string;
   },
   {
     role: 'employee',
-    short: 'Сотрудник',
-    label: 'Сотрудник цеха',
-    hint: 'Свой табель: смены и заработок',
+    short: 'Внутр. сотрудник',
+    label: 'Внутренний сотрудник',
+    hint: 'Кабинет: фото, документы, табель, авансы, чек-листы',
     Icon: HardHat,
   },
 ];

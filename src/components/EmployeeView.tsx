@@ -288,7 +288,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
           <div className="min-w-0">
             <h2 className="text-lg font-extrabold text-slate-900 leading-tight">{employee.name}</h2>
             <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mt-1">
-              {employee.position || 'Сотрудник цеха'}
+              {employee.position || 'Внутренний сотрудник'}
             </p>
             {employee.phone && <p className="text-xs text-slate-500 mt-1.5">{employee.phone}</p>}
             {photoError && <p className="text-xs text-rose-600 mt-1.5">{photoError}</p>}
@@ -322,7 +322,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         const age = ageOf(employee.birthDate);
         const shiftsWord = shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен';
         const tileBase =
-          'min-h-[104px] rounded-2xl border p-3 shadow-xs flex flex-col items-start text-left gap-1 transition-all';
+          'min-h-[104px] min-w-0 rounded-2xl border p-3 shadow-xs flex flex-col items-start text-left gap-1 transition-all break-words';
         const clickable = 'hover:border-indigo-300 hover:bg-indigo-50/40 active:scale-[0.98]';
         const Label = ({ children }: { children: React.ReactNode }) => (
           <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 leading-tight">{children}</span>
@@ -333,7 +333,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
               <BadgeCheck className="w-5 h-5 text-indigo-600" />
               <Label>Должность</Label>
               <span className="text-xs font-extrabold text-slate-900 leading-tight">
-                {employee.position || 'Сотрудник цеха'}
+                {(employee.position || 'Внутренний сотрудник').replace('Заведующий производством', 'Зав. производством')}
               </span>
             </div>
 
