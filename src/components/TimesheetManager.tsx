@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Users, Check, X, Wallet, Printer, History } from 'lucide-react';
-import { StaffMember, Shift } from '../types';
+import { ChevronLeft, ChevronRight, CalendarDays, Users, Check, X, Wallet, Printer, History, Table2 } from 'lucide-react';
+import { StaffMember, Shift, AdvanceRequest } from '../types';
 import { PrintTimesheetModal } from './PrintTimesheetModal';
 
 interface TimesheetManagerProps {
@@ -8,7 +8,20 @@ interface TimesheetManagerProps {
   telegramInitData: string;
   actorName: string;
   onUpdateStaffMember: (staffId: string, updates: Partial<StaffMember>) => void;
+  // For the «Аванс» / «К выдаче» columns of the monthly grid.
+  advanceRequests?: AdvanceRequest[];
 }
+
+// Sections of the monthly grid, in the order the paper timesheet lists people.
+const GRID_GROUPS: { label: string; positions: string[] }[] = [
+  { label: 'Руководство цеха', positions: ['Заведующий производством'] },
+  { label: 'Пекари', positions: ['Шеф-пекарь', 'Пекарь', 'Ночной пекарь'] },
+  { label: 'Кондитеры', positions: ['Кондитер'] },
+  {
+    label: 'Заготовщики',
+    positions: ['Заготовщик бара', 'Заготовщик кухни', 'Ночной заготовщик кухни', 'Заготовщик полуфабрикатов'],
+  },
+];
 
 interface ShiftChangeEntry {
   id: number;
@@ -21,7 +34,7 @@ interface ShiftChangeEntry {
   createdAt: string;
 }
 
-type Mode = 'day' | 'person' | 'log';
+type Mode = 'grid' | 'day' | 'person' | 'log';
 
 const MONTHS = [
   'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -47,8 +60,9 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   telegramInitData,
   actorName,
   onUpdateStaffMember,
+  advanceRequests = [],
 }) => {
-  const [mode, setMode] = useState<Mode>('day');
+  const [mode, setMode] = useState<Mode>('grid');
   const [month, setMonth] = useState(() => monthKey(almatyToday()));
   const [selectedDay, setSelectedDay] = useState(() => almatyToday());
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
@@ -184,6 +198,50 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
     [personShifts]
   );
 
+  // ---- Monthly grid (the paper-timesheet view) ----
+  const monthDays = daysInMonth(month);
+  const gridRows = useMemo(() => {
+    const byStaff = new Map<string, Map<string, Shift>>();
+    shifts.forEach((s) => {
+      if (!byStaff.has(s.staffId)) byStaff.set(s.staffId, new Map());
+      byStaff.get(s.staffId)!.set(s.workDate, s);
+    });
+    // Approved advances count against the month they were requested in — same rule the
+    // employee's own cabinet uses for «К выдаче».
+    const advanceBy = new Map<string, number>();
+    advanceRequests
+      .filter((r) => r.status === 'approved' && r.createdAt && monthKey(r.createdAt) === month)
+      .forEach((r) => advanceBy.set(r.staffId, (advanceBy.get(r.staffId) || 0) + r.amount));
+
+    const row = (m: StaffMember) => {
+      const mine = byStaff.get(m.id) || new Map<string, Shift>();
+      const earned = Array.from(mine.values()).reduce((n, s) => n + (Number(s.rate) || 0), 0);
+      const advance = advanceBy.get(m.id) || 0;
+      return { member: m, byDay: mine, days: mine.size, earned, advance, payout: earned - advance };
+    };
+
+    const used = new Set<string>();
+    const groups = GRID_GROUPS.map((g) => {
+      const people = employees.filter((m) => m.position && g.positions.includes(m.position));
+      people.forEach((m) => used.add(m.id));
+      return { label: g.label, rows: people.map(row) };
+    });
+    const rest = employees.filter((m) => !used.has(m.id));
+    if (rest.length > 0) groups.push({ label: 'Прочие', rows: rest.map(row) });
+    return groups
+      .filter((g) => g.rows.length > 0)
+      .map((g) => ({
+        ...g,
+        earned: g.rows.reduce((n, r) => n + r.earned, 0),
+        advance: g.rows.reduce((n, r) => n + r.advance, 0),
+        payout: g.rows.reduce((n, r) => n + r.payout, 0),
+      }));
+  }, [shifts, employees, advanceRequests, month]);
+  const gridTotals = gridRows.reduce(
+    (t, g) => ({ earned: t.earned + g.earned, advance: t.advance + g.advance, payout: t.payout + g.payout }),
+    { earned: 0, advance: 0, payout: 0 }
+  );
+
   const [yearNum, monthNum] = month.split('-').map(Number);
 
   if (employees.length === 0) {
@@ -202,7 +260,8 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   }
 
   return (
-    <div className="space-y-4">
+    // Everything stays phone-width except the monthly grid, which needs the whole screen.
+    <div className="space-y-4 [&>*:not(.ts-wide)]:max-w-3xl [&>*:not(.ts-wide)]:mx-auto">
       {error && (
         <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl px-4 py-3 text-sm font-medium">
           {error}
@@ -245,6 +304,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       {/* Mode switch */}
       <div className="flex p-1.5 gap-1 bg-slate-100 border border-slate-200 rounded-xl">
         {([
+          { key: 'grid' as Mode, label: 'Табель', icon: Table2 },
           { key: 'day' as Mode, label: 'По дню', icon: CalendarDays },
           { key: 'person' as Mode, label: 'По сотруднику', icon: Users },
           { key: 'log' as Mode, label: 'Журнал', icon: History },
@@ -265,6 +325,130 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       </div>
 
       {isLoading && <p className="text-center text-sm text-slate-400 py-2">Загружаем табель…</p>}
+
+      {/* ---- Grid mode: the whole month for everyone, laid out like the paper timesheet ---- */}
+      {mode === 'grid' && (() => {
+        const num = (n: number) => (n ? Math.round(n).toLocaleString('ru-RU') : '');
+        const isWeekendDay = (d: string) => ['сб', 'вс'].includes(weekdayOf(d));
+        const stickyNo = 'sticky left-0 z-[1] w-8 min-w-8';
+        const stickyName = 'sticky left-8 z-[1] min-w-[150px] max-w-[190px]';
+        const cellBorder = 'border border-slate-300';
+        let rowNo = 0;
+        return (
+          <div id="timesheet-grid" className="ts-wide bg-white border border-slate-300 rounded-xl overflow-hidden shadow-sm">
+            <div className="px-3 py-2.5 text-center text-sm font-black text-slate-900 border-b border-slate-300">
+              Табель учёта рабочего времени за {MONTHS[monthNum - 1]} {yearNum} года
+            </div>
+            <div className="overflow-x-auto">
+              <table className="border-collapse text-[11px] tabular-nums min-w-full">
+                <thead>
+                  <tr className="bg-emerald-600 text-white">
+                    <th className={`${cellBorder} ${stickyNo} bg-emerald-600 px-1 py-1.5`}>№</th>
+                    <th className={`${cellBorder} ${stickyName} bg-emerald-600 px-2 py-1.5 text-left`}>ФИО</th>
+                    <th className={`${cellBorder} px-2 py-1.5 text-left min-w-[100px]`}>Должность</th>
+                    {monthDays.map((d) => (
+                      <th
+                        key={d}
+                        className={`${cellBorder} w-6 min-w-6 px-0 py-1 text-center leading-tight ${isWeekendDay(d) ? 'bg-emerald-800' : ''}`}
+                      >
+                        <span className="block font-black">{Number(d.slice(8))}</span>
+                        <span className="block text-[8px] font-medium opacity-80">{weekdayOf(d)}</span>
+                      </th>
+                    ))}
+                    <th className={`${cellBorder} px-1.5 py-1 min-w-[64px] leading-tight`}>Кол-во отработ. дней</th>
+                    <th className={`${cellBorder} px-1.5 py-1 min-w-[70px] leading-tight`}>Тарифная ставка</th>
+                    <th className={`${cellBorder} px-1.5 py-1 min-w-[84px] leading-tight`}>Общая сумма оплаты</th>
+                    <th className={`${cellBorder} px-1.5 py-1 min-w-[72px]`}>Аванс</th>
+                    <th className={`${cellBorder} px-1.5 py-1 min-w-[84px]`}>К выдаче</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gridRows.map((g) => (
+                    <React.Fragment key={g.label}>
+                      <tr className="bg-sky-100">
+                        <td className={`${cellBorder} ${stickyNo} bg-sky-100`} />
+                        <td className={`${cellBorder} ${stickyName} bg-sky-100 px-2 py-1 font-black text-slate-800`}>
+                          {g.label}
+                        </td>
+                        <td className={cellBorder} colSpan={monthDays.length + 6} />
+                      </tr>
+                      {g.rows.map((r) => {
+                        rowNo += 1;
+                        const hasMoney = r.earned > 0 || r.advance > 0;
+                        return (
+                          <tr key={r.member.id} className="hover:bg-amber-50/40">
+                            <td className={`${cellBorder} ${stickyNo} bg-white px-1 py-1 text-center text-slate-500`}>{rowNo}</td>
+                            <td className={`${cellBorder} ${stickyName} bg-white px-2 py-1 font-semibold text-slate-900 truncate`}>
+                              {r.member.name}
+                            </td>
+                            <td className={`${cellBorder} px-2 py-1 text-slate-600 whitespace-nowrap`}>
+                              {(r.member.position || 'Внутренний сотрудник')
+                                .replace('Заведующий производством', 'Зав. производства')
+                                .replace('Ночной заготовщик кухни', 'Заготовщик ночной')
+                                .replace('Заготовщик полуфабрикатов', 'Заготовщик п/ф')}
+                            </td>
+                            {monthDays.map((d) => {
+                              const s = r.byDay.get(d);
+                              const key = `${r.member.id}:${d}`;
+                              return (
+                                <td key={d} className={`${cellBorder} p-0 ${isWeekendDay(d) ? 'bg-slate-50' : ''}`}>
+                                  <button
+                                    onClick={() => toggleShift(r.member, d)}
+                                    disabled={busyKey === key}
+                                    title={`${r.member.name}, ${Number(d.slice(8))} — ${s ? `смена ${formatMoney(s.rate)}, нажмите чтобы снять` : 'нажмите, чтобы поставить смену'}`}
+                                    className={`w-6 h-7 flex items-center justify-center font-bold transition-colors ${
+                                      s ? 'text-emerald-800 bg-emerald-100 hover:bg-emerald-200' : 'text-transparent hover:bg-indigo-50'
+                                    } ${busyKey === key ? 'opacity-40' : ''}`}
+                                  >
+                                    1
+                                  </button>
+                                </td>
+                              );
+                            })}
+                            <td className={`${cellBorder} px-1.5 py-1 text-center font-bold text-slate-900`}>{r.days || ''}</td>
+                            <td className={`${cellBorder} px-1.5 py-1 text-right text-slate-700`}>{num(r.member.shiftRate || 0)}</td>
+                            <td className={`${cellBorder} px-1.5 py-1 text-right font-bold text-slate-900`}>{num(r.earned)}</td>
+                            <td className={`${cellBorder} px-1.5 py-1 text-right text-slate-700`}>{num(r.advance)}</td>
+                            <td
+                              className={`${cellBorder} px-1.5 py-1 text-right font-black ${
+                                !hasMoney ? '' : r.payout > 0 ? 'bg-emerald-400/80 text-emerald-950' : 'bg-rose-500 text-white'
+                              }`}
+                            >
+                              {hasMoney ? Math.round(r.payout).toLocaleString('ru-RU') : ''}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="bg-sky-200/70 font-black text-slate-900">
+                        <td className={`${cellBorder} ${stickyNo} bg-sky-200`} />
+                        <td className={`${cellBorder} ${stickyName} bg-sky-200 px-2 py-1`}>Итого: {g.label.toLowerCase()}</td>
+                        <td className={cellBorder} colSpan={monthDays.length + 3} />
+                        <td className={`${cellBorder} px-1.5 py-1 text-right`}>{num(g.earned)}</td>
+                        <td className={`${cellBorder} px-1.5 py-1 text-right`}>{num(g.advance)}</td>
+                        <td className={`${cellBorder} px-1.5 py-1 text-right`}>{num(g.payout)}</td>
+                      </tr>
+                    </React.Fragment>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-800 text-white font-black">
+                    <td className={`${cellBorder} ${stickyNo} bg-slate-800`} />
+                    <td className={`${cellBorder} ${stickyName} bg-slate-800 px-2 py-1.5`}>ИТОГО ПО ЦЕХУ</td>
+                    <td className={cellBorder} colSpan={monthDays.length + 3} />
+                    <td className={`${cellBorder} px-1.5 py-1.5 text-right`}>{num(gridTotals.earned)}</td>
+                    <td className={`${cellBorder} px-1.5 py-1.5 text-right`}>{num(gridTotals.advance)}</td>
+                    <td className={`${cellBorder} px-1.5 py-1.5 text-right`}>{num(gridTotals.payout)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <p className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-200">
+              Нажмите на клетку дня, чтобы поставить или снять смену. Ставка берётся из карточки сотрудника
+              («По сотруднику»). Аванс — одобренные заявки за этот месяц.
+            </p>
+          </div>
+        );
+      })()}
 
       {/* ---- Day mode: the daily entry pass ---- */}
       {mode === 'day' && (

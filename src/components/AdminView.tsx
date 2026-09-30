@@ -772,12 +772,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </button>
           </div>
 
-          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+          <div className="p-3 sm:p-6 max-w-[1800px] mx-auto">
             <TimesheetManager
               staff={staff}
               telegramInitData={telegramInitData}
               actorName={actorName}
               onUpdateStaffMember={onUpdateStaffMember}
+              advanceRequests={advanceRequests}
             />
           </div>
         </div>
