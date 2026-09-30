@@ -83,8 +83,11 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   // productId -> its rank in what this point orders most (0 = most often). Products it never
   // ordered aren't in the map and keep their catalog order after the ranked ones.
   const [orderRank, setOrderRank] = useState<Map<string, number>>(new Map());
+  // Only while the order is still being put together — once it's sent, the screen shows the
+  // receipt (alphabetical) instead of the product grid, so there's nothing to sort.
+  const isDraft = (currentOrder?.status || 'draft') === 'draft';
   useEffect(() => {
-    if (!selectedShop?.id) return;
+    if (!selectedShop?.id || !isDraft) return;
     let cancelled = false;
     fetch(`/api/orders/${selectedShop.id}/top-products`)
       .then((r) => (r.ok ? r.json() : null))
@@ -96,7 +99,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedShop?.id]);
+  }, [selectedShop?.id, isDraft]);
 
   // Filter products by tab, then put this point's usual items first
   const filteredProducts = useMemo(() => {
