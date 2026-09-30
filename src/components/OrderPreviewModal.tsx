@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CoffeeShop, Product, ShopOrder } from '../types';
 import { X, Sparkles, AlertTriangle, Send, ShieldAlert, Bot } from 'lucide-react';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
+import { SubmitConfirmDialog } from './SubmitConfirmDialog';
 
 interface OrderPreviewModalProps {
   isOpen: boolean;
@@ -22,8 +23,16 @@ export const OrderPreviewModal: React.FC<OrderPreviewModalProps> = ({
 }) => {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
+  // Second step before the order actually goes out — a stray tap on "Подтвердить и отправить"
+  // used to submit immediately.
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
-  useTelegramBackButton(isOpen, onClose);
+  const closeAll = () => {
+    setIsConfirmOpen(false);
+    onClose();
+  };
+
+  useTelegramBackButton(isOpen, () => (isConfirmOpen ? setIsConfirmOpen(false) : closeAll()));
 
   if (!isOpen) return null;
 
@@ -89,7 +98,7 @@ export const OrderPreviewModal: React.FC<OrderPreviewModalProps> = ({
 
           <button
             id="btn-close-modal"
-            onClick={onClose}
+            onClick={closeAll}
             className="w-11 h-11 shrink-0 rounded-lg bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-500 hover:text-slate-900 flex items-center justify-center transition-colors"
           >
             <X className="w-5 h-5" />
@@ -209,7 +218,7 @@ export const OrderPreviewModal: React.FC<OrderPreviewModalProps> = ({
         <div className="p-4 sm:p-5 border-t border-slate-100 bg-slate-50 flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 sm:items-center sm:justify-between">
           <button
             id="btn-close-modal-footer"
-            onClick={onClose}
+            onClick={closeAll}
             className="w-full sm:w-auto px-4 min-h-[48px] rounded-lg text-xs font-bold uppercase tracking-wider text-slate-600 hover:text-slate-900 hover:bg-slate-200 active:bg-slate-300 transition-colors"
           >
             Вернуться к редактированию
@@ -217,10 +226,7 @@ export const OrderPreviewModal: React.FC<OrderPreviewModalProps> = ({
 
           <button
             id="btn-confirm-submit-modal"
-            onClick={() => {
-              onSubmit();
-              onClose();
-            }}
+            onClick={() => setIsConfirmOpen(true)}
             disabled={totalPcs === 0}
             className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold px-6 min-h-[52px] rounded-lg text-xs uppercase tracking-wider shadow-sm transition-all disabled:opacity-50"
           >
@@ -230,6 +236,18 @@ export const OrderPreviewModal: React.FC<OrderPreviewModalProps> = ({
         </div>
 
       </div>
+
+      <SubmitConfirmDialog
+        isOpen={isConfirmOpen}
+        positions={orderPositions.length}
+        totalPcs={totalPcs}
+        totalCost={totalCost}
+        onCancel={() => setIsConfirmOpen(false)}
+        onConfirm={() => {
+          onSubmit();
+          closeAll();
+        }}
+      />
     </div>
   );
 };

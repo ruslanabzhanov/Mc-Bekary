@@ -27,6 +27,7 @@ import {
   Lock
 } from 'lucide-react';
 import { OrderHistoryModal } from './OrderHistoryModal';
+import { SubmitConfirmDialog } from './SubmitConfirmDialog';
 
 interface ManagerViewProps {
   coffeeShops: CoffeeShop[];
@@ -64,6 +65,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const [activeTab, setActiveTab] = useState<Category | 'all' | string>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
   // productId -> адрес фото, которое не открылось. Сравниваем именно адрес: как только у
   // блюда появится другое фото, оно будет показано, а не останется скрытым навсегда.
   const [failedPhotos, setFailedPhotos] = useState<Record<string, string>>({});
@@ -191,7 +193,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       setValidationError('Заявка не может быть пустой. Пожалуйста, укажите количество хотя бы для одного товара.');
       return;
     }
-    onUpdateOrder(selectedShopId, shopOrderItems, 'submitted');
+    setIsSubmitConfirmOpen(true);
   };
 
   // Shop notifications for this shop
@@ -631,6 +633,18 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         </div>
       </div>
       )}
+
+      <SubmitConfirmDialog
+        isOpen={isSubmitConfirmOpen}
+        positions={Object.values(shopOrderItems).filter((q) => (Number(q) || 0) > 0).length}
+        totalPcs={totalPcs}
+        totalCost={totalSum}
+        onCancel={() => setIsSubmitConfirmOpen(false)}
+        onConfirm={() => {
+          setIsSubmitConfirmOpen(false);
+          onUpdateOrder(selectedShopId, shopOrderItems, 'submitted');
+        }}
+      />
 
       <OrderHistoryModal
         isOpen={isHistoryOpen}
