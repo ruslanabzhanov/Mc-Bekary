@@ -2975,9 +2975,52 @@ export function createApiApp() {
 
       const last7Days = await buildLast7Days(shopIds);
 
+      // Typical day for these points: the 30 days before the period shown, counting only days
+      // that actually had orders (a day nobody ordered — early days of the network, a holiday —
+      // would just drag the line down). Drawn on the chart so "above or below usual" is visible
+      // at a glance. Latest submission per shop per day, same rule as everything above.
+      let dailyAverage: { qty: number; sum: number; days: number } | null = null;
+      {
+        const { startIso: avgStartIso } = almatyDayRangeUtc(addDays(current.start, -30));
+        const { data: avgRows, error: avgErr } = await supabase
+          .from('order_history')
+          .select('shop_id, items, submitted_at')
+          .in('shop_id', shopIds)
+          .gte('submitted_at', avgStartIso)
+          .lt('submitted_at', currentStartIso);
+        if (avgErr) throw avgErr;
+        const latest = new Map<string, any>();
+        for (const row of avgRows || []) {
+          const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+          const key = `${row.shop_id}:${day}`;
+          const prev = latest.get(key);
+          if (!prev || new Date(row.submitted_at) > new Date(prev.submitted_at)) latest.set(key, { ...row, day });
+        }
+        const perDay = new Map<string, { qty: number; sum: number }>();
+        for (const row of latest.values()) {
+          const d = perDay.get(row.day) || { qty: 0, sum: 0 };
+          Object.entries(row.items || {}).forEach(([pid, qtyVal]) => {
+            const n = Number(qtyVal) || 0;
+            if (n <= 0 || !priceById.has(pid)) return;
+            d.qty += n;
+            d.sum += n * (priceById.get(pid) || 0);
+          });
+          perDay.set(row.day, d);
+        }
+        const days = Array.from(perDay.values()).filter((d) => d.qty > 0);
+        if (days.length > 0) {
+          dailyAverage = {
+            qty: Math.round(days.reduce((n, d) => n + d.qty, 0) / days.length),
+            sum: Math.round(days.reduce((n, d) => n + d.sum, 0) / days.length),
+            days: days.length,
+          };
+        }
+      }
+
       res.json({
         period,
         range: current,
+        dailyAverage,
         totals: { qty: totalQty, sum: Math.round(totalSum) },
         series,
         categoryBreakdown,

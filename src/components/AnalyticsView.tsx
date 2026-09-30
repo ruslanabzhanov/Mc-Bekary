@@ -23,6 +23,8 @@ interface AnalyticsResponse {
   period: Period;
   range: { start: string; end: string; label: string };
   totals: { qty: number; sum: number };
+  // Typical day over the 30 days before the period, counting only days with orders.
+  dailyAverage?: { qty: number; sum: number; days: number } | null;
   series: SeriesBucket[];
   categoryBreakdown: { category: string; label: string; qty: number }[];
   topProducts: { id: string; name: string; qty: number }[];
@@ -128,7 +130,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
 
   const series = data?.series || [];
   const values = series.map((s) => (metric === 'qty' ? s.qty : s.sum));
-  const maxValue = Math.max(1, ...values);
+  // Day view: today against a typical day of the past 30 (from the server).
+  const avg = data?.dailyAverage ? (metric === 'qty' ? data.dailyAverage.qty : data.dailyAverage.sum) : 0;
+  // Week/month view (one point = one day): the line is the average of the days on the chart that
+  // had orders — always available, and each day reads directly as above or below it.
+  const orderDays = values.filter((v) => v > 0);
+  const lineAvg = orderDays.length > 0 ? Math.round(orderDays.reduce((n, v) => n + v, 0) / orderDays.length) : 0;
+  const showAvgLine = lineAvg > 0 && orderDays.length >= 2 && (period === 'week' || period === 'month');
+  const maxValue = Math.max(1, ...values, showAvgLine ? lineAvg : 0);
+  const avgY = 110 - (lineAvg / maxValue) * 100;
+  const fmtMetric = (v: number) => (metric === 'qty' ? formatQty(v) : formatMoney(v));
 
   // Thin the X-axis labels so 24/31 points don't collide — every point stays clickable
   // (the hit target below), only the printed label is skipped.
@@ -238,6 +249,19 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
                     return (
                       <>
                         <path d={areaPath} fill="#4f46e5" fillOpacity="0.08" stroke="none" />
+                        {showAvgLine && (
+                          <line
+                            x1={0}
+                            x2={300}
+                            y1={avgY}
+                            y2={avgY}
+                            stroke="#f59e0b"
+                            strokeWidth="1.5"
+                            strokeDasharray="5 4"
+                            vectorEffect="non-scaling-stroke"
+                            pointerEvents="none"
+                          />
+                        )}
                         <path d={linePath} fill="none" stroke="#4f46e5" strokeWidth="2" vectorEffect="non-scaling-stroke" />
                         {points.map((p, i) => (
                           <g key={i}>
@@ -263,6 +287,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
                     );
                   })()}
                 </svg>
+                {showAvgLine && (
+                  <span
+                    className="absolute right-0 -translate-y-full text-[9px] font-black text-amber-700 bg-white/80 px-1 rounded pointer-events-none"
+                    style={{ top: `${(avgY / 120) * 100}%` }}
+                  >
+                    среднее {fmtMetric(lineAvg)}
+                  </span>
+                )}
               </div>
             )}
 
@@ -290,6 +322,49 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
                   <span className="font-black text-indigo-700">{formatMoney(selected.sum)}</span>
                 </div>
               </div>
+            )}
+
+            {/* A day's chart is by the hour, so the per-day average can't be a line on it —
+                instead: this day's total against a typical day, as a strip. */}
+            {period === 'day' && data.dailyAverage && avg > 0 && (() => {
+              const today = metric === 'qty' ? data.totals.qty : data.totals.sum;
+              const deltaPct = Math.round(((today - avg) / avg) * 100);
+              const scale = Math.max(today, avg) * 1.15;
+              const above = today >= avg;
+              return (
+                <div id="daily-average-strip" className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-600">
+                      {isCurrentPeriod ? 'Сегодня' : 'За день'}: <b className="text-slate-900">{fmtMetric(today)}</b>
+                    </span>
+                    <span className={`font-black ${above ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {above ? '▲' : '▼'} {deltaPct > 0 ? '+' : ''}{deltaPct}% к среднему
+                    </span>
+                  </div>
+                  <div className="relative h-3 bg-slate-100 rounded-full">
+                    <div
+                      className={`absolute inset-y-0 left-0 rounded-full ${above ? 'bg-emerald-500' : 'bg-rose-400'}`}
+                      style={{ width: `${(today / scale) * 100}%` }}
+                    />
+                    <div
+                      className="absolute -top-1 -bottom-1 w-0.5 bg-amber-500"
+                      style={{ left: `${(avg / scale) * 100}%` }}
+                      title="Среднее"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    <span className="inline-block w-2 h-2 bg-amber-500 rounded-sm align-middle mr-1" />
+                    среднее за день {fmtMetric(avg)} — по {data.dailyAverage.days} дн. с заявками за прошлые 30 дней
+                  </p>
+                </div>
+              );
+            })()}
+
+            {showAvgLine && (
+              <p className="mt-2 text-[10px] text-slate-400 flex items-center gap-1.5">
+                <span className="inline-block w-4 border-t-2 border-dashed border-amber-500" />
+                средний день {fmtMetric(lineAvg)} — по {orderDays.length} дн. с заявками на графике
+              </p>
             )}
           </div>
 
