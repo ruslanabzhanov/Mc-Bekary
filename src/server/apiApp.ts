@@ -230,7 +230,12 @@ async function orderSizeLabel(order: any) {
 // the production managers get the same decision phrased as network news, with the point named
 // and the order's size, so it reads on its own without opening the app. Sent to each Telegram
 // id once even when the same person is both submitter and supervisor.
-async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejected', order: any) {
+async function notifyOrderDecision(
+  shopId: number,
+  status: 'accepted' | 'rejected',
+  order: any,
+  { notifySupervisors = true }: { notifySupervisors?: boolean } = {}
+) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) return;
 
@@ -282,7 +287,9 @@ async function notifyOrderDecision(shopId: number, status: 'accepted' | 'rejecte
   // Then everyone else at that point and its territorial manager — an order is the point's,
   // not one person's, and the next shift needs to know it was decided.
   for (const chatId of await shopAudienceIds(shopId)) await send(chatId, teamText);
-  for (const chatId of supervisorRecipientIds()) await send(chatId, supervisorText);
+  if (notifySupervisors) {
+    for (const chatId of supervisorRecipientIds()) await send(chatId, supervisorText);
+  }
 }
 
 // До какого времени точки должны подать заявку. Хранится в app_settings — двигают его
@@ -2145,25 +2152,66 @@ export function createApiApp() {
     }
   });
 
-  // Accept all submitted orders
-  // Owner-verified: one call flips every submitted order in the network to accepted, so it
-  // must not be reachable by anyone who simply knows the URL. Only the Owner cabinet renders
-  // this button today; if a production-manager role is reintroduced later, widen this check
-  // rather than removing it.
+  // Accept all submitted orders — the bulk version of PATCH /api/orders/:shopId/status below,
+  // and it does the same three things per order: marks it accepted, syncs the latest
+  // order_history row (analytics and past-day registry read from there), and tells the point.
+  // It used to be Owner-only, which silently rejected the production manager (who has the
+  // "accept orders" permission and could already accept each order one by one — that endpoint
+  // has no identity check at all, so the Owner-only gate here protected nothing). Allowed now
+  // for the verified Owner, or whenever the Owner hasn't switched the admin's
+  // accept_reject_orders permission off.
   app.post('/api/orders/accept-all', async (req, res) => {
     try {
       if (!requireOwner(req.body?.initData)) {
-        return res.status(403).json({ error: 'Not allowed to accept all orders' });
+        const { data: permRows, error: permError } = await supabase.from('role_permissions').select('*');
+        if (permError) throw permError;
+        if (!buildRolePermissions(permRows || []).admin.accept_reject_orders) {
+          return res.status(403).json({ error: 'Приём заявок отключён Владельцем' });
+        }
       }
+      const today = almatyToday();
       const timeStr = timeNow();
-      const { error } = await supabase
+      const { data: accepted, error } = await supabase
         .from('orders')
         .update({ status: 'accepted', accepted_at: timeStr })
         .eq('status', 'submitted')
-        .eq('order_date', almatyToday());
+        .eq('order_date', today)
+        .select('*');
       if (error) throw error;
+      const acceptedOrders = (accepted || []).map(orderFromDb);
 
-      const { data, error: selectError } = await supabase.from('orders').select('*').eq('order_date', almatyToday());
+      // History first (a missed history row is what leaves analytics wrong), then notifications
+      // in small batches — a whole network at once would trip Telegram's per-second send limit.
+      // Supervisors are skipped: whoever pressed the button is one, and 27 separate "принята"
+      // messages to the Owner and production manager would just be noise.
+      await Promise.all(
+        acceptedOrders.map(async (o: any) => {
+          const { data: rows } = await supabase
+            .from('order_history')
+            .select('id')
+            .eq('shop_id', o.shopId)
+            .order('submitted_at', { ascending: false })
+            .limit(1);
+          if (rows && rows.length > 0) {
+            const { error: histError } = await supabase
+              .from('order_history')
+              .update({ status: 'accepted', decided_at: new Date().toISOString() })
+              .eq('id', rows[0].id);
+            if (histError) console.error(`Failed to sync order_history for shop ${o.shopId}:`, histError);
+          }
+        })
+      );
+      for (let i = 0; i < acceptedOrders.length; i += 5) {
+        await Promise.all(
+          acceptedOrders.slice(i, i + 5).map((o: any) =>
+            notifyOrderDecision(o.shopId, 'accepted', o, { notifySupervisors: false }).catch((e) =>
+              console.error(`Failed to notify about accepted order for shop ${o.shopId}:`, e)
+            )
+          )
+        );
+      }
+
+      const { data, error: selectError } = await supabase.from('orders').select('*').eq('order_date', today);
       if (selectError) throw selectError;
       const ordersRecord: Record<number, any> = {};
       (data || []).forEach((r) => {
@@ -2171,7 +2219,7 @@ export function createApiApp() {
         ordersRecord[o.shopId] = o;
       });
 
-      res.json({ success: true, orders: ordersRecord });
+      res.json({ success: true, acceptedCount: acceptedOrders.length, orders: ordersRecord });
     } catch (e) {
       console.error('Failed to accept all orders:', e);
       res.status(500).json({ error: 'Failed to accept all orders' });

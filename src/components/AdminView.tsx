@@ -183,6 +183,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     (o) => o.status === 'submitted' || o.status === 'accepted'
   ).length;
   const acceptedCount = allOrdersList.filter((o) => o.status === 'accepted').length;
+  const awaitingAcceptCount = allOrdersList.filter((o) => o.status === 'submitted').length;
 
   // Сколько чего заказано сегодня — по тем же заявкам, что берёт чек-лист (отправленные и принятые).
   const orderedToday = new Map<string, number>();
@@ -260,9 +261,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  // The result toast comes from App's handler, once the server has actually answered.
   const handleAcceptAll = () => {
     onAcceptAllOrders();
-    showToast('✅ Все поданные заявки (27 кофеен) успешно подтверждены!');
   };
 
   const handleSendReminders = () => {
@@ -398,12 +399,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <button
               id="btn-accept-all-orders"
               onClick={handleAcceptAll}
-              disabled={submittedCount === 0 || !canDo('accept_reject_orders')}
-              title={!canDo('accept_reject_orders') ? 'Отключено Владельцем' : undefined}
+              disabled={awaitingAcceptCount === 0 || !canDo('accept_reject_orders')}
+              title={
+                !canDo('accept_reject_orders')
+                  ? 'Отключено Владельцем'
+                  : awaitingAcceptCount === 0
+                  ? 'Нет заявок, ожидающих принятия'
+                  : undefined
+              }
               className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs tracking-wider shadow-sm transition-all disabled:opacity-50 text-center cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>Принять все заявки</span>
+              <span>Принять все заявки ({awaitingAcceptCount})</span>
             </button>
           </div>
 

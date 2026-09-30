@@ -1072,36 +1072,32 @@ export default function App() {
   };
 
   // Admin: Accept all submitted orders
+  // Waits for the server before saying anything: it used to flip everything to "accepted"
+  // locally and toast success first, so a refused request looked like it worked and then
+  // silently reverted a moment later.
   const handleAcceptAllOrders = async () => {
-    const timeStr = timeNowAlmaty();
-
-    setOrders((prev) => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach((key) => {
-        const id = Number(key);
-        if (updated[id].status === 'submitted') {
-          updated[id] = {
-            ...updated[id],
-            status: 'accepted',
-            acceptedAt: timeStr,
-          };
-        }
-      });
-      return updated;
-    });
-
+    showToast('⏳ Принимаем заявки…');
     try {
       const res = await fetch('/api/orders/accept-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initData: telegramInitData }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        showToast('⚠️ Не удалось принять заявки: нет подтверждения доступа.');
+        showToast(`⚠️ Не удалось принять заявки${data?.error ? `: ${data.error}` : ''}`);
         refreshInitialData();
+        return;
       }
+      if (data.orders) setOrders(data.orders);
+      showToast(
+        data.acceptedCount > 0
+          ? `✅ Принято заявок: ${data.acceptedCount}`
+          : 'Нет заявок, ожидающих принятия'
+      );
     } catch (e) {
       console.error(e);
+      showToast('⚠️ Не удалось принять заявки — проверьте связь');
     }
   };
 
