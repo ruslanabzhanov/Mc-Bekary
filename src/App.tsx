@@ -10,8 +10,6 @@ import { RegistrationGate } from './components/RegistrationGate';
 import { DishPollVoteScreen } from './components/DishPollVoteScreen';
 import { DeadlineModal } from './components/DeadlineModal';
 import { SplashScreen, wasSplashShownThisSession, markSplashShown } from './components/SplashScreen';
-import { useTelegramBackButton } from './hooks/useTelegramBackButton';
-import { X } from 'lucide-react';
 import { COFFEE_SHOPS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
 import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, StaffRole, RegistrationRequest, AdvanceRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
@@ -285,8 +283,6 @@ export default function App() {
   const [serverDataLoaded, setServerDataLoaded] = useState(false);
   const [initialDataError, setInitialDataError] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [isMyCabinetOpen, setIsMyCabinetOpen] = useState(false);
-  useTelegramBackButton(isMyCabinetOpen, () => setIsMyCabinetOpen(false));
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -1205,22 +1201,6 @@ export default function App() {
   const employees = staff.filter((s) => s.role === 'employee');
   // Whose cabinet the employee screen shows: the Owner's chosen preview, otherwise this
   // device's own employee record.
-  // «Мой кабинет» for the person at this device, in roles whose main screen isn't a cabinet
-  // already. Not for the Owner: switching views, they'd otherwise see some other person's cabinet.
-  const myCabinetStaff: StaffMember | null = (() => {
-    if (isOwnerVerified) return null;
-    const myStaffId = typeof window !== 'undefined' ? window.localStorage.getItem(STAFF_ID_STORAGE_KEY) : null;
-    const id =
-      currentRole === 'admin'
-        ? currentAdminId || myStaffId
-        : currentRole === 'territorial'
-        ? currentTerritorialManagerId || myStaffId
-        : currentRole === 'manager'
-        ? myStaffId
-        : null;
-    return id ? staff.find((s) => s.id === id) || null : null;
-  })();
-
   const viewedEmployee =
     employees.find((s) => s.id === (previewEmployeeId || currentEmployeeId)) ||
     (previewEmployeeId ? null : employees.find((s) => s.id === currentEmployeeId) || null) ||
@@ -1374,40 +1354,7 @@ export default function App() {
           isOwnerVerified={isOwnerVerified}
           orderDeadline={orderDeadline}
           onEditDeadline={canEditDeadline ? () => setIsDeadlineModalOpen(true) : undefined}
-          myProfile={myCabinetStaff ? { name: myCabinetStaff.name, photoUrl: myCabinetStaff.photoUrl } : undefined}
-          onOpenMyCabinet={myCabinetStaff ? () => setIsMyCabinetOpen(true) : undefined}
         />
-        {isMyCabinetOpen && myCabinetStaff && (
-          <div className="fixed inset-0 z-50 bg-slate-50 overflow-y-auto">
-            <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm">
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight">Мой кабинет</h2>
-              <button
-                id="btn-close-my-cabinet"
-                onClick={() => setIsMyCabinetOpen(false)}
-                className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 max-w-md mx-auto">
-              <EmployeeView
-                employee={myCabinetStaff}
-                advanceRequests={advanceRequests}
-                onSubmitAdvanceRequest={handleSubmitAdvanceRequest}
-                shops={shops}
-                products={products}
-                orders={orders}
-                checklistAssignments={checklistAssignments}
-                checklistSummaryAssignments={checklistSummaryAssignments}
-                dishCostings={dishCostings}
-                semiFinishedList={semiFinishedList}
-                rawMaterials={rawMaterials}
-                onUploadPhoto={handleUploadStaffPhoto}
-                hideChecklists
-              />
-            </div>
-          </div>
-        )}
         <DeadlineModal
           isOpen={isDeadlineModalOpen && canEditDeadline}
           currentDeadline={orderDeadline}

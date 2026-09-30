@@ -51,10 +51,6 @@ interface HeaderProps {
   orderDeadline: string;
   // Есть только у владельца и заведующего производством — им дедлайн можно двигать.
   onEditDeadline?: () => void;
-  // «Мой кабинет» — for a device whose own staff record is known (point manager, territorial,
-  // production manager). An employee's whole screen already is their cabinet, so no avatar there.
-  myProfile?: { name: string; photoUrl?: string };
-  onOpenMyCabinet?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -68,8 +64,6 @@ export const Header: React.FC<HeaderProps> = ({
   isOwnerVerified,
   orderDeadline,
   onEditDeadline,
-  myProfile,
-  onOpenMyCabinet,
 }) => {
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
   const { isFullscreen, toggle: toggleFullscreen, topInset } = useFullscreenToggle();
@@ -115,23 +109,6 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {isFullscreen ? <Minimize2 className="w-4.5 h-4.5" /> : <Maximize2 className="w-4.5 h-4.5" />}
             </button>
-
-            {myProfile && onOpenMyCabinet && (
-              <button
-                id="btn-open-my-cabinet"
-                onClick={onOpenMyCabinet}
-                title="Мой кабинет"
-                className="w-10 h-10 shrink-0 rounded-full overflow-hidden bg-indigo-50 border-2 border-indigo-200 hover:border-indigo-400 flex items-center justify-center transition-colors"
-              >
-                {myProfile.photoUrl ? (
-                  <img src={myProfile.photoUrl} alt={myProfile.name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-sm font-black text-indigo-700">
-                    {myProfile.name.trim().charAt(0).toUpperCase()}
-                  </span>
-                )}
-              </button>
-            )}
 
             {/* Center Info: Live Time & Discipline Bar */}
             <div className="hidden md:flex items-center space-x-4 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
