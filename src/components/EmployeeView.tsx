@@ -19,7 +19,13 @@ interface EmployeeViewProps {
   allEmployees?: StaffMember[];
   onPickEmployee?: (staffId: string) => void;
   advanceRequests: AdvanceRequest[];
-  onSubmitAdvanceRequest: (request: { staffId: string; staffName: string; amount: number; kaspiPhone: string }) => void;
+  onSubmitAdvanceRequest: (request: {
+    staffId: string;
+    staffName: string;
+    amount: number;
+    kaspiPhone: string;
+    kaspiName: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
   // For the read-only «Чек-листы» tile — same data AdminView's own checklist screen uses.
   shops: CoffeeShop[];
   products: Product[];
@@ -108,6 +114,14 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [kaspiPhone, setKaspiPhone] = useState('');
+  const [kaspiName, setKaspiName] = useState('');
+  const [isAdvanceFormOpen, setIsAdvanceFormOpen] = useState(false);
+  const [advanceInfo, setAdvanceInfo] = useState<{
+    rate: number; shifts: number; earned: number; alreadyRequested: number; limit: number;
+  } | null>(null);
+  const [advanceError, setAdvanceError] = useState('');
+  const [advanceSent, setAdvanceSent] = useState(false);
+  const [isAdvanceSending, setIsAdvanceSending] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [checklistDept, setChecklistDept] = useState<ChecklistDeptKey>(
     () => (employee?.position && POSITION_DEPARTMENT[employee.position]) || 'bakery'
@@ -185,12 +199,49 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   );
   const netPayout = earned - advanceTakenThisMonth;
 
-  const handleAdvanceSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = Number(advanceAmount);
-    if (!employee || !Number.isFinite(amount) || amount <= 0 || !kaspiPhone.trim()) return;
-    onSubmitAdvanceRequest({ staffId: employee.id, staffName: employee.name, amount, kaspiPhone: kaspiPhone.trim() });
+  // The limit comes from the server — the same numbers it checks the request against.
+  const openAdvanceForm = () => {
+    if (!employee) return;
+    setAdvanceError('');
     setAdvanceAmount('');
+    setAdvanceInfo(null);
+    // Same payout details as last time, if there was a last time — still editable.
+    const last = myAdvanceRequests[0];
+    if (last) {
+      setKaspiPhone((p) => p || last.kaspiPhone || '');
+      setKaspiName((n) => n || last.kaspiName || '');
+    }
+    setIsAdvanceFormOpen(true);
+    fetch(`/api/advance-requests/limit?staffId=${encodeURIComponent(employee.id)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (typeof d?.limit === 'number') setAdvanceInfo(d);
+        else setAdvanceError('Не удалось посчитать доступную сумму');
+      })
+      .catch(() => setAdvanceError('Нет связи с сервером'));
+  };
+
+  const handleAdvanceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!employee || !advanceInfo) return;
+    const amount = Math.round(Number(advanceAmount));
+    if (!Number.isFinite(amount) || amount <= 0) return setAdvanceError('Укажите сумму аванса');
+    if (amount > advanceInfo.limit) return setAdvanceError(`Можно запросить не больше ${formatMoney(advanceInfo.limit)}`);
+    if (kaspiPhone.replace(/\D/g, '').length < 10) return setAdvanceError('Укажите номер Kaspi полностью');
+    if (!kaspiName.trim()) return setAdvanceError('Укажите имя получателя в Kaspi');
+    setAdvanceError('');
+    setIsAdvanceSending(true);
+    const result = await onSubmitAdvanceRequest({
+      staffId: employee.id,
+      staffName: employee.name,
+      amount,
+      kaspiPhone: kaspiPhone.trim(),
+      kaspiName: kaspiName.trim(),
+    });
+    setIsAdvanceSending(false);
+    if (!result.ok) return setAdvanceError(result.error || 'Не удалось отправить заявку');
+    setIsAdvanceFormOpen(false);
+    setAdvanceSent(true);
   };
 
   const shiftMonth = (delta: number) => {
@@ -204,7 +255,11 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   const today = almatyToday();
 
   useTelegramBackButton(isTimesheetOpen, () => setIsTimesheetOpen(false));
-  useTelegramBackButton(isAdvanceOpen, () => setIsAdvanceOpen(false));
+  useTelegramBackButton(isAdvanceOpen, () => {
+    setIsAdvanceOpen(false);
+    setAdvanceSent(false);
+  });
+  useTelegramBackButton(isAdvanceFormOpen, () => setIsAdvanceFormOpen(false));
   useTelegramBackButton(isChecklistPickerOpen, () => setIsChecklistPickerOpen(false));
   useTelegramBackButton(isDocsOpen, () => setIsDocsOpen(false));
 
@@ -521,110 +576,208 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         rawMaterials={rawMaterials}
       />
 
-      {/* Авансы — opened from the tile. Requesting one is only for a real employee in their own
-          cabinet; the Owner previewing someone else's just sees that person's history. */}
+      {/* Авансы — opened from the tile: «Подать аванс» on top (only for the employee in their own
+          cabinet), the history of their requests below. The Owner previewing sees the history. */}
       {isAdvanceOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => setIsAdvanceOpen(false)}>
-        <div id="employee-advance-dialog" className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-1.5 text-slate-700">
-              <HandCoins className="w-4 h-4" />
-              <h3 className="text-xs font-black uppercase tracking-wider">Авансы</h3>
-            </div>
-            <button onClick={() => setIsAdvanceOpen(false)} className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {allEmployees ? (
-            myAdvanceRequests.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-6">Заявок на аванс не было</p>
-            ) : (
-              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                {myAdvanceRequests.map((r) => (
-                  <div key={r.id} className="px-3 py-2.5 flex items-center justify-between gap-2 text-sm">
-                    <span className="font-bold text-slate-900 tabular-nums">{formatMoney(r.amount)}</span>
-                    <span
-                      className={`text-xs font-bold ${
-                        r.status === 'approved' ? 'text-emerald-700' : r.status === 'rejected' ? 'text-rose-700' : 'text-amber-700'
-                      }`}
-                    >
-                      {r.status === 'approved' ? 'одобрен' : r.status === 'rejected' ? 'отклонён' : 'на рассмотрении'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )
-          ) : pendingAdvance ? (
-            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-sm">
-              <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold text-amber-900">Заявка на рассмотрении</p>
-                <p className="text-xs text-amber-700 mt-0.5">
-                  {formatMoney(pendingAdvance.amount)} на Kaspi {pendingAdvance.kaspiPhone}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={handleAdvanceSubmit} className="space-y-2.5">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Сумма
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  step="500"
-                  value={advanceAmount}
-                  onChange={(e) => setAdvanceAmount(e.target.value)}
-                  placeholder="Например, 20000"
-                  className="w-full px-3 min-h-[44px] text-base border border-slate-300 rounded-xl bg-white font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Уже заработано в этом месяце: {formatMoney(earned)}
-                </p>
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Номер Kaspi
-                </label>
-                <input
-                  type="tel"
-                  value={kaspiPhone}
-                  onChange={(e) => setKaspiPhone(e.target.value)}
-                  placeholder="+7 707 000 00 00"
-                  className="w-full px-3 min-h-[44px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4"
+          onClick={() => {
+            setIsAdvanceOpen(false);
+            setAdvanceSent(false);
+          }}
+        >
+          <div
+            id="employee-advance-dialog"
+            className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-2xl max-h-[90vh] overflow-y-auto space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-slate-700">
+                <HandCoins className="w-4 h-4" />
+                <h3 className="text-xs font-black uppercase tracking-wider">Авансы</h3>
               </div>
               <button
-                type="submit"
-                className="w-full min-h-[48px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all shadow-sm"
+                onClick={() => {
+                  setIsAdvanceOpen(false);
+                  setAdvanceSent(false);
+                }}
+                className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400"
               >
-                Запросить аванс
+                <X className="w-5 h-5" />
               </button>
-            </form>
-          )}
-
-          {!allEmployees && !pendingAdvance && lastDecidedAdvance && (
-            <div
-              className={`mt-3 flex items-center gap-2 text-xs rounded-lg px-3 py-2 ${
-                lastDecidedAdvance.status === 'approved'
-                  ? 'bg-emerald-50 text-emerald-800'
-                  : 'bg-rose-50 text-rose-800'
-              }`}
-            >
-              {lastDecidedAdvance.status === 'approved' ? (
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-              ) : (
-                <XCircle className="w-3.5 h-3.5 shrink-0" />
-              )}
-              <span>
-                Последняя заявка ({formatMoney(lastDecidedAdvance.amount)}) —{' '}
-                {lastDecidedAdvance.status === 'approved' ? 'одобрена' : 'отклонена'}
-              </span>
             </div>
-          )}
+
+            {!allEmployees &&
+              (pendingAdvance ? (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 text-sm">
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-amber-900">Заявка на рассмотрении</p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      {formatMoney(pendingAdvance.amount)} на Kaspi {pendingAdvance.kaspiPhone}. Новую можно подать после решения
+                      управляющего.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  id="btn-open-advance-form"
+                  onClick={openAdvanceForm}
+                  className="w-full min-h-[72px] rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white shadow-sm flex items-center justify-center gap-3 transition-all"
+                >
+                  <Banknote className="w-6 h-6" />
+                  <span className="text-left">
+                    <span className="block text-sm font-black uppercase tracking-wider">Подать аванс</span>
+                    <span className="block text-[11px] opacity-80">до 70% от заработанного в этом месяце</span>
+                  </span>
+                </button>
+              ))}
+
+            {advanceSent && (
+              <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 text-xs text-emerald-800">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>Заявка отправлена управляющему. Когда её одобрят или отклонят, придёт сообщение в Telegram.</span>
+              </div>
+            )}
+
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">История авансов</p>
+              {myAdvanceRequests.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-5 border border-dashed border-slate-200 rounded-xl">
+                  Заявок на аванс ещё не было
+                </p>
+              ) : (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                  {myAdvanceRequests.map((r) => (
+                    <div key={r.id} className="px-3 py-2.5 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-900 tabular-nums">{formatMoney(r.amount)}</p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {r.createdAt
+                            ? new Date(r.createdAt).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' })
+                            : r.submittedAt}
+                          {' · Kaspi '}
+                          {r.kaspiPhone}
+                          {r.kaspiName ? ` · ${r.kaspiName}` : ''}
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 text-[11px] font-bold px-2 py-1 rounded-lg ${
+                          r.status === 'approved'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : r.status === 'rejected'
+                            ? 'bg-rose-50 text-rose-700'
+                            : 'bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        {r.status === 'approved' ? 'одобрен' : r.status === 'rejected' ? 'отклонён' : 'на рассмотрении'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Заявка на аванс: who and how much has been earned is filled in automatically */}
+      {isAdvanceFormOpen && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => setIsAdvanceFormOpen(false)}>
+          <form
+            id="employee-advance-form"
+            noValidate
+            onSubmit={handleAdvanceSubmit}
+            className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-2xl max-h-[92vh] overflow-y-auto space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Заявка на аванс</h3>
+              <button
+                type="button"
+                onClick={() => setIsAdvanceFormOpen(false)}
+                className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl divide-y divide-slate-200 text-sm">
+              {[
+                ['Имя', employee.name],
+                ['Должность', employee.position || 'Внутренний сотрудник'],
+                ['Ставка / день', advanceInfo ? formatMoney(advanceInfo.rate) : '…'],
+                ['Смен в этом месяце', advanceInfo ? String(advanceInfo.shifts) : '…'],
+                ['Заработано на сегодня', advanceInfo ? formatMoney(advanceInfo.earned) : '…'],
+                ...(advanceInfo && advanceInfo.alreadyRequested > 0
+                  ? [['Уже запрошено в этом месяце', formatMoney(advanceInfo.alreadyRequested)]]
+                  : []),
+              ].map(([label, value]) => (
+                <div key={label} className="px-3 py-2 flex items-center justify-between gap-3">
+                  <span className="text-slate-500">{label}</span>
+                  <b className="text-slate-900 text-right tabular-nums">{value}</b>
+                </div>
+              ))}
+              <div className="px-3 py-2 flex items-center justify-between gap-3 bg-emerald-50">
+                <span className="text-emerald-800 font-bold">Можно запросить до</span>
+                <b className="text-emerald-900 tabular-nums">{advanceInfo ? formatMoney(advanceInfo.limit) : '…'}</b>
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Сумма аванса</span>
+              <input
+                type="number"
+                min="1"
+                step="any"
+                inputMode="numeric"
+                max={advanceInfo?.limit || undefined}
+                value={advanceAmount}
+                onChange={(e) => setAdvanceAmount(e.target.value)}
+                placeholder={advanceInfo ? `не больше ${Math.round(advanceInfo.limit).toLocaleString('ru-RU')}` : ''}
+                className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Номер телефона Kaspi <span className="text-rose-500">*</span>
+              </span>
+              <input
+                type="tel"
+                inputMode="tel"
+                value={kaspiPhone}
+                onChange={(e) => setKaspiPhone(e.target.value)}
+                placeholder="+7 707 000 00 00"
+                className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Имя получателя в Kaspi <span className="text-rose-500">*</span>
+              </span>
+              <input
+                type="text"
+                value={kaspiName}
+                onChange={(e) => setKaspiName(e.target.value)}
+                placeholder="Как в приложении Kaspi, например: Асель И."
+                className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+
+            {advanceError && (
+              <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{advanceError}</p>
+            )}
+
+            <button
+              id="btn-submit-advance"
+              type="submit"
+              disabled={!advanceInfo || isAdvanceSending || advanceInfo.limit <= 0}
+              className="w-full min-h-[52px] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
+            >
+              {isAdvanceSending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {advanceInfo && advanceInfo.limit <= 0 ? 'Пока нечего запросить' : 'Отправить'}
+            </button>
+          </form>
         </div>
       )}
 

@@ -35,7 +35,10 @@ import {
   HandCoins,
   Vote,
   Clock,
-  BarChart3
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+  FileSpreadsheet
 } from 'lucide-react';
 
 // Все цеха, у которых есть чек-лист. Раньше в меню было вписано вручную только четыре из шести,
@@ -154,6 +157,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isCostingsModalOpen, setIsCostingsModalOpen] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+  const [advanceTab, setAdvanceTab] = useState<'requests' | 'approved'>('requests');
+  const [advanceMonth, setAdvanceMonth] = useState(() =>
+    new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7)
+  );
   const [isDishPollsOpen, setIsDishPollsOpen] = useState(false);
   const [isHistoryDaysOpen, setIsHistoryDaysOpen] = useState(false);
   const [isRolePermissionsOpen, setIsRolePermissionsOpen] = useState(false);
@@ -800,7 +807,126 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
 
           <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-3">
-            {advanceRequests.length === 0 ? (
+            <div className="flex p-1.5 gap-1 bg-slate-100 border border-slate-200 rounded-xl">
+              {([
+                { key: 'requests' as const, label: `Заявки${pendingAdvanceCount ? ` (${pendingAdvanceCount})` : ''}` },
+                { key: 'approved' as const, label: 'Одобренные' },
+              ]).map((t) => (
+                <button
+                  key={t.key}
+                  id={`btn-advances-tab-${t.key}`}
+                  onClick={() => setAdvanceTab(t.key)}
+                  className={`flex-1 min-h-[44px] rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${
+                    advanceTab === t.key ? 'bg-white text-indigo-950 border border-slate-200 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {advanceTab === 'approved' ? (() => {
+              const positionById = new Map(staff.map((s) => [s.id, s.position || '']));
+              const approved = advanceRequests
+                .filter((r) => r.status === 'approved' && r.createdAt &&
+                  new Date(r.createdAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7) === advanceMonth)
+                .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+              const total = approved.reduce((n, r) => n + r.amount, 0);
+              const [ay, am] = advanceMonth.split('-').map(Number);
+              const monthLabel = new Date(Date.UTC(ay, am - 1, 15)).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+              const shiftAdvMonth = (d: number) => {
+                const dt = new Date(Date.UTC(ay, am - 1 + d, 1));
+                setAdvanceMonth(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`);
+              };
+              const thisMonth = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7);
+              const downloadExcel = () => {
+                const url = `${window.location.origin}/api/advance-requests/export.xlsx?month=${advanceMonth}`;
+                const fileName = `Авансы — ${monthLabel}.xlsx`;
+                const tg = (window as any).Telegram?.WebApp;
+                if (typeof tg?.downloadFile === 'function') return tg.downloadFile({ url, file_name: fileName });
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              };
+              return (
+                <div className="space-y-3">
+                  <div className="bg-white rounded-xl border border-slate-200 p-2 flex items-center justify-between gap-2">
+                    <button onClick={() => shiftAdvMonth(-1)} className="w-10 h-10 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600">
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-sm font-extrabold text-slate-900 capitalize">{monthLabel}</span>
+                    <button
+                      onClick={() => shiftAdvMonth(1)}
+                      disabled={advanceMonth >= thisMonth}
+                      className="w-10 h-10 rounded-lg bg-slate-50 hover:bg-slate-100 disabled:opacity-40 border border-slate-200 flex items-center justify-center text-slate-600"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+                    <table id="approved-advances-table" className="w-full text-xs tabular-nums">
+                      <thead className="bg-emerald-600 text-white">
+                        <tr>
+                          <th className="px-2 py-2 text-left">№</th>
+                          <th className="px-2 py-2 text-left">Сотрудник</th>
+                          <th className="px-2 py-2 text-left">Kaspi</th>
+                          <th className="px-2 py-2 text-right">Сумма</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {approved.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-8 text-center text-slate-400 italic">
+                              В этом месяце одобренных авансов нет
+                            </td>
+                          </tr>
+                        ) : (
+                          approved.map((r, i) => (
+                            <tr key={r.id} className="align-top">
+                              <td className="px-2 py-2 text-slate-500">{i + 1}</td>
+                              <td className="px-2 py-2">
+                                <p className="font-bold text-slate-900">{r.staffName}</p>
+                                <p className="text-[11px] text-slate-500">
+                                  {positionById.get(r.staffId) || '—'} ·{' '}
+                                  {new Date(r.createdAt!).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' })}
+                                </p>
+                              </td>
+                              <td className="px-2 py-2">
+                                <p className="whitespace-nowrap">{r.kaspiPhone}</p>
+                                <p className="text-[11px] text-slate-500">{r.kaspiName || '—'}</p>
+                              </td>
+                              <td className="px-2 py-2 text-right font-black text-slate-900 whitespace-nowrap">
+                                {Math.round(r.amount).toLocaleString('ru-RU')} ₸
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-800 text-white font-black">
+                          <td className="px-2 py-2.5" colSpan={3}>ИТОГО · {approved.length} шт.</td>
+                          <td className="px-2 py-2.5 text-right whitespace-nowrap">{Math.round(total).toLocaleString('ru-RU')} ₸</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  <button
+                    id="btn-download-advances-excel"
+                    onClick={downloadExcel}
+                    disabled={approved.length === 0}
+                    className="w-full min-h-[48px] flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-sm uppercase tracking-wider shadow-sm"
+                  >
+                    <FileSpreadsheet className="w-5 h-5" />
+                    Скачать Excel
+                  </button>
+                </div>
+              );
+            })() : advanceRequests.length === 0 ? (
               <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-400 italic text-sm">
                 Заявок на аванс ещё не было.
               </div>
@@ -811,9 +937,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="font-bold text-slate-900 text-sm">{req.staffName}</div>
+                    <div className="font-bold text-slate-900 text-sm">
+                      {req.staffName}
+                      {staff.find((s) => s.id === req.staffId)?.position && (
+                        <span className="font-medium text-slate-500"> · {staff.find((s) => s.id === req.staffId)?.position}</span>
+                      )}
+                    </div>
                     <div className="text-[11px] text-slate-500">
-                      Kaspi {req.kaspiPhone} · Подано в {req.submittedAt}
+                      Kaspi {req.kaspiPhone}
+                      {req.kaspiName ? ` (${req.kaspiName})` : ''} · Подано{' '}
+                      {req.createdAt ? new Date(req.createdAt).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' }) + ' ' : ''}в {req.submittedAt}
                     </div>
                   </div>
 

@@ -1346,17 +1346,69 @@ export function createApiApp() {
   // A shop-floor employee asking to be paid part of what the timesheet already shows them as
   // having earned, ahead of the normal payday. Same row-level-write shape as registration
   // requests above — one person's own submission, never a whole-table replace.
-  async function notifyNewAdvanceRequest(request: any) {
+  // An advance may be at most 70% of what the timesheet shows as earned this month, minus
+  // advances already asked for this month (approved or still pending). Computed here so the
+  // employee's form and the check on submit use exactly the same numbers.
+  const ADVANCE_SHARE = 0.7;
+  async function advanceLimitFor(staffId: string) {
+    const today = almatyToday();
+    const month = today.slice(0, 7);
+    const [y, m] = month.split('-').map(Number);
+    const nextMonth = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+    const { startIso } = almatyDayRangeUtc(`${month}-01`);
+    const { startIso: endIso } = almatyDayRangeUtc(nextMonth);
+    const [staffR, shiftsR, advR] = await Promise.all([
+      supabase.from('staff').select('name, position, shift_rate').eq('id', staffId).maybeSingle(),
+      supabase.from('shifts').select('rate').eq('staff_id', staffId).gte('work_date', `${month}-01`).lt('work_date', nextMonth),
+      supabase
+        .from('advance_requests')
+        .select('amount, status')
+        .eq('staff_id', staffId)
+        .in('status', ['approved', 'pending'])
+        .gte('created_at', startIso)
+        .lt('created_at', endIso),
+    ]);
+    for (const r of [staffR, shiftsR, advR]) if (r.error) throw r.error;
+    const earned = (shiftsR.data || []).reduce((n: number, s: any) => n + (Number(s.rate) || 0), 0);
+    const alreadyRequested = (advR.data || []).reduce((n: number, a: any) => n + (Number(a.amount) || 0), 0);
+    return {
+      month,
+      name: staffR.data?.name || '',
+      position: staffR.data?.position || '',
+      rate: Number(staffR.data?.shift_rate) || 0,
+      shifts: (shiftsR.data || []).length,
+      earned,
+      alreadyRequested,
+      limit: Math.max(0, Math.floor(earned * ADVANCE_SHARE) - alreadyRequested),
+    };
+  }
+
+  app.get('/api/advance-requests/limit', async (req, res) => {
+    try {
+      const staffId = String(req.query.staffId || '');
+      if (!staffId) return res.status(400).json({ error: 'staffId is required' });
+      res.json(await advanceLimitFor(staffId));
+    } catch (e) {
+      console.error('Failed to compute advance limit:', e);
+      res.status(500).json({ error: 'Failed to compute advance limit' });
+    }
+  });
+
+  const fmtTenge = (n: number) => `${Math.round(Number(n) || 0).toLocaleString('ru-RU')} ₸`;
+
+  async function notifyNewAdvanceRequest(request: any, info: Awaited<ReturnType<typeof advanceLimitFor>>) {
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!botToken) return;
     const recipientIds = supervisorRecipientIds();
     if (recipientIds.size === 0) return;
     const text =
       `💸 <b>Заявка на аванс</b>\n\n` +
-      `👤 ${request.staffName}\n` +
-      `💰 ${Number(request.amount).toLocaleString('ru-RU')} ₸\n` +
-      `📱 Kaspi: ${request.kaspiPhone}\n\n` +
-      `Одобрить или отклонить — в разделе «Авансы».`;
+      `👤 ${request.staffName}${info.position ? ` — ${info.position}` : ''}\n` +
+      `💰 Просит: <b>${fmtTenge(request.amount)}</b>\n` +
+      `📊 Заработано в этом месяце: ${fmtTenge(info.earned)} (${info.shifts} смен × ${fmtTenge(info.rate)})\n` +
+      `📱 Kaspi: ${request.kaspiPhone}\n` +
+      (request.kaspiName ? `🧾 Получатель: ${request.kaspiName}\n` : '') +
+      `\nОдобрить или отклонить — в разделе «Авансы».`;
     for (const chatId of recipientIds) {
       await sendTelegramMessage(botToken, chatId, text, WEB_APP_URL);
     }
@@ -1374,29 +1426,126 @@ export function createApiApp() {
     if (!chatId) return;
     const text =
       status === 'approved'
-        ? `✅ <b>Аванс одобрен</b>\n\n${Number(request.amount).toLocaleString('ru-RU')} ₸ переведут на Kaspi ${request.kaspiPhone}.`
-        : `❌ <b>Заявка на аванс отклонена</b>\n\nУточните детали у управляющего.`;
+        ? `✅ <b>Аванс одобрен</b>\n\n${fmtTenge(request.amount)} переведут на Kaspi ${request.kaspiPhone}` +
+          (request.kaspiName ? ` (${request.kaspiName})` : '') +
+          '.'
+        : `❌ <b>Заявка на аванс отклонена</b>\n\n${fmtTenge(request.amount)} — уточните детали у управляющего.`;
     await sendTelegramMessage(botToken, chatId, text, WEB_APP_URL);
   }
 
   app.post('/api/advance-requests/submit', async (req, res) => {
     try {
       const request = req.body?.request;
-      if (!request?.id || !request?.staffId || !request?.amount || !request?.kaspiPhone) {
-        return res.status(400).json({ error: 'staffId, amount and kaspiPhone are required' });
+      const amount = Math.round(Number(request?.amount));
+      const phoneDigits = String(request?.kaspiPhone || '').replace(/\D/g, '');
+      const kaspiName = String(request?.kaspiName || '').trim();
+      if (!request?.id || !request?.staffId) {
+        return res.status(400).json({ error: 'Не хватает данных заявки' });
       }
-      const withDefaults = { ...request, submittedAt: request.submittedAt || timeNow(), status: 'pending' };
-      const { error } = await supabase
-        .from('advance_requests')
-        .upsert(advanceRequestToDb(withDefaults));
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return res.status(400).json({ error: 'Укажите сумму аванса' });
+      }
+      if (phoneDigits.length < 10) {
+        return res.status(400).json({ error: 'Укажите номер Kaspi полностью' });
+      }
+      if (!kaspiName) {
+        return res.status(400).json({ error: 'Укажите имя получателя в Kaspi' });
+      }
+      const info = await advanceLimitFor(String(request.staffId));
+      if (amount > info.limit) {
+        return res.status(400).json({
+          error: `Можно запросить не больше ${fmtTenge(info.limit)} — это 70% заработанного (${fmtTenge(info.earned)})` +
+            (info.alreadyRequested ? ` минус уже запрошенные ${fmtTenge(info.alreadyRequested)}` : ''),
+          limit: info.limit,
+        });
+      }
+
+      const withDefaults = {
+        ...request,
+        amount,
+        kaspiPhone: String(request.kaspiPhone).trim(),
+        kaspiName,
+        staffName: request.staffName || info.name,
+        submittedAt: request.submittedAt || timeNow(),
+        status: 'pending',
+      };
+      let { error } = await supabase.from('advance_requests').upsert(advanceRequestToDb(withDefaults));
+      // The kaspi_name column is newer than the table — until it's added, keep the request
+      // anyway (the name still reaches management in the Telegram message below).
+      if (error && /kaspi_name/.test(String(error.message || ''))) {
+        const { kaspiName: _drop, ...withoutName } = withDefaults;
+        ({ error } = await supabase.from('advance_requests').upsert(advanceRequestToDb(withoutName)));
+      }
       if (error) throw error;
-      notifyNewAdvanceRequest(withDefaults).catch((e) =>
+      notifyNewAdvanceRequest(withDefaults, info).catch((e) =>
         console.error('Failed to notify about a new advance request:', e)
       );
       res.json({ success: true });
     } catch (e) {
       console.error('Failed to submit an advance request:', e);
-      res.status(500).json({ error: 'Failed to submit advance request' });
+      res.status(500).json({ error: 'Не удалось отправить заявку' });
+    }
+  });
+
+  // Approved advances for a month as an Excel file — the same list as the «Одобренные» table.
+  app.get('/api/advance-requests/export.xlsx', async (req, res) => {
+    try {
+      const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : almatyToday().slice(0, 7);
+      const [y, m] = month.split('-').map(Number);
+      const nextMonth = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+      const { startIso } = almatyDayRangeUtc(`${month}-01`);
+      const { startIso: endIso } = almatyDayRangeUtc(nextMonth);
+      const [advR, staffR] = await Promise.all([
+        supabase
+          .from('advance_requests')
+          .select('*')
+          .eq('status', 'approved')
+          .gte('created_at', startIso)
+          .lt('created_at', endIso)
+          .order('created_at', { ascending: true }),
+        supabase.from('staff').select('id, position'),
+      ]);
+      if (advR.error) throw advR.error;
+      const positionById = new Map((staffR.data || []).map((s: any) => [s.id, s.position || '']));
+      const rows = (advR.data || []).map(advanceRequestFromDb);
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Master Bakery';
+      const ws = wb.addWorksheet('Авансы', {
+        pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+      });
+      const monthLabel = new Date(`${month}-15T12:00:00+05:00`).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric', timeZone: 'Asia/Almaty' });
+      ws.addRow([`Одобренные авансы — ${monthLabel}`]).font = { bold: true, size: 14 };
+      ws.addRow([]);
+      const head = ws.addRow(['№', 'Дата', 'ФИО', 'Должность', 'Сумма, ₸', 'Номер Kaspi', 'Получатель Kaspi']);
+      head.font = { bold: true };
+      head.eachCell((c) => {
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9EAD3' } };
+        c.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      });
+      let total = 0;
+      rows.forEach((r: any, i: number) => {
+        total += r.amount;
+        const date = r.createdAt ? new Date(r.createdAt).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' }) : '';
+        const row = ws.addRow([i + 1, date, r.staffName, positionById.get(r.staffId) || '', r.amount, r.kaspiPhone, r.kaspiName || '']);
+        row.getCell(5).numFmt = '#,##0';
+        row.eachCell((c) => {
+          c.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        });
+      });
+      const foot = ws.addRow(['', '', 'ИТОГО', '', total, '', '']);
+      foot.font = { bold: true };
+      foot.getCell(5).numFmt = '#,##0';
+      [6, 12, 28, 24, 14, 18, 26].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const fileName = `Авансы — ${monthLabel}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="advances-${month}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      res.send(Buffer.from(buffer as ArrayBuffer));
+    } catch (e) {
+      console.error('Failed to export advances:', e);
+      res.status(500).json({ error: 'Не удалось собрать файл' });
     }
   });
 

@@ -211,6 +211,7 @@ export interface AdvanceRequest {
   staffName: string;
   amount: number;
   kaspiPhone: string;
+  kaspiName?: string; // имя получателя в Kaspi — как в приложении банка, чтобы перевод не ушёл не туда
   status: AdvanceRequestStatus;
   submittedAt: string; // HH:MM, Kazakhstan time — same convention as RegistrationRequest
   createdAt?: string; // full ISO timestamp (DB's created_at) — submittedAt alone has no date,

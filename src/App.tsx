@@ -976,19 +976,32 @@ export default function App() {
 
   // Employee: ask to be paid part of what the timesheet already shows as earned, ahead of
   // payday. One row-level write, same shape as registration requests above.
-  const handleSubmitAdvanceRequest = (request: Omit<AdvanceRequest, 'id' | 'status' | 'submittedAt'>) => {
+  // Waits for the server: it checks the 70% limit, and a request it refused must not show up
+  // in the employee's history as if it had been sent.
+  const handleSubmitAdvanceRequest = async (
+    request: Omit<AdvanceRequest, 'id' | 'status' | 'submittedAt'>
+  ): Promise<{ ok: boolean; error?: string }> => {
     const newRequest: AdvanceRequest = {
       ...request,
       id: `adv-${Date.now()}`,
       submittedAt: timeNowAlmaty(),
       status: 'pending',
+      createdAt: new Date().toISOString(),
     };
-    hydrateAdvanceRequests((prev) => [newRequest, ...prev]);
-    fetch('/api/advance-requests/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ request: newRequest }),
-    }).catch((e) => console.error('Failed to submit advance request:', e));
+    try {
+      const res = await fetch('/api/advance-requests/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request: newRequest }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: data?.error || 'Не удалось отправить заявку' };
+      hydrateAdvanceRequests((prev) => [newRequest, ...prev]);
+      return { ok: true };
+    } catch (e) {
+      console.error('Failed to submit advance request:', e);
+      return { ok: false, error: 'Нет связи с сервером' };
+    }
   };
 
   // Personnel: approve/reject an advance request

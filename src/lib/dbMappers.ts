@@ -244,19 +244,25 @@ export const advanceRequestFromDb = (r: any) => ({
   staffName: r.staff_name,
   amount: Number(r.amount) || 0,
   kaspiPhone: r.kaspi_phone,
+  kaspiName: r.kaspi_name || undefined,
   status: r.status || 'pending',
   submittedAt: r.submitted_at,
   createdAt: r.created_at || undefined,
 });
-export const advanceRequestToDb = (r: any) => ({
-  id: r.id,
-  staff_id: r.staffId,
-  staff_name: r.staffName,
-  amount: r.amount,
-  kaspi_phone: r.kaspiPhone,
-  status: r.status || 'pending',
-  submitted_at: r.submittedAt,
-});
+export const advanceRequestToDb = (r: any) => {
+  const row: Record<string, any> = {
+    id: r.id,
+    staff_id: r.staffId,
+    staff_name: r.staffName,
+    amount: r.amount,
+    kaspi_phone: r.kaspiPhone,
+    status: r.status || 'pending',
+    submitted_at: r.submittedAt,
+  };
+  // Only written when present, so a database without the column yet still takes the rest.
+  if (r.kaspiName !== undefined) row.kaspi_name = r.kaspiName || null;
+  return row;
+};
 
 export const registrationRequestFromDb = (r: any) => ({
   id: r.id,

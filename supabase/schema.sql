@@ -222,6 +222,8 @@ create table if not exists advance_requests (
   created_at timestamptz not null default now()
 );
 create index if not exists advance_requests_staff_idx on advance_requests(staff_id);
+-- Имя получателя в Kaspi, как в приложении банка.
+alter table advance_requests add column if not exists kaspi_name text;
 
 -- Anonymous dish-tasting polls, reached by customers via a Telegram deep link — no
 -- registration, no staff record. One poll can cover several dishes tasted in the same round
