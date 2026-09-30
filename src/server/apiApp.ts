@@ -3236,6 +3236,52 @@ export function createApiApp() {
     }
   });
 
+  // Tariff changed in the monthly grid: every shift this person already has in that month is
+  // re-priced at the new rate (the grid reads «days × tariff», like the paper timesheet), while
+  // other months keep the rate frozen on their shifts. Each re-priced day goes to the change log.
+  app.post('/api/timesheet/month-rate', async (req, res) => {
+    try {
+      const { staffId, month, rate, actorName } = req.body || {};
+      const range = monthRange(String(month || ''));
+      const numericRate = Number(rate);
+      if (!staffId || !range || !Number.isFinite(numericRate) || numericRate < 0) {
+        return res.status(400).json({ error: 'staffId, month (YYYY-MM) and a non-negative rate are required' });
+      }
+      const { data, error } = await supabase
+        .from('shifts')
+        .update({ rate: numericRate })
+        .eq('staff_id', staffId)
+        .gte('work_date', range.from)
+        .lte('work_date', range.to)
+        .select();
+      if (error) throw error;
+
+      const updated = data || [];
+      if (updated.length > 0) {
+        const { data: staffRow } = await supabase.from('staff').select('name').eq('id', staffId).maybeSingle();
+        supabase
+          .from('shift_changes')
+          .insert(
+            updated.map((s: any) => ({
+              staff_id: staffId,
+              staff_name: staffRow?.name || staffId,
+              work_date: s.work_date,
+              action: 'set',
+              rate: numericRate,
+              actor_name: actorName || 'Неизвестно',
+            }))
+          )
+          .then(({ error: logError }) => {
+            if (logError) console.error('Failed to log month re-pricing:', logError);
+          });
+      }
+      res.json({ success: true, updated: updated.length, shifts: updated.map(shiftFromDb) });
+    } catch (e) {
+      console.error('Failed to re-price month shifts:', e);
+      res.status(500).json({ error: 'Failed to re-price month shifts' });
+    }
+  });
+
   // Remove one shift (the person didn't work that day after all).
   app.delete('/api/timesheet/shift', async (req, res) => {
     try {

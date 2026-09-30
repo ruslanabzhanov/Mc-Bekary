@@ -174,6 +174,20 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
     }
   };
 
+  // One tariff for the person: saved on their card (their cabinet shows it as «Ставка/день» and
+  // new shifts start from it) and applied to every shift they already have in the month on
+  // screen, so «days × tariff» holds. Other months keep the rate frozen on their shifts.
+  const saveMonthRate = async (member: StaffMember, rate: number) => {
+    if (!Number.isFinite(rate) || rate < 0 || rate === (Number(member.shiftRate) || 0)) return;
+    onUpdateStaffMember(member.id, { shiftRate: rate });
+    const ok = await write('/api/timesheet/month-rate', 'POST', { staffId: member.id, month, rate }, `${member.id}:month-rate`);
+    if (ok) {
+      setShifts((prev) =>
+        prev.map((s) => (s.staffId === member.id && monthKey(s.workDate) === month ? { ...s, rate } : s))
+      );
+    }
+  };
+
   const moveMonth = (delta: number) => {
     const [y, m] = month.split('-').map(Number);
     const d = new Date(Date.UTC(y, m - 1 + delta, 1));
@@ -406,7 +420,24 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                               );
                             })}
                             <td className={`${cellBorder} px-1.5 py-1 text-center font-bold text-slate-900`}>{r.days || ''}</td>
-                            <td className={`${cellBorder} px-1.5 py-1 text-right text-slate-700`}>{num(r.member.shiftRate || 0)}</td>
+                            <td className={`${cellBorder} p-0`}>
+                              <input
+                                key={`${r.member.id}-${r.member.shiftRate || 0}`}
+                                type="number"
+                                min="0"
+                                step="500"
+                                inputMode="numeric"
+                                defaultValue={r.member.shiftRate || ''}
+                                placeholder="0"
+                                disabled={busyKey === `${r.member.id}:month-rate`}
+                                onBlur={(e) => saveMonthRate(r.member, Number(e.target.value) || 0)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                }}
+                                title="Тарифная ставка за смену — нажмите, введите сумму и Enter"
+                                className="w-full min-w-[72px] h-7 px-1.5 text-right bg-amber-50/60 hover:bg-amber-100 focus:bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </td>
                             <td className={`${cellBorder} px-1.5 py-1 text-right font-bold text-slate-900`}>{num(r.earned)}</td>
                             <td className={`${cellBorder} px-1.5 py-1 text-right text-slate-700`}>{num(r.advance)}</td>
                             <td
@@ -443,8 +474,8 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
               </table>
             </div>
             <p className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-200">
-              Нажмите на клетку дня, чтобы поставить или снять смену. Ставка берётся из карточки сотрудника
-              («По сотруднику»). Аванс — одобренные заявки за этот месяц.
+              Нажмите на клетку дня, чтобы поставить или снять смену. Тарифную ставку меняйте прямо в таблице — она пересчитает смены этого месяца и сразу видна сотруднику в кабинете
+              . Аванс — одобренные заявки за этот месяц.
             </p>
           </div>
         );
@@ -537,16 +568,22 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                 Ставка за смену
               </label>
               <input
+                key={`${selectedMember.id}-${selectedMember.shiftRate || 0}`}
                 type="number"
                 min="0"
                 step="500"
-                value={selectedMember.shiftRate || 0}
-                onChange={(e) => onUpdateStaffMember(selectedMember.id, { shiftRate: Number(e.target.value) || 0 })}
+                inputMode="numeric"
+                defaultValue={selectedMember.shiftRate || ''}
+                placeholder="0"
+                onBlur={(e) => saveMonthRate(selectedMember, Number(e.target.value) || 0)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                }}
                 className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <p className="text-[11px] text-slate-400 mt-1.5">
-                Подставляется в новые смены. Уже отмеченные смены не меняются — их ставка
-                зафиксирована.
+                Видна сотруднику в кабинете. Пересчитывает отмеченные смены за {MONTHS[monthNum - 1].toLowerCase()} и
+                подставляется в новые; прошлые месяцы не меняются.
               </p>
             </div>
           </div>
