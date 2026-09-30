@@ -164,18 +164,36 @@ export const staffFromDb = (r: any) => ({
   // Unverified, captured from Telegram when the person registered or last opened the app.
   // Good enough to send them a notification; never used to decide what they may do.
   telegramUserId: r.telegram_user_id || undefined,
+  photoUrl: r.photo_url || undefined,
+  birthDate: r.birth_date ? String(r.birth_date).slice(0, 10) : undefined,
+  sanbookIssued: r.sanbook_issued ? String(r.sanbook_issued).slice(0, 10) : undefined,
+  sanbookExpires: r.sanbook_expires ? String(r.sanbook_expires).slice(0, 10) : undefined,
 });
-export const staffToDb = (s: any) => ({
-  id: s.id,
-  name: s.name,
-  role: s.role,
-  shop_id: s.shopId,
-  assigned_shop_ids: s.assignedShopIds || null,
-  phone: s.phone || null,
-  position: s.position || null,
-  shift_rate: Number(s.shiftRate) || 0,
-  telegram_user_id: s.telegramUserId || null,
-});
+// The photo/birthday/sanbook columns are written only when the caller actually has a value for
+// them (an empty string clears it) — every other staff write (registration, point or position
+// change, a device reporting its Telegram id) leaves them untouched instead of nulling them.
+const optionalColumn = (v: any) => (v === undefined ? undefined : v || null);
+export const staffToDb = (s: any) => {
+  const row: Record<string, any> = {
+    id: s.id,
+    name: s.name,
+    role: s.role,
+    shop_id: s.shopId,
+    assigned_shop_ids: s.assignedShopIds || null,
+    phone: s.phone || null,
+    position: s.position || null,
+    shift_rate: Number(s.shiftRate) || 0,
+    telegram_user_id: s.telegramUserId || null,
+  };
+  const extra: Record<string, any> = {
+    photo_url: optionalColumn(s.photoUrl),
+    birth_date: optionalColumn(s.birthDate),
+    sanbook_issued: optionalColumn(s.sanbookIssued),
+    sanbook_expires: optionalColumn(s.sanbookExpires),
+  };
+  for (const [k, v] of Object.entries(extra)) if (v !== undefined) row[k] = v;
+  return row;
+};
 
 export const shiftFromDb = (r: any) => ({
   id: r.id,

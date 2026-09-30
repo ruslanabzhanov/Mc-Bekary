@@ -871,6 +871,24 @@ export default function App() {
     }).catch((e) => console.error('Failed to save staff:', e));
   };
 
+  // Employee cabinet photo: goes to Storage server-side, the fresh staff list comes back.
+  const handleUploadStaffPhoto = async (staffId: string, dataUrl: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/staff/${encodeURIComponent(staffId)}/photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataUrl }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.staff)) return false;
+      hydrateStaff(data.staff);
+      return true;
+    } catch (e) {
+      console.error('Failed to upload staff photo:', e);
+      return false;
+    }
+  };
+
   // Personnel: update an existing staff member's point/role
   const handleUpdateStaffMember = (staffId: string, updates: Partial<StaffMember>) => {
     const current = staff.find((s) => s.id === staffId);
@@ -1410,6 +1428,8 @@ export default function App() {
               dishCostings={dishCostings}
               semiFinishedList={semiFinishedList}
               rawMaterials={rawMaterials}
+              onUploadPhoto={handleUploadStaffPhoto}
+              onUpdateStaffMember={isOwnerVerified ? handleUpdateStaffMember : undefined}
             />
           ) : currentRole === 'admin' || currentRole === 'owner' ? (
             <AdminView

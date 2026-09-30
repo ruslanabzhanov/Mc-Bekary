@@ -164,6 +164,12 @@ create table if not exists staff (
   -- registration, or by their own device on startup) — it decides delivery, never permission.
   telegram_user_id text
 );
+-- Employee cabinet: photo (public Storage URL, bucket "staff-photos"), birthday and the
+-- sanitary book's issue/expiry dates.
+alter table staff add column if not exists photo_url text;
+alter table staff add column if not exists birth_date date;
+alter table staff add column if not exists sanbook_issued date;
+alter table staff add column if not exists sanbook_expires date;
 
 -- One row per person per day they actually worked. The timesheet is a record of fact, not
 -- a roster of who was scheduled.

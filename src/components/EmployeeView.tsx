@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, Wallet, ChevronLeft, ChevronRight, BadgeCheck, HandCoins, Clock,
-  CheckCircle2, XCircle, X, Banknote, ClipboardList,
+  CheckCircle2, XCircle, X, Banknote, ClipboardList, Cake, FileHeart, Camera, Loader2, Pencil,
 } from 'lucide-react';
+import { compressImage } from '../utils/compressImage';
+import { formatDateRu, ageOf, sanbookState, SANBOOK_STYLE } from '../utils/staffDocs';
 import {
   StaffMember, Shift, AdvanceRequest, CoffeeShop, Product, ShopOrder, ChecklistAssignments,
   DishCosting, SemiFinishedProduct, RawMaterial,
@@ -27,6 +29,11 @@ interface EmployeeViewProps {
   dishCostings: Record<string, DishCosting>;
   semiFinishedList: SemiFinishedProduct[];
   rawMaterials: RawMaterial[];
+  // Photo upload — the employee for themselves, or the Owner previewing. Resolves false on failure.
+  onUploadPhoto?: (staffId: string, dataUrl: string) => Promise<boolean>;
+  // Only passed for the Owner previewing: birthday and sanitary-book dates are filled in by
+  // management, not by the employee.
+  onUpdateStaffMember?: (staffId: string, updates: Partial<StaffMember>) => void;
 }
 
 // Best-effort guess at which checklist a position mostly cares about — shown first, but the
@@ -86,7 +93,16 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   dishCostings,
   semiFinishedList,
   rawMaterials,
+  onUploadPhoto,
+  onUpdateStaffMember,
 }) => {
+  const [isAdvanceOpen, setIsAdvanceOpen] = useState(false);
+  const [isChecklistPickerOpen, setIsChecklistPickerOpen] = useState(false);
+  const [isDocsOpen, setIsDocsOpen] = useState(false);
+  const [docsDraft, setDocsDraft] = useState({ birthDate: '', sanbookIssued: '', sanbookExpires: '' });
+  const [isPhotoUploading, setIsPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const photoInputRef = React.useRef<HTMLInputElement>(null);
   const [month, setMonth] = useState<string>(() => monthKey(almatyToday()));
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -188,6 +204,34 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   const today = almatyToday();
 
   useTelegramBackButton(isTimesheetOpen, () => setIsTimesheetOpen(false));
+  useTelegramBackButton(isAdvanceOpen, () => setIsAdvanceOpen(false));
+  useTelegramBackButton(isChecklistPickerOpen, () => setIsChecklistPickerOpen(false));
+  useTelegramBackButton(isDocsOpen, () => setIsDocsOpen(false));
+
+  const handlePhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !employee || !onUploadPhoto) return;
+    setPhotoError('');
+    setIsPhotoUploading(true);
+    compressImage(file, 600, 0.85)
+      .then((dataUrl) => onUploadPhoto(employee.id, dataUrl))
+      .then((ok) => {
+        if (!ok) setPhotoError('Не удалось сохранить фото');
+      })
+      .catch(() => setPhotoError('Не удалось обработать фото'))
+      .finally(() => setIsPhotoUploading(false));
+  };
+
+  const openDocs = () => {
+    if (!employee) return;
+    setDocsDraft({
+      birthDate: employee.birthDate || '',
+      sanbookIssued: employee.sanbookIssued || '',
+      sanbookExpires: employee.sanbookExpires || '',
+    });
+    setIsDocsOpen(true);
+  };
 
   if (!employee) {
     return (
@@ -206,17 +250,48 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
 
   return (
     <div className="space-y-5 pb-10">
-      {/* Who this is */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-        <div className="flex items-start gap-3">
-          <div className="w-11 h-11 shrink-0 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 flex items-center justify-center">
-            <BadgeCheck className="w-5 h-5" />
-          </div>
+      {/* Who this is: photo on the left, name beside it */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            id="btn-employee-photo"
+            onClick={() => onUploadPhoto && photoInputRef.current?.click()}
+            disabled={!onUploadPhoto || isPhotoUploading}
+            title={onUploadPhoto ? 'Сменить фото' : undefined}
+            className="relative w-24 h-28 shrink-0 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center group disabled:cursor-default"
+          >
+            {employee.photoUrl ? (
+              <img src={employee.photoUrl} alt={employee.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-3xl font-black text-slate-300">
+                {employee.name.trim().charAt(0).toUpperCase()}
+              </span>
+            )}
+            {onUploadPhoto && (
+              <span
+                className={`absolute inset-x-0 bottom-0 py-1 flex items-center justify-center gap-1 text-[10px] font-bold text-white bg-slate-900/60 ${
+                  employee.photoUrl && !isPhotoUploading ? 'opacity-0 group-hover:opacity-100' : ''
+                } transition-opacity`}
+              >
+                {isPhotoUploading ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <>
+                    <Camera className="w-3 h-3" /> {employee.photoUrl ? 'Сменить' : 'Добавить фото'}
+                  </>
+                )}
+              </span>
+            )}
+          </button>
+          <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelected} />
           <div className="min-w-0">
             <h2 className="text-lg font-extrabold text-slate-900 leading-tight">{employee.name}</h2>
             <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mt-1">
               {employee.position || 'Сотрудник цеха'}
             </p>
+            {employee.phone && <p className="text-xs text-slate-500 mt-1.5">{employee.phone}</p>}
+            {photoError && <p className="text-xs text-rose-600 mt-1.5">{photoError}</p>}
           </div>
         </div>
 
@@ -240,65 +315,197 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         )}
       </div>
 
-      {/* Табель — a tile, not the report itself; tapping it opens the calendar below. */}
-      <button
-        id="btn-open-my-timesheet"
-        onClick={() => setIsTimesheetOpen(true)}
-        className="w-full bg-white rounded-2xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40 transition-all shadow-xs p-4 flex items-center justify-between gap-3"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-11 h-11 shrink-0 rounded-xl bg-teal-50 border border-teal-100 text-teal-700 flex items-center justify-center">
-            <CalendarDays className="w-5 h-5" />
-          </div>
-          <div className="min-w-0 text-left">
-            <p className="text-sm font-black text-slate-900">Табель</p>
-            <p className="text-xs text-slate-500 truncate">
-              {isLoading ? 'Загружаем…' : `${shiftCount} ${shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен'} · ${formatMoney(earned)}`}
-            </p>
-          </div>
-        </div>
-        <ChevronRight className="w-5 h-5 text-slate-300 shrink-0" />
-      </button>
-
-      {/* Чек-листы — read-only: no settings gear, can't change what's assigned (see
-          onUpdateChecklistAssignments left unset below). */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <button
-          id="btn-open-my-checklist"
-          onClick={() => setIsChecklistOpen(true)}
-          className="w-full p-4 flex items-center justify-between gap-3 hover:bg-indigo-50/40 transition-all"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 shrink-0 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 flex items-center justify-center">
-              <ClipboardList className="w-5 h-5" />
+      {/* Small tiles: facts at a glance, and each opens its own screen. */}
+      {(() => {
+        const sb = sanbookState(employee.sanbookExpires);
+        const sbStyle = SANBOOK_STYLE[sb.state];
+        const age = ageOf(employee.birthDate);
+        const shiftsWord = shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен';
+        const tileBase =
+          'min-h-[104px] rounded-2xl border p-3 shadow-xs flex flex-col items-start text-left gap-1 transition-all';
+        const clickable = 'hover:border-indigo-300 hover:bg-indigo-50/40 active:scale-[0.98]';
+        const Label = ({ children }: { children: React.ReactNode }) => (
+          <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 leading-tight">{children}</span>
+        );
+        return (
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className={`${tileBase} bg-white border-slate-200`}>
+              <BadgeCheck className="w-5 h-5 text-indigo-600" />
+              <Label>Должность</Label>
+              <span className="text-xs font-extrabold text-slate-900 leading-tight">
+                {employee.position || 'Сотрудник цеха'}
+              </span>
             </div>
-            <div className="min-w-0 text-left">
-              <p className="text-sm font-black text-slate-900">Чек-листы</p>
-              <p className="text-xs text-slate-500 truncate">
-                {DEPARTMENT_CONFIG[checklistDept].icon} {DEPARTMENT_CONFIG[checklistDept].shortTitle}
-              </p>
-            </div>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-300 shrink-0" />
-        </button>
 
-        <div className="px-4 pb-3.5 pt-1 flex items-center gap-1.5 overflow-x-auto">
-          {CHECKLIST_DEPT_ORDER.map((key) => (
             <button
-              key={key}
-              onClick={() => setChecklistDept(key)}
-              title={DEPARTMENT_CONFIG[key].shortTitle}
-              className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-base border transition-colors ${
-                checklistDept === key
-                  ? 'bg-indigo-600 border-indigo-600'
-                  : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
-              }`}
+              id="tile-birthday"
+              onClick={onUpdateStaffMember ? openDocs : undefined}
+              disabled={!onUpdateStaffMember}
+              className={`${tileBase} bg-white border-slate-200 ${onUpdateStaffMember ? clickable : 'cursor-default'}`}
             >
-              {DEPARTMENT_CONFIG[key].icon}
+              <Cake className="w-5 h-5 text-pink-600" />
+              <Label>Дата рождения</Label>
+              <span className="text-xs font-extrabold text-slate-900 leading-tight tabular-nums">
+                {formatDateRu(employee.birthDate)}
+              </span>
+              {age != null && <span className="text-[10px] text-slate-500">{age} лет</span>}
             </button>
-          ))}
+
+            <button
+              id="tile-sanbook"
+              onClick={openDocs}
+              className={`${tileBase} ${sbStyle.tile} ${clickable}`}
+            >
+              <FileHeart className={`w-5 h-5 ${sbStyle.text}`} />
+              <Label>Санкнижка</Label>
+              <span className={`text-xs font-extrabold leading-tight tabular-nums ${sb.state === 'missing' ? 'text-slate-400' : 'text-slate-900'}`}>
+                {employee.sanbookExpires ? `до ${formatDateRu(employee.sanbookExpires)}` : 'не указана'}
+              </span>
+              {sb.state !== 'missing' && sb.state !== 'ok' && (
+                <span className={`text-[10px] font-bold ${sbStyle.text}`}>{sbStyle.label}</span>
+              )}
+            </button>
+
+            <button
+              id="btn-open-my-timesheet"
+              onClick={() => setIsTimesheetOpen(true)}
+              className={`${tileBase} bg-white border-slate-200 ${clickable}`}
+            >
+              <CalendarDays className="w-5 h-5 text-teal-600" />
+              <Label>Табель</Label>
+              <span className="text-xs font-extrabold text-slate-900 leading-tight">
+                {isLoading ? '…' : `${shiftCount} ${shiftsWord}`}
+              </span>
+              {!isLoading && <span className="text-[10px] text-slate-500 tabular-nums">{formatMoney(earned)}</span>}
+            </button>
+
+            <button
+              id="btn-open-my-advances"
+              onClick={() => setIsAdvanceOpen(true)}
+              className={`${tileBase} ${pendingAdvance ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'} ${clickable}`}
+            >
+              <HandCoins className="w-5 h-5 text-amber-600" />
+              <Label>Авансы</Label>
+              <span className="text-xs font-extrabold text-slate-900 leading-tight">
+                {pendingAdvance
+                  ? 'на рассмотрении'
+                  : advanceTakenThisMonth > 0
+                  ? formatMoney(advanceTakenThisMonth)
+                  : 'запросить'}
+              </span>
+            </button>
+
+            <button
+              id="btn-open-my-checklist"
+              onClick={() => setIsChecklistPickerOpen(true)}
+              className={`${tileBase} bg-white border-slate-200 ${clickable}`}
+            >
+              <ClipboardList className="w-5 h-5 text-indigo-600" />
+              <Label>Чек-листы</Label>
+              <span className="text-xs font-extrabold text-slate-900 leading-tight">
+                {DEPARTMENT_CONFIG[checklistDept].icon} {DEPARTMENT_CONFIG[checklistDept].shortTitle.replace('Чек-лист ', '')}
+              </span>
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* Which checklist to open */}
+      {isChecklistPickerOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => setIsChecklistPickerOpen(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-4 space-y-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Чек-листы</h3>
+              <button onClick={() => setIsChecklistPickerOpen(false)} className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {CHECKLIST_DEPT_ORDER.map((key) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setChecklistDept(key);
+                    setIsChecklistPickerOpen(false);
+                    setIsChecklistOpen(true);
+                  }}
+                  className={`min-h-[64px] rounded-xl border p-2.5 flex items-center gap-2 text-left transition-colors ${
+                    checklistDept === key ? 'bg-indigo-50 border-indigo-300' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="text-xl shrink-0">{DEPARTMENT_CONFIG[key].icon}</span>
+                  <span className="text-xs font-bold text-slate-800 leading-tight">
+                    {DEPARTMENT_CONFIG[key].shortTitle.replace('Чек-лист ', '')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Birthday + sanitary book: details for everyone, editable only by management */}
+      {isDocsOpen && (() => {
+        const sb = sanbookState(employee.sanbookExpires);
+        const sbStyle = SANBOOK_STYLE[sb.state];
+        const canEdit = !!onUpdateStaffMember;
+        const dateInput = (key: keyof typeof docsDraft, label: string) => (
+          <label className="block">
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">{label}</span>
+            <input
+              type="date"
+              value={docsDraft[key]}
+              onChange={(e) => setDocsDraft((d) => ({ ...d, [key]: e.target.value }))}
+              className="w-full px-3 min-h-[44px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </label>
+        );
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => setIsDocsOpen(false)}>
+            <div id="employee-docs-dialog" className="bg-white rounded-2xl w-full max-w-sm p-4 space-y-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Документы</h3>
+                <button onClick={() => setIsDocsOpen(false)} className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {canEdit ? (
+                <>
+                  {dateInput('birthDate', 'Дата рождения')}
+                  {dateInput('sanbookIssued', 'Санкнижка выдана')}
+                  {dateInput('sanbookExpires', 'Санкнижка действительна до')}
+                  <button
+                    id="btn-save-employee-docs"
+                    onClick={() => {
+                      onUpdateStaffMember!(employee.id, {
+                        birthDate: docsDraft.birthDate,
+                        sanbookIssued: docsDraft.sanbookIssued,
+                        sanbookExpires: docsDraft.sanbookExpires,
+                      });
+                      setIsDocsOpen(false);
+                    }}
+                    className="w-full min-h-[48px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl flex items-center justify-center gap-2"
+                  >
+                    <Pencil className="w-4 h-4" /> Сохранить
+                  </button>
+                </>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between gap-3"><span className="text-slate-500">Дата рождения</span><b className="tabular-nums">{formatDateRu(employee.birthDate)}</b></div>
+                  <div className="flex justify-between gap-3"><span className="text-slate-500">Санкнижка выдана</span><b className="tabular-nums">{formatDateRu(employee.sanbookIssued)}</b></div>
+                  <div className="flex justify-between gap-3"><span className="text-slate-500">Действительна до</span><b className="tabular-nums">{formatDateRu(employee.sanbookExpires)}</b></div>
+                  <div className={`rounded-xl border px-3 py-2 text-xs font-bold ${sbStyle.tile} ${sbStyle.text}`}>
+                    Санкнижка: {sbStyle.label}
+                    {sb.state === 'soon' && sb.daysLeft != null && ` — осталось ${sb.daysLeft} дн.`}
+                  </div>
+                  <p className="text-[11px] text-slate-400">Даты заполняет управляющий. Если что-то не так — скажите ему.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       <PrintChecklistsModal
         isOpen={isChecklistOpen}
@@ -314,16 +521,41 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         rawMaterials={rawMaterials}
       />
 
-      {/* Advance request — only for a real employee looking at their own cabinet, not the
-          Owner previewing someone else's (see allEmployees on the props). */}
-      {!allEmployees && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
-          <div className="flex items-center gap-1.5 text-slate-700 mb-3">
-            <HandCoins className="w-4 h-4" />
-            <h3 className="text-xs font-black uppercase tracking-wider">Аванс</h3>
+      {/* Авансы — opened from the tile. Requesting one is only for a real employee in their own
+          cabinet; the Owner previewing someone else's just sees that person's history. */}
+      {isAdvanceOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => setIsAdvanceOpen(false)}>
+        <div id="employee-advance-dialog" className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5 text-slate-700">
+              <HandCoins className="w-4 h-4" />
+              <h3 className="text-xs font-black uppercase tracking-wider">Авансы</h3>
+            </div>
+            <button onClick={() => setIsAdvanceOpen(false)} className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400">
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
-          {pendingAdvance ? (
+          {allEmployees ? (
+            myAdvanceRequests.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-6">Заявок на аванс не было</p>
+            ) : (
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                {myAdvanceRequests.map((r) => (
+                  <div key={r.id} className="px-3 py-2.5 flex items-center justify-between gap-2 text-sm">
+                    <span className="font-bold text-slate-900 tabular-nums">{formatMoney(r.amount)}</span>
+                    <span
+                      className={`text-xs font-bold ${
+                        r.status === 'approved' ? 'text-emerald-700' : r.status === 'rejected' ? 'text-rose-700' : 'text-amber-700'
+                      }`}
+                    >
+                      {r.status === 'approved' ? 'одобрен' : r.status === 'rejected' ? 'отклонён' : 'на рассмотрении'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : pendingAdvance ? (
             <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-sm">
               <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div>
@@ -373,7 +605,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
             </form>
           )}
 
-          {!pendingAdvance && lastDecidedAdvance && (
+          {!allEmployees && !pendingAdvance && lastDecidedAdvance && (
             <div
               className={`mt-3 flex items-center gap-2 text-xs rounded-lg px-3 py-2 ${
                 lastDecidedAdvance.status === 'approved'
@@ -393,10 +625,11 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
             </div>
           )}
         </div>
+        </div>
       )}
 
       <p className="text-xs text-slate-400 text-center px-4">
-        Табель ведёт управляющий. Если в нём чего-то не хватает — скажите ему.
+        Табель и документы ведёт управляющий. Если чего-то не хватает — скажите ему.
       </p>
 
       {/* TIMESHEET FULLSCREEN WINDOW */}

@@ -1122,6 +1122,46 @@ export function createApiApp() {
     }
   });
 
+  // Employee photo for their cabinet: uploaded to Storage, only the short URL goes into staff —
+  // same reason as product photos (base64 in a row gets re-sent with every staff read). The file
+  // name carries a timestamp so the URL isn't guessable from the staff id alone and a new photo
+  // never shows a device's cached old one.
+  const STAFF_PHOTOS_BUCKET = 'staff-photos';
+  app.post('/api/staff/:id/photo', async (req, res) => {
+    try {
+      const staffId = String(req.params.id);
+      const match = /^data:([^;]+);base64,(.+)$/s.exec(String(req.body?.dataUrl || ''));
+      if (!match) return res.status(400).json({ error: 'dataUrl must be a base64 data URL' });
+      const mime = match[1];
+      const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+      const path = `${staffId}-${Date.now()}.${ext}`;
+
+      const { data: existing, error: findError } = await supabase.from('staff').select('photo_url').eq('id', staffId).maybeSingle();
+      if (findError) throw findError;
+      if (!existing) return res.status(404).json({ error: 'Сотрудник не найден' });
+
+      const { error: uploadError } = await supabase.storage
+        .from(STAFF_PHOTOS_BUCKET)
+        .upload(path, Buffer.from(match[2], 'base64'), { contentType: mime, cacheControl: '31536000' });
+      if (uploadError) throw uploadError;
+      const { data: pub } = supabase.storage.from(STAFF_PHOTOS_BUCKET).getPublicUrl(path);
+
+      const { error: updateError } = await supabase.from('staff').update({ photo_url: pub.publicUrl }).eq('id', staffId);
+      if (updateError) throw updateError;
+
+      // The previous file is now unreferenced — best effort, a leftover file harms nothing.
+      const oldPath = String(existing.photo_url || '').split(`/${STAFF_PHOTOS_BUCKET}/`)[1];
+      if (oldPath) supabase.storage.from(STAFF_PHOTOS_BUCKET).remove([oldPath]).catch(() => {});
+
+      const { data, error: readError } = await supabase.from('staff').select('*');
+      if (readError) throw readError;
+      res.json({ success: true, photoUrl: pub.publicUrl, staff: (data || []).map(staffFromDb) });
+    } catch (e) {
+      console.error('Failed to save staff photo:', e);
+      res.status(500).json({ error: 'Не удалось сохранить фото' });
+    }
+  });
+
   // Add or change specific people without touching anyone else. Takes one member or several
   // (reassigning a point's territorial manager moves it between two records at once).
   app.post('/api/staff/upsert', async (req, res) => {

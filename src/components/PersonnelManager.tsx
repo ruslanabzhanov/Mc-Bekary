@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   CoffeeShop, StaffMember, StaffRole, RegistrationRequest, POSITION_OPTIONS, positionValueOf,
 } from '../types';
+import { sanbookState, SANBOOK_STYLE } from '../utils/staffDocs';
 import { UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle, Search, Trash2 } from 'lucide-react';
 
 interface PersonnelManagerProps {
@@ -198,9 +199,18 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
               {filteredMembers.map((member) => (
                 <div key={member.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-900 text-sm truncate">{member.name}</div>
-                      {member.phone && <div className="text-[11px] text-slate-500">{member.phone}</div>}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-10 h-10 shrink-0 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center">
+                        {member.photoUrl ? (
+                          <img src={member.photoUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-sm font-black text-slate-300">{member.name.trim().charAt(0).toUpperCase()}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-900 text-sm truncate">{member.name}</div>
+                        {member.phone && <div className="text-[11px] text-slate-500">{member.phone}</div>}
+                      </div>
                     </div>
                     <button
                       onClick={() => handleDeleteMember(member)}
@@ -251,6 +261,30 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                       </select>
                     </div>
                   </div>
+
+                  {/* Документы: день рождения и санкнижка — видны сотруднику в его кабинете */}
+                  {(() => {
+                    const sb = sanbookState(member.sanbookExpires);
+                    const sbStyle = SANBOOK_STYLE[sb.state];
+                    const dateField = (key: 'birthDate' | 'sanbookIssued' | 'sanbookExpires', label: string, extra = '') => (
+                      <div className={`border rounded-lg p-2 ${extra || 'bg-slate-50 border-slate-200'}`}>
+                        <span className="text-[8px] font-black uppercase text-slate-400 block mb-0.5">{label}</span>
+                        <input
+                          type="date"
+                          value={member[key] || ''}
+                          onChange={(e) => onUpdateStaffMember(member.id, { [key]: e.target.value })}
+                          className="w-full bg-transparent font-bold text-indigo-900 text-[11px] min-h-[28px] focus:outline-none"
+                        />
+                      </div>
+                    );
+                    return (
+                      <div className="grid grid-cols-3 gap-2">
+                        {dateField('birthDate', 'Дата рождения')}
+                        {dateField('sanbookIssued', 'Санкнижка с')}
+                        {dateField('sanbookExpires', `Санкн. до${sb.state === 'expired' ? ' ⚠' : ''}`, sb.state === 'missing' ? '' : sbStyle.tile)}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

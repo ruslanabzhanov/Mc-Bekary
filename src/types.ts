@@ -184,6 +184,10 @@ export interface StaffMember {
   position?: string; // job title, only meaningful for role 'employee' — see EMPLOYEE_POSITIONS
   shiftRate?: number; // current pay per shift; the default copied onto a new Shift, see below
   telegramUserId?: string; // for notifications only — unverified, never an authorization input
+  photoUrl?: string; // public Supabase Storage URL, see POST /api/staff/:id/photo
+  birthDate?: string; // YYYY-MM-DD
+  sanbookIssued?: string; // санитарная книжка: выдана, YYYY-MM-DD
+  sanbookExpires?: string; // санитарная книжка: действительна до, YYYY-MM-DD
 }
 
 // One recorded day of work. `rate` is frozen at the moment the shift is entered rather than
