@@ -607,8 +607,8 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
               </button>
             </div>
 
-            {!allEmployees &&
-              (pendingAdvance ? (
+            {/* Advances are against the current month's shifts, so the tile names that month. */}
+            {pendingAdvance ? (
                 <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 text-sm">
                   <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div>
@@ -627,11 +627,14 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
                 >
                   <Banknote className="w-6 h-6" />
                   <span className="text-left">
-                    <span className="block text-sm font-black uppercase tracking-wider">Подать аванс</span>
-                    <span className="block text-[11px] opacity-80">до 70% от заработанного в этом месяце</span>
+                    <span className="block text-sm font-black uppercase tracking-wider">Запросить аванс</span>
+                    <span className="block text-[11px] opacity-90">
+                      за {MONTHS[Number(almatyToday().slice(5, 7)) - 1].toLowerCase()} {almatyToday().slice(0, 4)} · до 70% от
+                      заработанного
+                    </span>
                   </span>
                 </button>
-              ))}
+              )}
 
             {advanceSent && (
               <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 text-xs text-emerald-800">
