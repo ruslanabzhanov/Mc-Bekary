@@ -83,13 +83,12 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
 }) => {
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   // Какой раздел точки открыт: null — меню из трёх плиток.
-  const [shopPanel, setShopPanel] = useState<'staff' | 'orders' | null>(null);
+  const [shopPanel, setShopPanel] = useState<'staff' | 'orders' | 'analytics' | null>(null);
   const selectedShop = shops.find((s) => s.id === selectedShopId) || null;
 
   // Which shop's order this territorial manager is currently filling in on that shop's behalf
   const [orderingShopId, setOrderingShopId] = useState<number | null>(null);
   const [isOrderPreviewOpen, setIsOrderPreviewOpen] = useState(false);
-  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const orderingShop = shops.find((s) => s.id === orderingShopId) || null;
   const orderingOrder = orderingShopId != null ? orders[orderingShopId] || emptyDraftOrder(orderingShopId) : null;
 
@@ -97,7 +96,6 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   // then closes the shop detail itself; the ordering screen is a separate, later-opened layer.
   useTelegramBackButton(!!selectedShop, () => (shopPanel ? setShopPanel(null) : setSelectedShopId(null)));
   useTelegramBackButton(orderingShopId !== null, () => setOrderingShopId(null));
-  useTelegramBackButton(isAnalyticsOpen, () => setIsAnalyticsOpen(false));
 
   const getShopManagers = (shop: CoffeeShop) =>
     staff.filter((s) => s.role === 'shop_manager' && s.shopId === shop.id);
@@ -123,14 +121,6 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
         <p className="text-xs text-slate-500 mt-1">
           {managerName} · Точки под управлением: {shops.length}
         </p>
-
-        <button
-          id="btn-open-territorial-analytics"
-          onClick={() => setIsAnalyticsOpen(true)}
-          className="mt-4 w-full min-h-[48px] flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-sm uppercase tracking-wider rounded-xl transition-all"
-        >
-          <BarChart3 className="w-4 h-4" /> Аналитика по участку
-        </button>
 
         {allManagers && onPickManager && (
           <div className="mt-4 pt-4 border-t border-slate-100">
@@ -268,6 +258,19 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                     <span className="text-[11px] text-slate-500 mt-1">только просмотр</span>
                   </button>
 
+                  {/* Аналитика только этой точки — общего экрана по участку больше нет */}
+                  <button
+                    id="btn-open-shop-analytics"
+                    onClick={() => setShopPanel('analytics')}
+                    className="col-span-2 bg-slate-50 hover:bg-indigo-50/60 active:bg-indigo-100 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all flex items-center justify-center gap-3 min-h-[72px]"
+                  >
+                    <BarChart3 className="w-6 h-6 text-slate-900" />
+                    <span className="text-left">
+                      <span className="block text-[10px] font-black uppercase text-indigo-700 tracking-widest">Аналитика</span>
+                      <span className="block text-[11px] text-slate-500">заявки, суммы и топ блюд этой точки</span>
+                    </span>
+                  </button>
+
                   <button
                     onClick={() => {
                       setOrderingShopId(selectedShop.id);
@@ -368,6 +371,13 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                 </div>
               </>
             )}
+
+            {shopPanel === 'analytics' && (
+              <>
+                <h4 className="text-sm font-extrabold text-slate-900 mb-4">Аналитика точки</h4>
+                <AnalyticsView shops={[selectedShop]} />
+              </>
+            )}
           </div>
         </div>
       )}
@@ -422,26 +432,6 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
         </div>
       )}
 
-      {isAnalyticsOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-50 overflow-y-auto">
-          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
-            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
-              <BarChart3 className="w-5 h-5 text-indigo-600" />
-              <span>Аналитика · ваш участок</span>
-            </h2>
-            <button
-              onClick={() => setIsAnalyticsOpen(false)}
-              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
-            <AnalyticsView shops={shops} />
-          </div>
-        </div>
-      )}
     </div>
   );
 };
