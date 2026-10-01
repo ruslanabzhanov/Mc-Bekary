@@ -32,7 +32,8 @@ export const PrintTimesheetModal: React.FC<PrintTimesheetModalProps> = ({
 
   const dayCount = daysInMonth(month);
   const days = Array.from({ length: dayCount }, (_, i) => i + 1);
-  const rows = [...employees].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  // Same order as the on-screen timesheet (its saved row order and departments).
+  const rows = employees;
 
   const shiftsOf = (staffId: string) => shifts.filter((s) => s.staffId === staffId);
   const shiftAt = (staffId: string, day: number) => {

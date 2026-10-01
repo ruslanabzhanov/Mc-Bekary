@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Users, Check, X, Wallet, Printer, History, Table2 } from 'lucide-react';
+import {
+  ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, Users, Check, X, Wallet, Printer, History, Table2,
+  ListOrdered, Plus, Trash2,
+} from 'lucide-react';
 import { StaffMember, Shift, AdvanceRequest } from '../types';
 import { PrintTimesheetModal } from './PrintTimesheetModal';
 
@@ -22,6 +25,51 @@ const GRID_GROUPS: { label: string; positions: string[] }[] = [
     positions: ['Заготовщик бара', 'Заготовщик кухни', 'Ночной заготовщик кухни', 'Заготовщик полуфабрикатов'],
   },
 ];
+
+// Saved row order and departments of the grid (app_settings → timesheet_layout). Display only:
+// shifts, rates and advances belong to the person, so moving rows never changes any money.
+interface LayoutGroup {
+  id: string;
+  label: string;
+  staffIds: string[];
+}
+
+const OTHER_LABEL = 'Прочие';
+const defaultGroupLabel = (m: StaffMember) =>
+  GRID_GROUPS.find((g) => m.position && g.positions.includes(m.position))?.label || OTHER_LABEL;
+
+// Groups with their people in display order. Without a saved layout — by position, as before.
+// Anyone not placed in the saved layout (a new hire) lands in the group of their position if it
+// exists, otherwise in «Прочие», so nobody ever drops off the timesheet.
+const buildGroups = (employees: StaffMember[], layout: LayoutGroup[] | null): LayoutGroup[] => {
+  const groups: LayoutGroup[] = layout
+    ? layout.map((g) => ({ id: g.id, label: g.label, staffIds: [] as string[] }))
+    : GRID_GROUPS.map((g, i) => ({ id: `default-${i}`, label: g.label, staffIds: [] as string[] }));
+  const byId = new Map(employees.map((m) => [m.id, m]));
+  const placed = new Set<string>();
+  if (layout) {
+    layout.forEach((g, i) => {
+      (g.staffIds || []).forEach((id) => {
+        if (byId.has(id) && !placed.has(id)) {
+          groups[i].staffIds.push(id);
+          placed.add(id);
+        }
+      });
+    });
+  }
+  employees
+    .filter((m) => !placed.has(m.id))
+    .forEach((m) => {
+      const label = defaultGroupLabel(m);
+      let g = groups.find((x) => x.label === label);
+      if (!g) {
+        g = { id: `default-${label}`, label, staffIds: [] };
+        groups.push(g);
+      }
+      g.staffIds.push(m.id);
+    });
+  return groups;
+};
 
 interface ShiftChangeEntry {
   id: number;
@@ -73,6 +121,11 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [logEntries, setLogEntries] = useState<ShiftChangeEntry[]>([]);
   const [isLogLoading, setIsLogLoading] = useState(false);
+  const [layout, setLayout] = useState<LayoutGroup[] | null>(null);
+  const [draft, setDraft] = useState<LayoutGroup[] | null>(null);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [isLayoutSaving, setIsLayoutSaving] = useState(false);
+  const [isLayoutLoaded, setIsLayoutLoaded] = useState(false);
 
   // Only internal employees are on the timesheet — point managers and territorial managers
   // are not paid per shift through this screen.
@@ -80,6 +133,108 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
     () => staff.filter((s) => s.role === 'employee').sort((a, b) => a.name.localeCompare(b.name, 'ru')),
     [staff]
   );
+
+  useEffect(() => {
+    fetch('/api/settings/timesheet-layout')
+      .then((r) => r.json())
+      .then((data) => setLayout(Array.isArray(data?.layout?.groups) ? data.layout.groups : null))
+      .catch((e) => console.error('Failed to load timesheet layout:', e))
+      .finally(() => setIsLayoutLoaded(true));
+  }, []);
+
+  const groups = useMemo(() => buildGroups(employees, layout), [employees, layout]);
+  const employeeById = useMemo(() => new Map(employees.map((m) => [m.id, m])), [employees]);
+  // One order everywhere on this screen: grid, «По дню», the person picker and print.
+  const orderedEmployees = useMemo(
+    () => groups.flatMap((g) => g.staffIds.map((id) => employeeById.get(id)).filter((m): m is StaffMember => !!m)),
+    [groups, employeeById]
+  );
+
+  // ---- Layout editor: a draft until «Сохранить» ----
+  const openLayoutEditor = () => {
+    setDraft(groups.map((g) => ({ ...g, staffIds: [...g.staffIds] })));
+    setNewGroupName('');
+  };
+  const swap = <T,>(arr: T[], i: number, j: number) => {
+    const next = [...arr];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  };
+  const moveGroup = (gi: number, delta: number) =>
+    setDraft((d) => (d && gi + delta >= 0 && gi + delta < d.length ? swap(d, gi, gi + delta) : d));
+  const moveMember = (gi: number, mi: number, delta: number) =>
+    setDraft((d) => {
+      if (!d) return d;
+      const ids = d[gi].staffIds;
+      if (mi + delta < 0 || mi + delta >= ids.length) return d;
+      return d.map((g, i) => (i === gi ? { ...g, staffIds: swap(ids, mi, mi + delta) } : g));
+    });
+  const moveMemberToGroup = (gi: number, staffId: string, targetId: string) =>
+    setDraft((d) =>
+      d
+        ? d.map((g, i) =>
+            i === gi
+              ? { ...g, staffIds: g.staffIds.filter((id) => id !== staffId) }
+              : g.id === targetId
+              ? { ...g, staffIds: [...g.staffIds, staffId] }
+              : g
+          )
+        : d
+    );
+  const renameGroup = (gi: number, label: string) =>
+    setDraft((d) => (d ? d.map((g, i) => (i === gi ? { ...g, label } : g)) : d));
+  const addGroup = () => {
+    const label = newGroupName.trim();
+    if (!label) return;
+    setDraft((d) => (d ? [...d, { id: `grp-${Date.now()}`, label, staffIds: [] }] : d));
+    setNewGroupName('');
+  };
+  // People of a deleted department aren't lost — they move to the first remaining one.
+  const deleteGroup = (gi: number) =>
+    setDraft((d) => {
+      if (!d || d.length <= 1) return d;
+      const moved = d[gi].staffIds;
+      const rest = d.filter((_, i) => i !== gi);
+      rest[0] = { ...rest[0], staffIds: [...rest[0].staffIds, ...moved] };
+      return rest;
+    });
+  const saveLayout = async () => {
+    if (!draft) return;
+    if (draft.some((g) => !g.label.trim())) {
+      setError('У каждого подразделения должно быть название.');
+      return;
+    }
+    setIsLayoutSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/settings/timesheet-layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // Only people who are on the timesheet right now — never ids from a stale list.
+        body: JSON.stringify({
+          layout: {
+            groups: draft.map((g) => ({
+              ...g,
+              label: g.label.trim(),
+              staffIds: g.staffIds.filter((id) => employeeById.has(id)),
+            })),
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error || 'Не удалось сохранить. Попробуйте ещё раз.');
+        return;
+      }
+      setLayout(data.layout.groups);
+      setDraft(null);
+    } catch (e) {
+      console.error('Timesheet layout save failed:', e);
+      setError('Нет связи с сервером.');
+    } finally {
+      setIsLayoutSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedStaffId && employees.length > 0) setSelectedStaffId(employees[0].id);
@@ -234,15 +389,15 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       return { member: m, byDay: mine, days: mine.size, earned, advance, payout: earned - advance };
     };
 
-    const used = new Set<string>();
-    const groups = GRID_GROUPS.map((g) => {
-      const people = employees.filter((m) => m.position && g.positions.includes(m.position));
-      people.forEach((m) => used.add(m.id));
-      return { label: g.label, rows: people.map(row) };
-    });
-    const rest = employees.filter((m) => !used.has(m.id));
-    if (rest.length > 0) groups.push({ label: 'Прочие', rows: rest.map(row) });
     return groups
+      .map((g) => ({
+        id: g.id,
+        label: g.label,
+        rows: g.staffIds
+          .map((id) => employeeById.get(id))
+          .filter((m): m is StaffMember => !!m)
+          .map(row),
+      }))
       .filter((g) => g.rows.length > 0)
       .map((g) => ({
         ...g,
@@ -250,7 +405,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
         advance: g.rows.reduce((n, r) => n + r.advance, 0),
         payout: g.rows.reduce((n, r) => n + r.payout, 0),
       }));
-  }, [shifts, employees, advanceRequests, month]);
+  }, [shifts, groups, employeeById, advanceRequests, month]);
   const gridTotals = gridRows.reduce(
     (t, g) => ({ earned: t.earned + g.earned, advance: t.advance + g.advance, payout: t.payout + g.payout }),
     { earned: 0, advance: 0, payout: 0 }
@@ -341,7 +496,162 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       {isLoading && <p className="text-center text-sm text-slate-400 py-2">Загружаем табель…</p>}
 
       {/* ---- Grid mode: the whole month for everyone, laid out like the paper timesheet ---- */}
-      {mode === 'grid' && (() => {
+      {mode === 'grid' && !draft && (
+        <button
+          id="btn-timesheet-layout"
+          onClick={openLayoutEditor}
+          disabled={!isLayoutLoaded}
+          className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2"
+        >
+          <ListOrdered className="w-4 h-4" />
+          Порядок строк и подразделения
+        </button>
+      )}
+
+      {mode === 'grid' && draft && (
+        <div id="timesheet-layout-editor" className="bg-white rounded-2xl border border-slate-200 p-3 space-y-3">
+          <div>
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Порядок строк и подразделения</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Стрелками меняйте порядок, в списке справа — переносите человека в другое подразделение. Смены и
+              суммы при этом не меняются.
+            </p>
+          </div>
+
+          {draft.map((g, gi) => (
+            <div key={g.id} className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="flex items-center gap-1.5 bg-sky-100 px-2 py-1.5">
+                <input
+                  value={g.label}
+                  onChange={(e) => renameGroup(gi, e.target.value)}
+                  className="flex-1 min-w-0 h-9 px-2 rounded-lg border border-sky-200 bg-white text-sm font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  aria-label="Название подразделения"
+                />
+                <button
+                  onClick={() => moveGroup(gi, -1)}
+                  disabled={gi === 0}
+                  className="w-9 h-9 shrink-0 rounded-lg bg-white border border-sky-200 text-slate-600 disabled:opacity-30 flex items-center justify-center"
+                  aria-label="Подразделение выше"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => moveGroup(gi, 1)}
+                  disabled={gi === draft.length - 1}
+                  className="w-9 h-9 shrink-0 rounded-lg bg-white border border-sky-200 text-slate-600 disabled:opacity-30 flex items-center justify-center"
+                  aria-label="Подразделение ниже"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    if (
+                      g.staffIds.length === 0 ||
+                      window.confirm(`Удалить «${g.label}»? Сотрудники перейдут в «${draft[gi === 0 ? 1 : 0]?.label}».`)
+                    )
+                      deleteGroup(gi);
+                  }}
+                  disabled={draft.length <= 1}
+                  className="w-9 h-9 shrink-0 rounded-lg bg-white border border-sky-200 text-rose-500 disabled:opacity-30 flex items-center justify-center"
+                  aria-label="Удалить подразделение"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+              {g.staffIds.length === 0 ? (
+                <p className="px-3 py-3 text-xs text-slate-400 italic">Пусто — перенесите сюда сотрудников</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {g.staffIds.map((id, mi) => {
+                    const m = employeeById.get(id);
+                    if (!m) return null;
+                    return (
+                      <div key={id} className="flex items-center gap-1.5 px-2 py-1.5">
+                        <div className="flex flex-col gap-0.5 shrink-0">
+                          <button
+                            onClick={() => moveMember(gi, mi, -1)}
+                            disabled={mi === 0}
+                            className="w-9 h-7 rounded-md bg-slate-50 border border-slate-200 text-slate-600 disabled:opacity-30 flex items-center justify-center"
+                            aria-label="Выше"
+                          >
+                            <ChevronUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => moveMember(gi, mi, 1)}
+                            disabled={mi === g.staffIds.length - 1}
+                            className="w-9 h-7 rounded-md bg-slate-50 border border-slate-200 text-slate-600 disabled:opacity-30 flex items-center justify-center"
+                            aria-label="Ниже"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-slate-900 truncate">{m.name}</p>
+                          <p className="text-[11px] text-slate-500 truncate">{m.position || 'Внутренний сотрудник'}</p>
+                        </div>
+                        <select
+                          value={g.id}
+                          onChange={(e) => moveMemberToGroup(gi, id, e.target.value)}
+                          className="w-32 shrink-0 h-9 px-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          aria-label="Подразделение"
+                        >
+                          {draft.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.label || 'без названия'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <div className="flex gap-2">
+            <input
+              id="input-new-timesheet-group"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addGroup();
+              }}
+              placeholder="Новое подразделение, например: Пекари ночные"
+              className="flex-1 min-w-0 h-11 px-3 text-sm border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              id="btn-add-timesheet-group"
+              onClick={addGroup}
+              disabled={!newGroupName.trim()}
+              className="h-11 px-3 shrink-0 rounded-xl bg-slate-800 text-white text-xs font-bold uppercase tracking-wider disabled:opacity-40 flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4" />
+              Добавить
+            </button>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={() => setDraft(null)}
+              disabled={isLayoutSaving}
+              className="flex-1 min-h-[48px] rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-bold"
+            >
+              Отмена
+            </button>
+            <button
+              id="btn-save-timesheet-layout"
+              onClick={saveLayout}
+              disabled={isLayoutSaving}
+              className="flex-1 min-h-[48px] rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-bold uppercase tracking-wider"
+            >
+              {isLayoutSaving ? 'Сохраняем…' : 'Сохранить'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'grid' && !draft && (() => {
         const num = (n: number) => (n ? Math.round(n).toLocaleString('ru-RU') : '');
         const isWeekendDay = (d: string) => ['сб', 'вс'].includes(weekdayOf(d));
         const stickyNo = 'sticky left-0 z-[1] w-8 min-w-8';
@@ -378,7 +688,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                 </thead>
                 <tbody>
                   {gridRows.map((g) => (
-                    <React.Fragment key={g.label}>
+                    <React.Fragment key={g.id}>
                       <tr className="bg-sky-100">
                         <td className={`${cellBorder} ${stickyNo} bg-sky-100`} />
                         <td className={`${cellBorder} ${stickyName} bg-sky-100 px-2 py-1 font-black text-slate-800`}>
@@ -502,7 +812,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
-            {employees.map((member) => {
+            {orderedEmployees.map((member) => {
               const existing = shiftAt(member.id, selectedDay);
               const key = `${member.id}:${selectedDay}`;
               const isBusy = busyKey === key;
@@ -555,7 +865,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                 onChange={(e) => setSelectedStaffId(e.target.value)}
                 className="w-full px-2.5 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                {employees.map((s) => (
+                {orderedEmployees.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}{s.position ? ` — ${s.position}` : ''}
                   </option>
@@ -710,7 +1020,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
         <PrintTimesheetModal
           month={month}
           monthLabel={`${MONTHS[monthNum - 1]} ${yearNum}`}
-          employees={employees}
+          employees={orderedEmployees}
           shifts={shifts}
           onClose={() => setIsPrintOpen(false)}
         />

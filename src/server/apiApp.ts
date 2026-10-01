@@ -3538,6 +3538,57 @@ export function createApiApp() {
   app.get('/api/cron/deadline-tick', runDeadlineTick);
   app.post('/api/cron/deadline-tick', runDeadlineTick);
 
+  // Порядок строк и подразделения табеля. Только отображение: смены, ставки и авансы
+  // привязаны к сотруднику, а не к подразделению, поэтому перестановка ничего не пересчитывает.
+  app.get('/api/settings/timesheet-layout', async (_req, res) => {
+    try {
+      const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'timesheet_layout').maybeSingle();
+      if (error) throw error;
+      let layout = null;
+      try {
+        layout = data?.value ? JSON.parse(data.value) : null;
+      } catch {
+        layout = null;
+      }
+      res.json({ layout });
+    } catch (e) {
+      console.error('Failed to load timesheet layout:', e);
+      res.status(500).json({ error: 'Failed to load timesheet layout' });
+    }
+  });
+
+  app.post('/api/settings/timesheet-layout', async (req, res) => {
+    try {
+      const groups = req.body?.layout?.groups;
+      if (!Array.isArray(groups) || groups.length === 0 || groups.length > 50) {
+        return res.status(400).json({ error: 'Нужно хотя бы одно подразделение' });
+      }
+      // Only real staff ids, so a layout saved from a half-loaded screen can't store junk.
+      const { data: staffRows, error: staffErr } = await supabase.from('staff').select('id');
+      if (staffErr) throw staffErr;
+      const known = new Set((staffRows || []).map((r: any) => String(r.id)));
+      const seen = new Set<string>();
+      const clean = [];
+      for (const g of groups) {
+        const label = String(g?.label || '').trim().slice(0, 60);
+        if (!label) return res.status(400).json({ error: 'У подразделения должно быть название' });
+        const staffIds = (Array.isArray(g?.staffIds) ? g.staffIds : [])
+          .map((id: unknown) => String(id))
+          .filter((id: string) => known.has(id) && !seen.has(id) && (seen.add(id), true));
+        clean.push({ id: String(g?.id || `grp-${Date.now()}-${clean.length}`).slice(0, 80), label, staffIds });
+      }
+      const layout = { groups: clean };
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'timesheet_layout', value: JSON.stringify(layout), updated_at: new Date().toISOString() });
+      if (error) throw error;
+      res.json({ success: true, layout });
+    } catch (e) {
+      console.error('Failed to save timesheet layout:', e);
+      res.status(500).json({ error: 'Не удалось сохранить. Попробуйте ещё раз.' });
+    }
+  });
+
   app.post('/api/settings/order-deadline', async (req, res) => {
     try {
       const { initData, deadline } = req.body || {};
