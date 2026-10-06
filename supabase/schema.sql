@@ -188,6 +188,14 @@ create table if not exists shifts (
   -- shift is recorded as a higher rate on that day plus a note.
   unique (staff_id, work_date)
 );
+-- Self check-in («Я пришёл»): 1 = full shift, 0.5 = half (rate already holds the money for it).
+-- Coordinates are kept only to re-measure if the workshop point is corrected; the API returns
+-- check_in_distance (metres from the saved workshop point), never the coordinates themselves.
+alter table shifts add column if not exists units numeric not null default 1;
+alter table shifts add column if not exists check_in_at timestamptz;
+alter table shifts add column if not exists check_in_lat double precision;
+alter table shifts add column if not exists check_in_lng double precision;
+alter table shifts add column if not exists check_in_distance integer;
 create index if not exists shifts_work_date_idx on shifts(work_date);
 create index if not exists shifts_staff_month_idx on shifts(staff_id, work_date);
 alter table shifts enable row level security;

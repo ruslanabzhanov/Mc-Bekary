@@ -101,7 +101,13 @@ const daysInMonth = (month: string): string[] => {
   return Array.from({ length: last }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`);
 };
 
-const shiftWord = (n: number) => (n === 1 ? 'смена' : n >= 2 && n <= 4 ? 'смены' : 'смен');
+// A shift is 1 or, for a half day, 0.5 — counts and the grid add those units up.
+const unitsOf = (s: { units?: number }) => Number(s.units ?? 1) || 1;
+const fmtUnits = (n: number) => String(n).replace('.', ',');
+const checkTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Almaty' });
+const shiftWord = (n: number) =>
+  !Number.isInteger(n) ? 'смены' : n === 1 ? 'смена' : n >= 2 && n <= 4 ? 'смены' : 'смен';
 
 export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   staff,
@@ -338,7 +344,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
     const ok = await write('/api/timesheet/month-rate', 'POST', { staffId: member.id, month, rate }, `${member.id}:month-rate`);
     if (ok) {
       setShifts((prev) =>
-        prev.map((s) => (s.staffId === member.id && monthKey(s.workDate) === month ? { ...s, rate } : s))
+        prev.map((s) => (s.staffId === member.id && monthKey(s.workDate) === month ? { ...s, rate: Math.round(rate * unitsOf(s)) } : s))
       );
     }
   };
@@ -351,7 +357,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
 
   const monthTotals = useMemo(() => {
     const total = shifts.reduce((sum, s) => sum + (Number(s.rate) || 0), 0);
-    return { count: shifts.length, total };
+    return { count: shifts.reduce((n, s) => n + unitsOf(s), 0), total };
   }, [shifts]);
 
   const selectedMember = employees.find((s) => s.id === selectedStaffId) || null;
@@ -361,7 +367,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   );
   const personTotals = useMemo(
     () => ({
-      count: personShifts.length,
+      count: personShifts.reduce((n, s) => n + unitsOf(s), 0),
       total: personShifts.reduce((sum, s) => sum + (Number(s.rate) || 0), 0),
     }),
     [personShifts]
@@ -386,7 +392,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       const mine = byStaff.get(m.id) || new Map<string, Shift>();
       const earned = Array.from(mine.values()).reduce((n, s) => n + (Number(s.rate) || 0), 0);
       const advance = advanceBy.get(m.id) || 0;
-      return { member: m, byDay: mine, days: mine.size, earned, advance, payout: earned - advance };
+      return { member: m, byDay: mine, days: Array.from(mine.values()).reduce((n, s) => n + unitsOf(s), 0), earned, advance, payout: earned - advance };
     };
 
     return groups
@@ -449,7 +455,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
         <div className="text-center min-w-0">
           <p className="text-sm font-extrabold text-slate-900">{MONTHS[monthNum - 1]} {yearNum}</p>
           <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
-            {monthTotals.count} {shiftWord(monthTotals.count)} · {formatMoney(monthTotals.total)}
+            {fmtUnits(monthTotals.count)} {shiftWord(monthTotals.count)} · {formatMoney(monthTotals.total)}
           </p>
         </div>
         <button
@@ -721,15 +727,19 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                                     disabled={busyKey === key}
                                     title={`${r.member.name}, ${Number(d.slice(8))} — ${s ? `смена ${formatMoney(s.rate)}, нажмите чтобы снять` : 'нажмите, чтобы поставить смену'}`}
                                     className={`w-6 h-7 flex items-center justify-center font-bold transition-colors ${
-                                      s ? 'text-emerald-800 bg-emerald-100 hover:bg-emerald-200' : 'text-transparent hover:bg-indigo-50'
+                                      s
+                                        ? unitsOf(s) === 1
+                                          ? 'text-emerald-800 bg-emerald-100 hover:bg-emerald-200'
+                                          : 'text-[9px] text-amber-900 bg-amber-200 hover:bg-amber-300'
+                                        : 'text-transparent hover:bg-indigo-50'
                                     } ${busyKey === key ? 'opacity-40' : ''}`}
                                   >
-                                    1
+                                    {s ? fmtUnits(unitsOf(s)) : '1'}
                                   </button>
                                 </td>
                               );
                             })}
-                            <td className={`${cellBorder} px-1.5 py-1 text-center font-bold text-slate-900`}>{r.days || ''}</td>
+                            <td className={`${cellBorder} px-1.5 py-1 text-center font-bold text-slate-900`}>{r.days ? fmtUnits(r.days) : ''}</td>
                             <td className={`${cellBorder} p-0`}>
                               <input
                                 key={`${r.member.id}-${r.member.shiftRate || 0}`}
@@ -841,6 +851,12 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                     <span className="block text-xs text-slate-500 mt-0.5">
                       {member.position || 'Внутренний сотрудник'}
                     </span>
+                    {existing?.checkInAt && (
+                      <span className="block text-[11px] font-semibold text-emerald-700 mt-0.5">
+                        отметился в {checkTime(existing.checkInAt)}
+                        {unitsOf(existing) !== 1 ? ` · ${fmtUnits(unitsOf(existing))} смены` : ''}
+                      </span>
+                    )}
                   </span>
                   <span className="text-sm font-black text-slate-900 tabular-nums whitespace-nowrap">
                     {existing ? formatMoney(existing.rate) : formatMoney(member.shiftRate || 0)}
@@ -905,7 +921,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                 <span className="text-[10px] font-black uppercase tracking-wider">Смен</span>
               </div>
               <p className="text-2xl font-black text-slate-900 tabular-nums leading-none">
-                {personTotals.count}
+                {fmtUnits(personTotals.count)}
               </p>
             </div>
             <div className="bg-emerald-50/70 rounded-2xl border border-emerald-200 p-4">
@@ -949,6 +965,12 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                     <p className="text-sm font-bold text-slate-900 tabular-nums">
                       {day.slice(8)}
                       <span className="ml-2 text-xs font-medium text-slate-400">{weekdayOf(day)}</span>
+                      {existing && (existing.checkInAt || unitsOf(existing) !== 1) && (
+                        <span className="ml-2 text-[11px] font-semibold text-emerald-700">
+                          {existing.checkInAt ? `отметился в ${checkTime(existing.checkInAt)}` : ''}
+                          {unitsOf(existing) !== 1 ? ` · ${fmtUnits(unitsOf(existing))} смены` : ''}
+                        </span>
+                      )}
                     </p>
                   </div>
 

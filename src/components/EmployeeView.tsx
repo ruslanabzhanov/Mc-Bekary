@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, Wallet, ChevronLeft, ChevronRight, BadgeCheck, HandCoins, Clock,
-  CheckCircle2, XCircle, X, Banknote, ClipboardList, Cake, FileHeart, Camera, Loader2, Pencil,
+  CheckCircle2, XCircle, X, Banknote, MapPin, ClipboardList, Cake, FileHeart, Camera, Loader2, Pencil,
 } from 'lucide-react';
 import { compressImage } from '../utils/compressImage';
 import { formatDateRu, ageOf, sanbookState, SANBOOK_STYLE } from '../utils/staffDocs';
@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import { PrintChecklistsModal, DEPARTMENT_CONFIG, ChecklistDeptKey } from './PrintChecklistsModal';
+import { getCurrentFix } from '../lib/geolocation';
 
 interface EmployeeViewProps {
   employee: StaffMember | null;
@@ -68,6 +69,8 @@ const almatyToday = () =>
   new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
 
 const monthKey = (d: string) => d.slice(0, 7);
+const checkInTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Almaty' });
 
 const formatMoney = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₸`;
 
@@ -123,6 +126,13 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   const [advanceSent, setAdvanceSent] = useState(false);
   const [isAdvanceSending, setIsAdvanceSending] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
+  // «Я пришёл»: today's own shift (null = nothing yet), and the little dialog that records it.
+  const [todayShift, setTodayShift] = useState<Shift | null>(null);
+  const [isCheckInOpen, setIsCheckInOpen] = useState(false);
+  const [checkInUnits, setCheckInUnits] = useState<1 | 0.5>(1);
+  const [checkInStep, setCheckInStep] = useState<'idle' | 'locating' | 'sending'>('idle');
+  const [checkInError, setCheckInError] = useState('');
+  const [geoFailed, setGeoFailed] = useState(false);
   const [checklistDept, setChecklistDept] = useState<ChecklistDeptKey>(
     () => (employee?.position && POSITION_DEPARTMENT[employee.position]) || 'bakery'
   );
@@ -157,9 +167,27 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
     };
   }, [staffId, month]);
 
+  useEffect(() => {
+    if (!staffId) {
+      setTodayShift(null);
+      return;
+    }
+    let cancelled = false;
+    const today = almatyToday();
+    fetch(`/api/timesheet?month=${monthKey(today)}&staffId=${encodeURIComponent(staffId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setTodayShift((data.shifts || []).find((s: Shift) => s.workDate === today) || null);
+      })
+      .catch((e) => console.error('Failed to load today shift:', e));
+    return () => {
+      cancelled = true;
+    };
+  }, [staffId]);
+
   const { shiftCount, earned } = useMemo(
     () => ({
-      shiftCount: shifts.length,
+      shiftCount: shifts.reduce((n, s) => n + (Number(s.units ?? 1) || 1), 0),
       earned: shifts.reduce((sum, s) => sum + (Number(s.rate) || 0), 0),
     }),
     [shifts]
@@ -260,6 +288,52 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
     setAdvanceSent(false);
   });
   useTelegramBackButton(isAdvanceFormOpen, () => setIsAdvanceFormOpen(false));
+  useTelegramBackButton(isCheckInOpen, () => setIsCheckInOpen(false));
+
+  // First tap of the day sends where the person is (unless they chose to go without); after
+  // that the same call only switches 1 ↔ 0.5 and never re-records the arrival.
+  const submitCheckIn = async (units: 1 | 0.5, withGeo: boolean) => {
+    if (!employee) return;
+    setCheckInError('');
+    let fix: Awaited<ReturnType<typeof getCurrentFix>> = null;
+    if (withGeo && !todayShift?.checkInAt) {
+      setCheckInStep('locating');
+      fix = await getCurrentFix();
+      if (!fix) {
+        setCheckInStep('idle');
+        setGeoFailed(true);
+        setCheckInError(
+          'Не удалось определить местоположение. Включите геолокацию и разрешите её для Telegram, затем повторите — или отметьтесь без неё.'
+        );
+        return;
+      }
+    }
+    setCheckInStep('sending');
+    try {
+      const res = await fetch('/api/attendance/check-in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId: employee.id, units, lat: fix?.lat, lng: fix?.lng }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.shift) {
+        setCheckInError(data?.error || 'Не удалось отметиться. Попробуйте ещё раз.');
+        return;
+      }
+      const shift: Shift = data.shift;
+      setTodayShift(shift);
+      if (monthKey(shift.workDate) === month) {
+        setShifts((prev) => [...prev.filter((s) => s.workDate !== shift.workDate), shift]);
+      }
+      setIsCheckInOpen(false);
+      setGeoFailed(false);
+    } catch (e) {
+      console.error('Check-in failed:', e);
+      setCheckInError('Нет связи с сервером.');
+    } finally {
+      setCheckInStep('idle');
+    }
+  };
   useTelegramBackButton(isChecklistPickerOpen, () => setIsChecklistPickerOpen(false));
   useTelegramBackButton(isDocsOpen, () => setIsDocsOpen(false));
 
@@ -370,12 +444,110 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         )}
       </div>
 
+      {/* Приход на работу: видно только самому сотруднику в своём кабинете */}
+      {!allEmployees &&
+        (todayShift?.checkInAt ? (
+          <div id="check-in-done" className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3">
+            <CheckCircle2 className="w-7 h-7 text-emerald-600 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-black text-emerald-900">
+                Вы отмечены в {checkInTime(todayShift.checkInAt)}
+              </p>
+              <p className="text-xs text-emerald-800 mt-0.5">
+                {(todayShift.units ?? 1) === 1 ? '1 смена' : '0,5 смены'}
+                {todayShift.checkInDistance == null ? ' · без геолокации' : ''}
+              </p>
+            </div>
+            <button
+              id="btn-check-in-switch"
+              onClick={() => submitCheckIn((todayShift.units ?? 1) === 1 ? 0.5 : 1, false)}
+              disabled={checkInStep !== 'idle'}
+              className="shrink-0 min-h-[44px] px-3 rounded-xl border border-emerald-300 bg-white text-emerald-800 text-xs font-bold disabled:opacity-50"
+            >
+              {(todayShift.units ?? 1) === 1 ? 'Изменить на 0,5' : 'Изменить на 1'}
+            </button>
+          </div>
+        ) : (
+          <button
+            id="btn-check-in"
+            onClick={() => {
+              setCheckInError('');
+              setGeoFailed(false);
+              setCheckInUnits(1);
+              setIsCheckInOpen(true);
+            }}
+            className="w-full min-h-[72px] rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white shadow-sm flex items-center justify-center gap-3 transition-all"
+          >
+            <MapPin className="w-6 h-6" />
+            <span className="text-left">
+              <span className="block text-base font-black uppercase tracking-wider">Я пришёл</span>
+              <span className="block text-[11px] opacity-90">отметиться о приходе на работу</span>
+            </span>
+          </button>
+        ))}
+
+      {isCheckInOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => checkInStep === 'idle' && setIsCheckInOpen(false)}>
+          <div id="check-in-dialog" className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-2xl space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Отметка о приходе</h3>
+              <button
+                onClick={() => setIsCheckInOpen(false)}
+                disabled={checkInStep !== 'idle'}
+                className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">Сколько смен отработаете сегодня?</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([1, 0.5] as const).map((u) => (
+                <button
+                  key={u}
+                  onClick={() => setCheckInUnits(u)}
+                  className={`min-h-[64px] rounded-xl border-2 font-black text-lg transition-colors ${
+                    checkInUnits === u ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-500'
+                  }`}
+                >
+                  {u === 1 ? '1 смена' : '0,5 смены'}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Приложение запомнит время и покажет управляющему, где вы были в момент отметки.
+            </p>
+            {checkInError && (
+              <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{checkInError}</p>
+            )}
+            <button
+              id="btn-confirm-check-in"
+              onClick={() => submitCheckIn(checkInUnits, true)}
+              disabled={checkInStep !== 'idle'}
+              className="w-full min-h-[52px] rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-sm uppercase tracking-wider flex items-center justify-center gap-2"
+            >
+              {checkInStep !== 'idle' && <Loader2 className="w-4 h-4 animate-spin" />}
+              {checkInStep === 'locating' ? 'Определяем местоположение…' : checkInStep === 'sending' ? 'Отмечаем…' : 'Отметиться'}
+            </button>
+            {geoFailed && (
+              <button
+                id="btn-check-in-no-geo"
+                onClick={() => submitCheckIn(checkInUnits, false)}
+                disabled={checkInStep !== 'idle'}
+                className="w-full min-h-[44px] rounded-xl border border-slate-300 text-slate-600 text-xs font-bold disabled:opacity-50"
+              >
+                Отметиться без геолокации
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Small tiles: facts at a glance, and each opens its own screen. */}
       {(() => {
         const sb = sanbookState(employee.sanbookExpires);
         const sbStyle = SANBOOK_STYLE[sb.state];
         const age = ageOf(employee.birthDate);
-        const shiftsWord = shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен';
+        const shiftsWord = !Number.isInteger(shiftCount) ? 'смены' : shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен';
         const tileBase =
           'min-h-[104px] min-w-0 rounded-2xl border p-3 shadow-xs flex flex-col items-start text-left gap-1 transition-all break-words';
         const clickable = 'hover:border-indigo-300 hover:bg-indigo-50/40 active:scale-[0.98]';
@@ -429,7 +601,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
               <CalendarDays className="w-5 h-5 text-teal-600" />
               <Label>Табель</Label>
               <span className="text-xs font-extrabold text-slate-900 leading-tight">
-                {isLoading ? '…' : `${shiftCount} ${shiftsWord}`}
+                {isLoading ? '…' : `${String(shiftCount).replace('.', ',')} ${shiftsWord}`}
               </span>
               {!isLoading && <span className="text-[10px] text-slate-500 tabular-nums">{formatMoney(earned)}</span>}
             </button>
@@ -852,7 +1024,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
                   <span className="text-[10px] font-black uppercase tracking-wider">Отработано</span>
                 </div>
                 <p className="text-xl font-black text-slate-900 tabular-nums leading-none">
-                  {shiftCount} {shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен'}
+                  {String(shiftCount).replace('.', ',')} {!Number.isInteger(shiftCount) ? 'смены' : shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен'}
                 </p>
               </div>
 
@@ -950,6 +1122,12 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
                               {weekdayOf(s.workDate)}
                             </span>
                           </p>
+                          {(s.checkInAt || (s.units ?? 1) !== 1) && (
+                            <p className="text-[11px] font-semibold text-emerald-700 mt-0.5">
+                              {s.checkInAt ? `отметился в ${checkInTime(s.checkInAt)}` : ''}
+                              {(s.units ?? 1) !== 1 ? ` · ${String(s.units).replace('.', ',')} смены` : ''}
+                            </p>
+                          )}
                           {s.note && <p className="text-xs text-slate-500 mt-0.5">{s.note}</p>}
                         </div>
                         <p className="text-sm font-black text-slate-900 tabular-nums whitespace-nowrap">

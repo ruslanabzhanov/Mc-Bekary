@@ -201,6 +201,10 @@ export const shiftFromDb = (r: any) => ({
   workDate: typeof r.work_date === 'string' ? r.work_date.slice(0, 10) : r.work_date,
   rate: Number(r.rate) || 0,
   note: r.note || undefined,
+  units: r.units != null ? Number(r.units) || 1 : 1,
+  checkInAt: r.check_in_at || undefined,
+  // Raw coordinates stay in the database — the API only ever exposes the distance.
+  checkInDistance: r.check_in_distance != null ? Number(r.check_in_distance) : undefined,
 });
 
 export const dishPollFromDb = (r: any) => ({

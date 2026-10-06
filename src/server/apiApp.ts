@@ -1359,7 +1359,7 @@ export function createApiApp() {
     const { startIso: endIso } = almatyDayRangeUtc(nextMonth);
     const [staffR, shiftsR, advR] = await Promise.all([
       supabase.from('staff').select('name, position, shift_rate').eq('id', staffId).maybeSingle(),
-      supabase.from('shifts').select('rate').eq('staff_id', staffId).gte('work_date', `${month}-01`).lt('work_date', nextMonth),
+      supabase.from('shifts').select('*').eq('staff_id', staffId).gte('work_date', `${month}-01`).lt('work_date', nextMonth),
       supabase
         .from('advance_requests')
         .select('amount, status')
@@ -1376,7 +1376,7 @@ export function createApiApp() {
       name: staffR.data?.name || '',
       position: staffR.data?.position || '',
       rate: Number(staffR.data?.shift_rate) || 0,
-      shifts: (shiftsR.data || []).length,
+      shifts: (shiftsR.data || []).reduce((n: number, s: any) => n + (Number(s.units ?? 1) || 1), 0),
       earned,
       alreadyRequested,
       limit: Math.max(0, Math.floor(earned * ADVANCE_SHARE) - alreadyRequested),
@@ -3309,6 +3309,180 @@ export function createApiApp() {
   // Read the month's shifts — everyone's, or one person's with ?staffId=. Deliberately open,
   // like every other read in this app: there is no server-side identity for employees yet, and
   // gating this would only look like protection without being any.
+  // ---- Посещение: «Я пришёл» ----
+  // Where the workshop is: coordinates saved on the spot (not an address — maps disagree about
+  // addresses) plus a radius. Stored in app_settings as JSON; null until someone sets it.
+  const loadWorkshopLocation = async () => {
+    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'workshop_location').maybeSingle();
+    if (error) throw error;
+    try {
+      const v = data?.value ? JSON.parse(data.value) : null;
+      if (v && Number.isFinite(v.lat) && Number.isFinite(v.lng)) {
+        return { lat: Number(v.lat), lng: Number(v.lng), radius: Number(v.radius) > 0 ? Number(v.radius) : 150 };
+      }
+    } catch {
+      /* fall through */
+    }
+    return null;
+  };
+
+  const distanceMetres = (aLat: number, aLng: number, bLat: number, bLng: number) => {
+    const rad = (d: number) => (d * Math.PI) / 180;
+    const dLat = rad(bLat - aLat);
+    const dLng = rad(bLng - aLng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng / 2) ** 2;
+    return Math.round(2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h))));
+  };
+
+  app.get('/api/attendance/location', async (_req, res) => {
+    try {
+      res.json({ location: await loadWorkshopLocation() });
+    } catch (e) {
+      console.error('Failed to load workshop location:', e);
+      res.status(500).json({ error: 'Failed to load workshop location' });
+    }
+  });
+
+  // Owner or «Заведующий производством», verified through Telegram initData. Without lat/lng
+  // it only changes the radius of the point that is already saved.
+  app.post('/api/attendance/location', async (req, res) => {
+    try {
+      const { initData, lat, lng, radius } = req.body || {};
+      if (!(await canManageDeadline(String(initData || '')))) {
+        return res.status(403).json({ error: 'Задать местоположение цеха может только владелец или заведующий производством' });
+      }
+      const r = radius == null ? null : Number(radius);
+      if (r != null && !(r >= 30 && r <= 5000)) {
+        return res.status(400).json({ error: 'Радиус — от 30 до 5000 метров' });
+      }
+      const existing = await loadWorkshopLocation();
+      let next;
+      if (lat != null || lng != null) {
+        const la = Number(lat);
+        const ln = Number(lng);
+        if (!(la >= -90 && la <= 90 && ln >= -180 && ln <= 180)) {
+          return res.status(400).json({ error: 'Некорректные координаты' });
+        }
+        next = { lat: la, lng: ln, radius: r ?? existing?.radius ?? 150 };
+      } else if (existing && r != null) {
+        next = { ...existing, radius: r };
+      } else {
+        return res.status(400).json({ error: 'Нужны координаты цеха' });
+      }
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'workshop_location', value: JSON.stringify(next), updated_at: new Date().toISOString() });
+      if (error) throw error;
+      res.json({ success: true, location: next });
+    } catch (e) {
+      console.error('Failed to save workshop location:', e);
+      res.status(500).json({ error: 'Не удалось сохранить. Попробуйте ещё раз.' });
+    }
+  });
+
+  // The person marks their own arrival for today (Kazakhstan day): 1 or 0.5 shift. A repeat
+  // call the same day never re-records the arrival — it only switches 1 ↔ 0.5 and re-prices.
+  app.post('/api/attendance/check-in', async (req, res) => {
+    try {
+      const { staffId, units, lat, lng } = req.body || {};
+      const u = Number(units);
+      if (!staffId || (u !== 1 && u !== 0.5)) {
+        return res.status(400).json({ error: 'Выберите 1 смену или 0,5' });
+      }
+      const { data: staffRow, error: staffErr } = await supabase
+        .from('staff')
+        .select('id, name, role, shift_rate')
+        .eq('id', staffId)
+        .maybeSingle();
+      if (staffErr) throw staffErr;
+      if (!staffRow || staffRow.role !== 'employee') {
+        return res.status(404).json({ error: 'Сотрудник не найден' });
+      }
+
+      const today = almatyToday();
+      const { data: existing, error: existingErr } = await supabase
+        .from('shifts')
+        .select('*')
+        .eq('staff_id', staffId)
+        .eq('work_date', today)
+        .maybeSingle();
+      if (existingErr) throw existingErr;
+
+      // Money for a full shift: the day's own frozen rate if it already exists (a manager may
+      // have set it), otherwise the person's current tariff.
+      const full = existing ? (Number(existing.rate) || 0) / (Number(existing.units ?? 1) || 1) : Number(staffRow.shift_rate) || 0;
+      const row: Record<string, unknown> = {
+        staff_id: staffId,
+        work_date: today,
+        rate: Math.round(full * u),
+        units: u,
+      };
+
+      const firstMark = !existing?.check_in_at;
+      if (firstMark) {
+        row.check_in_at = new Date().toISOString();
+        const la = lat == null ? NaN : Number(lat);
+        const ln = lng == null ? NaN : Number(lng);
+        if (Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180) {
+          row.check_in_lat = la;
+          row.check_in_lng = ln;
+          const place = await loadWorkshopLocation();
+          if (place) row.check_in_distance = distanceMetres(la, ln, place.lat, place.lng);
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('shifts')
+        .upsert(row, { onConflict: 'staff_id,work_date' })
+        .select()
+        .maybeSingle();
+      if (error) {
+        const msg = String(error.message || '');
+        if (/units|check_in/i.test(msg)) {
+          console.error('Attendance columns are missing — run supabase/schema.sql:', error);
+          return res.status(503).json({ error: 'Отметка ещё не включена: нужно обновить базу. Сообщите управляющему.' });
+        }
+        throw error;
+      }
+
+      supabase
+        .from('shift_changes')
+        .insert({
+          staff_id: staffId,
+          staff_name: staffRow.name,
+          work_date: today,
+          action: 'set',
+          rate: row.rate,
+          actor_name: `${staffRow.name} (отметился сам, ${u === 1 ? '1 смена' : '0,5 смены'})`,
+        })
+        .then(({ error: logError }) => {
+          if (logError) console.error('Failed to log a check-in:', logError);
+        });
+
+      res.json({ success: true, shift: data ? shiftFromDb(data) : null });
+    } catch (e) {
+      console.error('Failed to check in:', e);
+      res.status(500).json({ error: 'Не удалось отметиться. Попробуйте ещё раз.' });
+    }
+  });
+
+  // Журнал посещения за один день: смены этого дня вместе с данными отметки.
+  app.get('/api/attendance', async (req, res) => {
+    try {
+      const date = String(req.query.date || almatyToday());
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      const [{ data, error }, location] = await Promise.all([
+        supabase.from('shifts').select('*').eq('work_date', date),
+        loadWorkshopLocation(),
+      ]);
+      if (error) throw error;
+      res.json({ date, location, shifts: (data || []).map(shiftFromDb) });
+    } catch (e) {
+      console.error('Failed to load attendance:', e);
+      res.status(500).json({ error: 'Failed to load attendance' });
+    }
+  });
+
   app.get('/api/timesheet', async (req, res) => {
     try {
       const range = monthRange(String(req.query.month || ''));
@@ -3396,16 +3570,29 @@ export function createApiApp() {
       if (!staffId || !range || !Number.isFinite(numericRate) || numericRate < 0) {
         return res.status(400).json({ error: 'staffId, month (YYYY-MM) and a non-negative rate are required' });
       }
-      const { data, error } = await supabase
+      const { data: current, error: currentErr } = await supabase
         .from('shifts')
-        .update({ rate: numericRate })
+        .select('*')
         .eq('staff_id', staffId)
         .gte('work_date', range.from)
-        .lte('work_date', range.to)
-        .select();
-      if (error) throw error;
-
-      const updated = data || [];
+        .lte('work_date', range.to);
+      if (currentErr) throw currentErr;
+      // A half shift (units 0.5) is re-priced at half of the new tariff, a full one at all of it.
+      const idsByUnits = new Map<number, number[]>();
+      (current || []).forEach((s: any) => {
+        const u = Number(s.units ?? 1) || 1;
+        idsByUnits.set(u, [...(idsByUnits.get(u) || []), s.id]);
+      });
+      const updated: any[] = [];
+      for (const [u, ids] of idsByUnits) {
+        const { data: part, error: partErr } = await supabase
+          .from('shifts')
+          .update({ rate: Math.round(numericRate * u) })
+          .in('id', ids)
+          .select();
+        if (partErr) throw partErr;
+        updated.push(...(part || []));
+      }
       if (updated.length > 0) {
         const { data: staffRow } = await supabase.from('staff').select('name').eq('id', staffId).maybeSingle();
         supabase
@@ -3416,7 +3603,7 @@ export function createApiApp() {
               staff_name: staffRow?.name || staffId,
               work_date: s.work_date,
               action: 'set',
-              rate: numericRate,
+              rate: Number(s.rate),
               actor_name: actorName || 'Неизвестно',
             }))
           )

@@ -198,6 +198,18 @@ export interface Shift {
   workDate: string; // YYYY-MM-DD, Kazakhstan calendar day
   rate: number;
   note?: string;
+  // 1 = full shift, 0.5 = half. `rate` already is the money for that many units.
+  units?: number;
+  // Set when the person marked their own arrival in the app (not typed in by a manager).
+  checkInAt?: string; // ISO timestamp
+  // Metres from the saved workshop point at check-in; undefined = no geolocation was sent.
+  checkInDistance?: number;
+}
+
+export interface WorkshopLocation {
+  lat: number;
+  lng: number;
+  radius: number; // metres
 }
 
 export type AdvanceRequestStatus = 'pending' | 'approved' | 'rejected';

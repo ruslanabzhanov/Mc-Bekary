@@ -42,7 +42,7 @@ export const PrintTimesheetModal: React.FC<PrintTimesheetModalProps> = ({
   };
 
   const grandTotal = shifts.reduce(
-    (acc, s) => ({ count: acc.count + 1, sum: acc.sum + (Number(s.rate) || 0) }),
+    (acc, s) => ({ count: acc.count + (Number(s.units ?? 1) || 1), sum: acc.sum + (Number(s.rate) || 0) }),
     { count: 0, sum: 0 }
   );
 
@@ -103,12 +103,12 @@ export const PrintTimesheetModal: React.FC<PrintTimesheetModalProps> = ({
                       const s = shiftAt(m.id, d);
                       return (
                         <td key={d} className="border border-slate-300 text-center tabular-nums">
-                          {s ? '✓' : ''}
+                          {s ? ((Number(s.units ?? 1) || 1) === 1 ? '✓' : '0,5') : ''}
                         </td>
                       );
                     })}
                     <td className="border border-slate-300 text-center font-bold tabular-nums">
-                      {memberShifts.length}
+                      {String(memberShifts.reduce((n, s) => n + (Number(s.units ?? 1) || 1), 0)).replace('.', ',')}
                     </td>
                     <td className="border border-slate-300 px-1 text-right font-bold tabular-nums whitespace-nowrap">
                       {formatMoney(total)}
@@ -125,7 +125,7 @@ export const PrintTimesheetModal: React.FC<PrintTimesheetModalProps> = ({
                 >
                   Итого по цеху:
                 </td>
-                <td className="border border-slate-400 text-center font-black tabular-nums">{grandTotal.count}</td>
+                <td className="border border-slate-400 text-center font-black tabular-nums">{String(grandTotal.count).replace('.', ',')}</td>
                 <td className="border border-slate-400 px-1 text-right font-black tabular-nums whitespace-nowrap">
                   {formatMoney(grandTotal.sum)}
                 </td>
