@@ -1513,6 +1513,7 @@ export default function App() {
               allManagers={isOwnerVerified ? territorialManagers : undefined}
               selectedManagerId={currentTerritorialManager?.id}
               onPickManager={isOwnerVerified ? setPreviewTerritorialId : undefined}
+              allShops={isOwnerVerified ? shops : undefined}
               onUpdateStaffMember={handleUpdateStaffMember}
               onDeleteStaffMember={handleDeleteStaffMember}
             />

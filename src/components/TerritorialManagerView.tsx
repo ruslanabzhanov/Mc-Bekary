@@ -9,7 +9,7 @@ import { AnalyticsView } from './AnalyticsView';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
   X, MapPin, User, Clock, Compass, Send, Users, ClipboardList, Trash2,
-  CheckCircle2, XCircle, ChevronRight, ChevronLeft, BarChart3,
+  CheckCircle2, XCircle, ChevronRight, ChevronLeft, BarChart3, Plus, Lock,
 } from 'lucide-react';
 
 interface TerritorialManagerViewProps {
@@ -25,6 +25,8 @@ interface TerritorialManagerViewProps {
   allManagers?: StaffMember[];
   selectedManagerId?: string;
   onPickManager?: (staffId: string) => void;
+  // Только для Владельца: все точки сети, чтобы добавлять их на участок и убирать с него.
+  allShops?: CoffeeShop[];
   // Управление персоналом своих точек: сменить должность, убрать человека.
   onUpdateStaffMember?: (staffId: string, updates: Partial<StaffMember>) => void;
   onDeleteStaffMember?: (staffId: string) => void;
@@ -80,7 +82,31 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   onUpdateStaffMember,
   onDeleteStaffMember,
   orderDeadline,
+  allShops,
 }) => {
+  // Владелец правит участок выбранного управляющего. Точка может быть только у одного
+  // территориального, поэтому занятые другими в списке «Добавить» заблокированы.
+  const editedManager = allManagers?.find((m) => m.id === selectedManagerId) || null;
+  const canEditArea = !!(allShops && editedManager && onUpdateStaffMember);
+  const [isAddShopOpen, setIsAddShopOpen] = useState(false);
+  useTelegramBackButton(isAddShopOpen, () => setIsAddShopOpen(false));
+  const shopTitle = (shop: CoffeeShop) => shop.district.trim() || shop.address;
+  const ownerOfShop = (shopId: number) =>
+    allManagers?.find((m) => m.id !== editedManager?.id && (m.assignedShopIds || []).includes(shopId)) || null;
+  const setAreaShops = (ids: number[]) => {
+    if (!editedManager || !onUpdateStaffMember) return;
+    onUpdateStaffMember(editedManager.id, { assignedShopIds: ids });
+  };
+  const removeShopFromArea = (shop: CoffeeShop) => {
+    if (!editedManager) return;
+    if (!window.confirm(`Убрать «${shopTitle(shop)}» с участка ${editedManager.name}?`)) return;
+    setAreaShops((editedManager.assignedShopIds || []).filter((id) => id !== shop.id));
+  };
+  const addShopToArea = (shop: CoffeeShop) => {
+    if (!editedManager || ownerOfShop(shop.id)) return;
+    setAreaShops([...(editedManager.assignedShopIds || []).filter((id) => id !== shop.id), shop.id]);
+  };
+
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   // Какой раздел точки открыт: null — меню из трёх плиток.
   const [shopPanel, setShopPanel] = useState<'staff' | 'orders' | 'analytics' | null>(null);
@@ -151,7 +177,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
       {/* Плитки точек. Цвет — это статус заявки за сегодня, чтобы отстающую точку было
           видно, не открывая её: серая значит, что заявки нет вовсе. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {shops.length === 0 ? (
+        {shops.length === 0 && !canEditArea ? (
           <div className="col-span-full bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-400 italic text-sm">
             За вами пока не закреплено ни одной точки.
           </div>
@@ -159,10 +185,10 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
           shops.map((shop) => {
             const look = statusLook(orders[shop.id]);
             return (
+              <div key={shop.id} className="relative">
               <button
-                key={shop.id}
                 onClick={() => setSelectedShopId(shop.id)}
-                className={`text-left rounded-xl p-4 shadow-sm border transition-all ${look.tile}`}
+                className={`w-full h-full text-left rounded-xl p-4 shadow-sm border transition-all ${look.tile}`}
               >
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${look.badge}`}>
@@ -180,10 +206,83 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                   {getShopManagersLabel(shop)}
                 </div>
               </button>
+              {canEditArea && (
+                <button
+                  onClick={() => removeShopFromArea(shop)}
+                  className="absolute bottom-2 right-2 w-10 h-10 rounded-lg bg-white/90 border border-rose-200 text-rose-500 hover:bg-rose-50 flex items-center justify-center"
+                  aria-label="Убрать точку с участка"
+                  title="Убрать точку с участка"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+              </div>
             );
           })
         )}
+        {canEditArea && (
+          <button
+            id="btn-add-shop-to-area"
+            onClick={() => setIsAddShopOpen(true)}
+            className="rounded-xl p-4 border-2 border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40 text-slate-500 hover:text-indigo-700 flex items-center justify-center gap-2 min-h-[104px] font-bold text-sm uppercase tracking-wider transition-all"
+          >
+            <Plus className="w-5 h-5" />
+            Добавить точку
+          </button>
+        )}
       </div>
+
+      {isAddShopOpen && canEditArea && editedManager && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => setIsAddShopOpen(false)}>
+          <div
+            id="add-shop-dialog"
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <div className="min-w-0">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Добавить точку</h3>
+                <p className="text-[11px] text-slate-500 truncate">на участок: {editedManager.name}</p>
+              </div>
+              <button
+                onClick={() => setIsAddShopOpen(false)}
+                className="w-10 h-10 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto divide-y divide-slate-100">
+              {allShops!
+                .filter((sh) => !(editedManager.assignedShopIds || []).includes(sh.id))
+                .map((sh) => {
+                  const owner = ownerOfShop(sh.id);
+                  return (
+                    <div key={sh.id} className={`flex items-center gap-3 px-4 py-2.5 ${owner ? 'bg-slate-50' : ''}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-sm font-bold truncate ${owner ? 'text-slate-400' : 'text-slate-900'}`}>{shopTitle(sh)}</p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {owner ? `занята: ${owner.name}` : sh.address}
+                        </p>
+                      </div>
+                      {owner ? (
+                        <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 px-2">
+                          <Lock className="w-3.5 h-3.5" /> занята
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => addShopToArea(sh)}
+                          className="shrink-0 min-h-[40px] px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-1"
+                        >
+                          <Plus className="w-4 h-4" /> Добавить
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SHOP DETAIL MODAL (read-only info + сan submit an order on the shop's behalf) */}
       {selectedShop && (
