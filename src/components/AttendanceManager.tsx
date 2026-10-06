@@ -161,8 +161,8 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({ staff, tel
             </p>
             <p className="text-[11px] text-slate-600 mt-0.5">
               {location
-                ? 'Расстояние от этой точки считается при каждой отметке.'
-                : 'Пока оно не задано, расстояние не проверяется. Встаньте в цехе и нажмите кнопку ниже.'}
+                ? 'Отметиться можно только рядом с этой точкой, в пределах радиуса.'
+                : 'Пока оно не задано, сотрудники не смогут отметиться. Встаньте в цехе и нажмите кнопку ниже.'}
             </p>
           </div>
         </div>
@@ -177,7 +177,7 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({ staff, tel
         </button>
         {location && (
           <label className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-600">
-            <span>Считать «в цехе», если ближе, чем</span>
+            <span>Отметиться можно, если ближе, чем</span>
             <select
               value={location.radius}
               onChange={async (e) => {

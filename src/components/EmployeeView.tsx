@@ -303,7 +303,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         setCheckInStep('idle');
         setGeoFailed(true);
         setCheckInError(
-          'Не удалось определить местоположение. Включите геолокацию и разрешите её для Telegram, затем повторите — или отметьтесь без неё.'
+          'Не удалось определить местоположение. Включите геолокацию на телефоне и разрешите её для Telegram, затем нажмите «Отметиться» ещё раз.'
         );
         return;
       }
@@ -313,7 +313,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
       const res = await fetch('/api/attendance/check-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ staffId: employee.id, units, lat: fix?.lat, lng: fix?.lng }),
+        body: JSON.stringify({ staffId: employee.id, units, lat: fix?.lat, lng: fix?.lng, accuracy: fix?.accuracy }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.shift) {
@@ -455,7 +455,6 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
               </p>
               <p className="text-xs text-emerald-800 mt-0.5">
                 {(todayShift.units ?? 1) === 1 ? '1 смена' : '0,5 смены'}
-                {todayShift.checkInDistance == null ? ' · без геолокации' : ''}
               </p>
             </div>
             <button
@@ -514,7 +513,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
               ))}
             </div>
             <p className="text-[11px] text-slate-400">
-              Приложение запомнит время и покажет управляющему, где вы были в момент отметки.
+              Отметиться можно только в цехе: приложение проверит ваше местоположение и запомнит время.
             </p>
             {checkInError && (
               <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{checkInError}</p>
@@ -529,14 +528,9 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
               {checkInStep === 'locating' ? 'Определяем местоположение…' : checkInStep === 'sending' ? 'Отмечаем…' : 'Отметиться'}
             </button>
             {geoFailed && (
-              <button
-                id="btn-check-in-no-geo"
-                onClick={() => submitCheckIn(checkInUnits, false)}
-                disabled={checkInStep !== 'idle'}
-                className="w-full min-h-[44px] rounded-xl border border-slate-300 text-slate-600 text-xs font-bold disabled:opacity-50"
-              >
-                Отметиться без геолокации
-              </button>
+              <p className="text-[11px] text-slate-500 text-center">
+                В Telegram: ⋯ → Настройки → разрешите доступ к геолокации для этого приложения.
+              </p>
             )}
           </div>
         </div>

@@ -3384,7 +3384,7 @@ export function createApiApp() {
   // call the same day never re-records the arrival — it only switches 1 ↔ 0.5 and re-prices.
   app.post('/api/attendance/check-in', async (req, res) => {
     try {
-      const { staffId, units, lat, lng } = req.body || {};
+      const { staffId, units, lat, lng, accuracy } = req.body || {};
       const u = Number(units);
       if (!staffId || (u !== 1 && u !== 0.5)) {
         return res.status(400).json({ error: 'Выберите 1 смену или 0,5' });
@@ -3418,17 +3418,37 @@ export function createApiApp() {
         units: u,
       };
 
+      // The arrival itself is only accepted at the workshop: it needs the saved workshop point,
+      // the person's own position, and the two to be within the radius. Switching 1 ↔ 0.5 later
+      // the same day doesn't re-check — they've already been counted as present.
       const firstMark = !existing?.check_in_at;
       if (firstMark) {
-        row.check_in_at = new Date().toISOString();
+        const place = await loadWorkshopLocation();
+        if (!place) {
+          return res.status(409).json({
+            code: 'no_workshop',
+            error: 'Местоположение цеха ещё не задано, отметиться пока нельзя. Сообщите управляющему.',
+          });
+        }
         const la = lat == null ? NaN : Number(lat);
         const ln = lng == null ? NaN : Number(lng);
-        if (Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180) {
-          row.check_in_lat = la;
-          row.check_in_lng = ln;
-          const place = await loadWorkshopLocation();
-          if (place) row.check_in_distance = distanceMetres(la, ln, place.lat, place.lng);
+        if (!(Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180)) {
+          return res.status(400).json({ code: 'no_geo', error: 'Нужна геолокация: включите её и повторите.' });
         }
+        const distance = distanceMetres(la, ln, place.lat, place.lng);
+        // GPS is rarely exact indoors, so the position's own reported error is forgiven — but only
+        // up to 50 m, otherwise a bad fix would let anyone through.
+        const slack = Math.min(Math.max(Number(accuracy) || 0, 0), 50);
+        if (distance > place.radius + slack) {
+          return res.status(403).json({
+            code: 'too_far',
+            error: `Вы не в цехе: до него ${distance < 1000 ? `${distance} м` : `${(distance / 1000).toFixed(1).replace('.', ',')} км`}, а отметиться можно в пределах ${place.radius} м.`,
+          });
+        }
+        row.check_in_at = new Date().toISOString();
+        row.check_in_lat = la;
+        row.check_in_lng = ln;
+        row.check_in_distance = distance;
       }
 
       const { data, error } = await supabase
