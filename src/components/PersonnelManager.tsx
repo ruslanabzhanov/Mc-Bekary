@@ -3,7 +3,7 @@ import {
   CoffeeShop, StaffMember, StaffRole, RegistrationRequest, POSITION_OPTIONS, positionValueOf,
 } from '../types';
 import { sanbookState, SANBOOK_STYLE } from '../utils/staffDocs';
-import { UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle, Search, Trash2 } from 'lucide-react';
+import { UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle, Search, Trash2, Pencil, Check, X } from 'lucide-react';
 
 interface PersonnelManagerProps {
   shops: CoffeeShop[];
@@ -78,6 +78,21 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
             other.requestedRole !== 'employee' &&
             pointsOf(other).some((id) => pointsOf(req).includes(id))
         );
+
+  // Renaming one person at a time, in place on their card. Only the name changes — the person's
+  // id (and with it their shifts, advances, checklists, Telegram link) stays the same.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const startRename = (member: StaffMember) => {
+    setRenamingId(member.id);
+    setRenameDraft(member.name);
+  };
+  const saveRename = (member: StaffMember) => {
+    const next = renameDraft.trim().replace(/\s+/g, ' ');
+    setRenamingId(null);
+    if (!next || next === member.name) return;
+    onUpdateStaffMember(member.id, { name: next });
+  };
 
   const handleDeleteMember = (member: StaffMember) => {
     if (!window.confirm(`Удалить «${member.name}»? Это действие нельзя отменить.`)) return;
@@ -208,7 +223,51 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
                         )}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-900 text-sm truncate">{member.name}</div>
+                        {renamingId === member.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              autoFocus
+                              value={renameDraft}
+                              maxLength={80}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveRename(member);
+                                if (e.key === 'Escape') setRenamingId(null);
+                              }}
+                              className="min-w-0 flex-1 h-10 px-2 text-sm font-bold text-slate-900 border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              aria-label="Имя сотрудника"
+                            />
+                            <button
+                              onClick={() => saveRename(member)}
+                              disabled={!renameDraft.trim()}
+                              className="w-10 h-10 shrink-0 rounded-lg bg-emerald-600 text-white disabled:opacity-40 flex items-center justify-center"
+                              aria-label="Сохранить имя"
+                              title="Сохранить"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setRenamingId(null)}
+                              className="w-10 h-10 shrink-0 rounded-lg border border-slate-200 text-slate-500 flex items-center justify-center"
+                              aria-label="Отмена"
+                              title="Отмена"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 min-w-0">
+                            <div className="font-bold text-slate-900 text-sm truncate">{member.name}</div>
+                            <button
+                              onClick={() => startRename(member)}
+                              title="Изменить имя"
+                              aria-label="Изменить имя"
+                              className="shrink-0 w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                         {member.phone && <div className="text-[11px] text-slate-500">{member.phone}</div>}
                       </div>
                     </div>

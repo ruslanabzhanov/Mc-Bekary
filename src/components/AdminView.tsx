@@ -864,6 +864,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
             {advanceTab === 'approved' ? (() => {
               const positionById = new Map(staff.map((s) => [s.id, s.position || '']));
+              const nameById = new Map(staff.map((s) => [s.id, s.name]));
               const approved = advanceRequests
                 .filter((r) => r.status === 'approved' && r.createdAt &&
                   new Date(r.createdAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7) === advanceMonth)
@@ -926,7 +927,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                             <tr key={r.id} className="align-top">
                               <td className="px-2 py-2 text-slate-500">{i + 1}</td>
                               <td className="px-2 py-2">
-                                <p className="font-bold text-slate-900">{r.staffName}</p>
+                                <p className="font-bold text-slate-900">{nameById.get(r.staffId) || r.staffName}</p>
                                 <p className="text-[11px] text-slate-500">
                                   {positionById.get(r.staffId) || '—'} ·{' '}
                                   {new Date(r.createdAt!).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' })}

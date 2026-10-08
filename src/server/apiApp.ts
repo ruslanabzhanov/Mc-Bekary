@@ -1503,10 +1503,11 @@ export function createApiApp() {
           .gte('created_at', startIso)
           .lt('created_at', endIso)
           .order('created_at', { ascending: true }),
-        supabase.from('staff').select('id, position'),
+        supabase.from('staff').select('id, position, name'),
       ]);
       if (advR.error) throw advR.error;
       const positionById = new Map((staffR.data || []).map((s: any) => [s.id, s.position || '']));
+      const nameById = new Map((staffR.data || []).map((s: any) => [s.id, s.name || '']));
       const rows = (advR.data || []).map(advanceRequestFromDb);
 
       const wb = new ExcelJS.Workbook();
@@ -1527,7 +1528,7 @@ export function createApiApp() {
       rows.forEach((r: any, i: number) => {
         total += r.amount;
         const date = r.createdAt ? new Date(r.createdAt).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' }) : '';
-        const row = ws.addRow([i + 1, date, r.staffName, positionById.get(r.staffId) || '', r.amount, r.kaspiPhone, r.kaspiName || '']);
+        const row = ws.addRow([i + 1, date, nameById.get(r.staffId) || r.staffName, positionById.get(r.staffId) || '', r.amount, r.kaspiPhone, r.kaspiName || '']);
         row.getCell(5).numFmt = '#,##0';
         row.eachCell((c) => {
           c.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
