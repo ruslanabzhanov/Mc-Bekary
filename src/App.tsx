@@ -427,10 +427,24 @@ export default function App() {
     let lastStatus: string | undefined = orders[selectedShopId]?.status;
     const POLL_MS = 20000;
     const interval = setInterval(() => {
+      const startedAt = Date.now();
       fetch(`/api/orders/${selectedShopId}`)
         .then((res) => res.json())
         .then((data) => {
           if (!data.order) return;
+          // The answer describes the server as of when the request left. If this device edited
+          // the order, or finished saving it, since then, the screen is newer than the answer —
+          // applying it would wipe what the manager just typed (a dish set to 5 went back to 0
+          // as soon as they tapped the next one). Skip; the next poll picks up the settled state.
+          const id = selectedShopId;
+          if (
+            (orderLastTouchRef.current[id] || 0) >= startedAt ||
+            (orderBusyRef.current[id] || 0) > 0 ||
+            pendingDraftRef.current[id] ||
+            draftTimerRef.current[id]
+          ) {
+            return;
+          }
           if (lastStatus && lastStatus !== data.order.status) {
             if (data.order.status === 'accepted') {
               showToast(`✅ Заявка для Точки №${selectedShopId} принята Управляющим!`);
@@ -591,9 +605,22 @@ export default function App() {
   // shop's requests onto a per-shop promise guarantees they reach the server in the same order
   // they were clicked, without blocking the optimistic local UI update at all.
   const orderRequestQueueRef = useRef<Record<number, Promise<unknown>>>({});
+  // When this device last edited a shop's order or finished writing it, and how many writes are
+  // still in flight. The background status poll uses these to tell whether the copy it just
+  // fetched can already be older than what is on screen (see the poll effect).
+  const orderLastTouchRef = useRef<Record<number, number>>({});
+  const orderBusyRef = useRef<Record<number, number>>({});
   const queueOrderRequest = (shopId: number, run: () => Promise<unknown>) => {
     const prev = orderRequestQueueRef.current[shopId] || Promise.resolve();
-    const next = prev.then(run, run);
+    orderBusyRef.current[shopId] = (orderBusyRef.current[shopId] || 0) + 1;
+    const tracked = () =>
+      Promise.resolve()
+        .then(run)
+        .finally(() => {
+          orderBusyRef.current[shopId] = Math.max(0, (orderBusyRef.current[shopId] || 0) - 1);
+          orderLastTouchRef.current[shopId] = Date.now();
+        });
+    const next = prev.then(tracked, tracked);
     orderRequestQueueRef.current[shopId] = next;
     return next;
   };
@@ -664,6 +691,7 @@ export default function App() {
   ) => {
     const shop = shops.find((s) => s.id === shopId);
     if (!shop) return;
+    orderLastTouchRef.current[shopId] = Date.now();
 
     // Только блюда из каталога — то же правило, что и на сервере.
     const knownProductIds = new Set(products.map((p) => p.id));
