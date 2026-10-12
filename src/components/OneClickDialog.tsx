@@ -5,7 +5,8 @@ interface OneClickDialogProps {
   isOpen: boolean;
   days: number; // сколько дней заказов легло в расчёт
   positions: number; // сколько позиций будет заполнено
-  totalPcs: number; // сколько штук будет в заявке
+  basePcs: number; // сколько штук по обычному
+  totalPcs: number; // сколько штук с добавкой +1
   hasDraft: boolean; // в черновике уже что-то набрано
   onCancel: () => void;
   onConfirm: () => void;
@@ -14,7 +15,7 @@ interface OneClickDialogProps {
 // Что делает «Заявка в один клик», как это считается — и чья это ответственность. Показывается
 // каждый раз до заполнения: черновик меняется только после «Понятно, заполнить».
 export const OneClickDialog: React.FC<OneClickDialogProps> = ({
-  isOpen, days, positions, totalPcs, hasDraft, onCancel, onConfirm,
+  isOpen, days, positions, basePcs, totalPcs, hasDraft, onCancel, onConfirm,
 }) => {
   if (!isOpen) return null;
   return (
@@ -39,20 +40,26 @@ export const OneClickDialog: React.FC<OneClickDialogProps> = ({
         <div className="space-y-2 text-[13px] text-slate-700 leading-snug">
           <p className="font-bold text-slate-900">Как система это считает:</p>
           <ul className="space-y-1.5 list-disc pl-5">
-            <li>Берём заявки вашей точки за последние 3 недели ({days} дн.) и смотрим каждую позицию отдельно.</li>
-            <li>Рассчитываем рекомендуемое количество для позиций, которые вы заказываете регулярно. Новые и редкие позиции не добавляем.</li>
-            <li>Заполняем черновик этими количествами, дальше вы правите его сами.</li>
+            <li>Берём заявки вашей точки за последние 3 недели ({days} дн.) и считаем среднее по каждой позиции отдельно.</li>
+            <li>Ставим это среднее для позиций, которые вы заказываете регулярно. Новые и редкие позиции не добавляем.</li>
+            <li>
+              К позициям, которые вы обычно берёте от 3 шт, <b>добавляем +1 шт</b>: так меньше риска, что товар закончится раньше времени.
+            </li>
           </ul>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-center">
+        <div className="grid grid-cols-3 gap-2 text-center">
           <div className="bg-slate-50 border border-slate-200 rounded-lg py-2">
             <span className="block text-[9px] font-black uppercase text-slate-400">Позиций</span>
             <span className="text-sm font-black text-slate-900">{positions}</span>
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-lg py-2">
-            <span className="block text-[9px] font-black uppercase text-slate-400">Всего штук</span>
-            <span className="text-sm font-black text-slate-900">{totalPcs} шт</span>
+            <span className="block text-[9px] font-black uppercase text-slate-400">Обычно</span>
+            <span className="text-sm font-black text-slate-900">{basePcs} шт</span>
+          </div>
+          <div className="bg-indigo-50 border border-indigo-200 rounded-lg py-2">
+            <span className="block text-[9px] font-black uppercase text-indigo-400">С добавкой</span>
+            <span className="text-sm font-black text-indigo-900">{totalPcs} шт</span>
           </div>
         </div>
 
