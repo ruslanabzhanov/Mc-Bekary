@@ -8,12 +8,12 @@ import { SalesPointsManager } from './SalesPointsManager';
 import { RolePermissionsModal } from './RolePermissionsModal';
 import { TimesheetManager } from './TimesheetManager';
 import { AttendanceManager } from './AttendanceManager';
-import { CheckInCard } from './CheckInCard';
 import { DishPollsManager } from './DishPollsManager';
 import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
 import { AnalyticsView } from './AnalyticsView';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
+  UserCircle,
   UserCheck,
   ShieldCheck,
   Send,
@@ -57,9 +57,9 @@ const CHECKLIST_DEPTS: { key: ChecklistDeptKey; icon: string; label: string }[] 
 ];
 
 interface AdminViewProps {
-  // The production head's own staff id — only set when they are the one using this screen (not the
-  // Owner looking in), so they can mark their own arrival.
-  checkInStaffId?: string;
+  // Set only when the production head is the one using this screen (not the Owner looking in):
+  // opens their own employee cabinet — timesheet, advances, check-in, checklists.
+  onOpenMyCabinet?: () => void;
   orderDeadline: string;
   onEditDeadline: () => void;
   shops: CoffeeShop[];
@@ -109,7 +109,7 @@ interface AdminViewProps {
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
-  checkInStaffId,
+  onOpenMyCabinet,
   shops,
   products,
   orders,
@@ -309,8 +309,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
         </div>
 
-        {checkInStaffId && <CheckInCard staffId={checkInStaffId} />}
-
         {/* Дедлайн подачи. В шапке он виден только на широком экране, а двигают его чаще всего
             с телефона — поэтому здесь отдельной заметной кнопкой. */}
         <button
@@ -493,6 +491,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </span>
             )}
           </button>
+
+          {onOpenMyCabinet && (
+            <button
+              id="btn-open-my-cabinet"
+              onClick={onOpenMyCabinet}
+              className="bg-indigo-50 hover:bg-indigo-100 p-4 rounded-xl border border-indigo-200 hover:border-indigo-400 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center"
+            >
+              <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest block">Мой кабинет</span>
+              <UserCircle className="w-6 h-6 text-indigo-900 mt-1.5" />
+            </button>
+          )}
 
           <button
             id="btn-open-timesheet-modal"

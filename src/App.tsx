@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 import { Header } from './components/Header';
+import { useTelegramBackButton } from './hooks/useTelegramBackButton';
 import { ManagerView } from './components/ManagerView';
 import { AdminView } from './components/AdminView';
 import { TerritorialManagerView } from './components/TerritorialManagerView';
@@ -281,6 +283,9 @@ export default function App() {
   const [orderDeadline, setOrderDeadline] = useState('10:30');
   const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
   const [serverDataLoaded, setServerDataLoaded] = useState(false);
+  // The production head opening their own employee cabinet from the admin screen.
+  const [isMyCabinetOpen, setIsMyCabinetOpen] = useState(false);
+  useTelegramBackButton(isMyCabinetOpen, () => setIsMyCabinetOpen(false));
   const [initialDataError, setInitialDataError] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSubmittedModalOpen, setIsSubmittedModalOpen] = useState(false);
@@ -1478,7 +1483,11 @@ export default function App() {
               orderDeadline={orderDeadline}
               onEditDeadline={() => setIsDeadlineModalOpen(true)}
               isOwner={currentRole === 'owner'}
-              checkInStaffId={currentRole === 'admin' ? currentAdminId || undefined : undefined}
+              onOpenMyCabinet={
+                currentRole === 'admin' && staff.some((s) => s.id === currentAdminId)
+                  ? () => setIsMyCabinetOpen(true)
+                  : undefined
+              }
               // Who's actually at the keyboard right now — attributed on the timesheet's
               // change log, since neither role is server-verified enough to log anything
               // stronger than "whichever name this device is currently showing".
@@ -1549,6 +1558,39 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Мой кабинет: управляющий производством — тоже внутренний сотрудник, и открывает тот же
+          кабинет, что и все: табель, авансы, отметка прихода, чек-листы. */}
+      {isMyCabinetOpen && currentRole === 'admin' && staff.some((s) => s.id === currentAdminId) && (
+        <div className="fixed inset-0 z-50 bg-slate-50 overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight">Мой кабинет</h2>
+            <button
+              id="btn-close-my-cabinet"
+              onClick={() => setIsMyCabinetOpen(false)}
+              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="max-w-3xl mx-auto p-4 sm:p-6">
+            <EmployeeView
+              employee={staff.find((s) => s.id === currentAdminId) || null}
+              advanceRequests={advanceRequests}
+              onSubmitAdvanceRequest={handleSubmitAdvanceRequest}
+              shops={shops}
+              products={products}
+              orders={orders}
+              checklistAssignments={checklistAssignments}
+              checklistSummaryAssignments={checklistSummaryAssignments}
+              dishCostings={dishCostings}
+              semiFinishedList={semiFinishedList}
+              rawMaterials={rawMaterials}
+              onUploadPhoto={handleUploadStaffPhoto}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Order Preview Modal */}
       <OrderPreviewModal
