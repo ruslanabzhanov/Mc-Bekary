@@ -14,6 +14,7 @@ import { DeadlineModal } from './components/DeadlineModal';
 import { SplashScreen, wasSplashShownThisSession, markSplashShown } from './components/SplashScreen';
 import { COFFEE_SHOPS, INITIAL_ORDERS, INITIAL_STAFF, INITIAL_REGISTRATION_REQUESTS } from './data/mockData';
 import { INITIAL_SEMI_FINISHED, INITIAL_DISH_COSTINGS, INITIAL_RAW_MATERIALS } from './data/costingData';
+import { applyCustomEmployeePositions } from './types';
 import { CoffeeShop, Product, ShopOrder, DisciplineNotification, SemiFinishedProduct, DishCosting, OrderStatus, StaffMember, StaffRole, RegistrationRequest, AdvanceRequest, UserRole, RawMaterial, ChecklistAssignments, RolePermissions } from './types';
 
 // A useState that also fires-and-forgets a POST to persist every update to the Express backend,
@@ -285,6 +286,20 @@ export default function App() {
   const [serverDataLoaded, setServerDataLoaded] = useState(false);
   // The production head opening their own employee cabinet from the admin screen.
   const [isMyCabinetOpen, setIsMyCabinetOpen] = useState(false);
+  // The owner / production head can add internal positions; load them once so every list (personnel,
+  // registration, timesheet) has them. The counter only exists to re-render once they have arrived.
+  const [, setPositionsLoaded] = useState(0);
+  useEffect(() => {
+    fetch('/api/settings/employee-positions')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (Array.isArray(d?.positions)) {
+          applyCustomEmployeePositions(d.positions);
+          setPositionsLoaded((n) => n + 1);
+        }
+      })
+      .catch(() => {});
+  }, []);
   useTelegramBackButton(isMyCabinetOpen, () => setIsMyCabinetOpen(false));
   const [initialDataError, setInitialDataError] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);

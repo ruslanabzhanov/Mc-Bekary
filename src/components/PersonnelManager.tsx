@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
   CoffeeShop, StaffMember, StaffRole, RegistrationRequest, POSITION_OPTIONS, positionValueOf,
+  BASE_EMPLOYEE_POSITIONS, EMPLOYEE_POSITIONS, applyCustomEmployeePositions,
 } from '../types';
 import { sanbookState, SANBOOK_STYLE } from '../utils/staffDocs';
-import { UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle, Search, Trash2, Pencil, Check, X } from 'lucide-react';
+import { UserCheck, CheckCircle2, XCircle, ClipboardList, AlertTriangle, Search, Trash2, Pencil, Check, X, Plus } from 'lucide-react';
 
 interface PersonnelManagerProps {
   shops: CoffeeShop[];
@@ -49,6 +50,37 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
   const [filterShopId, setFilterShopId] = useState<'all' | number>('all');
   const [filterPosition, setFilterPosition] = useState<string>('all');
   const pendingRequests = registrationRequests.filter((r) => r.status === 'pending');
+
+  // «Добавить должность» (внутренние сотрудники): свои должности дописываются к встроенным и
+  // сразу доступны во всех списках — персонал, регистрация, табель.
+  const [isPositionsOpen, setIsPositionsOpen] = useState(false);
+  const [newPositionName, setNewPositionName] = useState('');
+  const [positionsError, setPositionsError] = useState('');
+  const [isPositionsBusy, setIsPositionsBusy] = useState(false);
+  const customPositions = EMPLOYEE_POSITIONS.filter((p) => !(BASE_EMPLOYEE_POSITIONS as readonly string[]).includes(p));
+  const changePositions = async (body: { add: string } | { remove: string }) => {
+    setIsPositionsBusy(true);
+    setPositionsError('');
+    try {
+      const res = await fetch('/api/settings/employee-positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.positions)) {
+        setPositionsError(data?.error || 'Не удалось сохранить. Попробуйте ещё раз.');
+        return;
+      }
+      applyCustomEmployeePositions(data.positions);
+      setNewPositionName('');
+    } catch (e) {
+      console.error('Positions save failed:', e);
+      setPositionsError('Нет связи с сервером.');
+    } finally {
+      setIsPositionsBusy(false);
+    }
+  };
 
   // Toggle buttons and the category filter below drive the same state on purpose — two ways
   // to reach it, never two contradicting states.
@@ -160,6 +192,74 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
               );
             })}
           </div>
+
+          {/* Добавить свою должность — только во «Внутренних сотрудниках» */}
+          {staffView === 'internal' && (
+            <div className="space-y-2">
+              <button
+                id="btn-add-position"
+                onClick={() => setIsPositionsOpen((v) => !v)}
+                className="w-full min-h-[44px] rounded-xl border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Добавить должность
+              </button>
+              {isPositionsOpen && (
+                <div id="positions-editor" className="bg-white border border-slate-200 rounded-xl p-3 space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      id="input-new-position"
+                      value={newPositionName}
+                      maxLength={40}
+                      onChange={(e) => setNewPositionName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newPositionName.trim()) changePositions({ add: newPositionName });
+                      }}
+                      placeholder="Например: Повар-универсал"
+                      className="flex-1 min-w-0 h-11 px-3 text-sm border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button
+                      id="btn-save-position"
+                      onClick={() => changePositions({ add: newPositionName })}
+                      disabled={isPositionsBusy || newPositionName.trim().length < 2}
+                      className="h-11 px-3 shrink-0 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-wider disabled:opacity-40"
+                    >
+                      {isPositionsBusy ? '…' : 'Добавить'}
+                    </button>
+                  </div>
+                  {positionsError && <p className="text-xs text-rose-700">{positionsError}</p>}
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">Ваши должности</p>
+                    {customPositions.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">Пока только встроенные. Добавленные появятся здесь.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {customPositions.map((p) => (
+                          <span key={p} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-800">
+                            {p}
+                            <button
+                              onClick={() => {
+                                if (window.confirm('Удалить должность «' + p + '»?')) changePositions({ remove: p });
+                              }}
+                              disabled={isPositionsBusy}
+                              title="Удалить должность"
+                              aria-label={'Удалить должность ' + p}
+                              className="w-7 h-7 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center disabled:opacity-40"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[11px] text-slate-400 mt-2">
+                      Должность можно удалить, только если она никому не назначена. Встроенные удалить нельзя.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Общий поиск */}
           <div className="relative">

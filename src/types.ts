@@ -141,7 +141,9 @@ export type StaffRole = 'employee' | 'territorial_manager' | 'shop_manager';
 // персонале, в табеле и в оповещениях.
 export const SHOP_STAFF_POSITIONS = ['Менеджер точки', 'Бариста'] as const;
 
-export const EMPLOYEE_POSITIONS = [
+// Built-in positions. The list the app actually uses (EMPLOYEE_POSITIONS below) is these plus the
+// ones the owner / production head add themselves — see applyCustomEmployeePositions.
+export const BASE_EMPLOYEE_POSITIONS = [
   'Шеф-пекарь',
   'Пекарь',
   'Ночной пекарь',
@@ -154,6 +156,10 @@ export const EMPLOYEE_POSITIONS = [
   'Кухонная рабочая'
 ] as const;
 
+// Live list: built-ins + custom. Mutated in place by applyCustomEmployeePositions, so every screen
+// that reads it (personnel, registration form, timesheet) sees the same, current set.
+export const EMPLOYEE_POSITIONS: string[] = [...BASE_EMPLOYEE_POSITIONS];
+
 // Единый список должностей для всех мест, где сотруднику её меняют: «Персонал» у
 // управляющего и персонал точки у территориального. Держим в одном месте, чтобы списки
 // не разъезжались. Должность несёт с собой роль — от неё зависят права.
@@ -164,6 +170,22 @@ export const POSITION_OPTIONS: PositionOption[] = [
   { value: 'territorial_manager', role: 'territorial_manager', label: 'Территориальный управляющий' },
   ...EMPLOYEE_POSITIONS.map((p) => ({ value: p, role: 'employee' as StaffRole, position: p, label: p })),
 ];
+
+// Replace the custom part of the internal positions list (and the matching dropdown options).
+export const applyCustomEmployeePositions = (custom: string[]) => {
+  const merged: string[] = [...BASE_EMPLOYEE_POSITIONS];
+  custom.forEach((p) => {
+    if (!merged.some((x) => x.toLowerCase() === p.toLowerCase())) merged.push(p);
+  });
+  EMPLOYEE_POSITIONS.length = 0;
+  EMPLOYEE_POSITIONS.push(...merged);
+  const keep = POSITION_OPTIONS.filter((o) => o.role !== 'employee');
+  POSITION_OPTIONS.length = 0;
+  POSITION_OPTIONS.push(
+    ...keep,
+    ...EMPLOYEE_POSITIONS.map((p) => ({ value: p, role: 'employee' as StaffRole, position: p, label: p }))
+  );
+};
 
 // Какому пункту списка отвечает текущая пара роль+должность у сотрудника.
 export const positionValueOf = (role: StaffRole, position?: string): string => {

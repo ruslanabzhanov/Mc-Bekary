@@ -5,6 +5,7 @@ import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import ExcelJS from 'exceljs';
 import { supabase } from '../lib/supabaseServer.js';
+import { BASE_EMPLOYEE_POSITIONS } from '../types.js';
 import {
   shopFromDb,
   shopToDb,
@@ -3755,6 +3756,70 @@ export function createApiApp() {
   };
   app.get('/api/cron/deadline-tick', runDeadlineTick);
   app.post('/api/cron/deadline-tick', runDeadlineTick);
+
+  // Свои должности внутренних сотрудников: к встроенным добавляет владелец / заведующий.
+  // Хранится в app_settings одним JSON-списком только пользовательских названий.
+  const loadCustomPositions = async (): Promise<string[]> => {
+    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'employee_positions').maybeSingle();
+    if (error) throw error;
+    try {
+      const v = data?.value ? JSON.parse(data.value) : [];
+      return Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  app.get('/api/settings/employee-positions', async (_req, res) => {
+    try {
+      res.json({ positions: await loadCustomPositions() });
+    } catch (e) {
+      console.error('Failed to load positions:', e);
+      res.status(500).json({ error: 'Failed to load positions' });
+    }
+  });
+
+  app.post('/api/settings/employee-positions', async (req, res) => {
+    try {
+      const { add, remove } = req.body || {};
+      const current = await loadCustomPositions();
+      const clean = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
+      let next = current;
+      if (add != null) {
+        const name = clean(add);
+        if (name.length < 2 || name.length > 40) {
+          return res.status(400).json({ error: 'Название должности — от 2 до 40 символов' });
+        }
+        const exists = [...BASE_EMPLOYEE_POSITIONS, ...current].some((p) => p.toLowerCase() === name.toLowerCase());
+        if (exists) return res.status(400).json({ error: 'Такая должность уже есть' });
+        if (current.length >= 50) return res.status(400).json({ error: 'Слишком много своих должностей' });
+        next = [...current, name];
+      } else if (remove != null) {
+        const name = clean(remove);
+        if (!current.includes(name)) return res.status(404).json({ error: 'Такой должности нет' });
+        // Positions people still hold can't disappear from under them.
+        const { count, error: usedErr } = await supabase
+          .from('staff')
+          .select('id', { count: 'exact', head: true })
+          .eq('position', name);
+        if (usedErr) throw usedErr;
+        if ((count || 0) > 0) {
+          return res.status(409).json({ error: `Должность занята: у ${count} сотрудн. она указана. Сначала смените им должность.` });
+        }
+        next = current.filter((p) => p !== name);
+      } else {
+        return res.status(400).json({ error: 'add or remove is required' });
+      }
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'employee_positions', value: JSON.stringify(next), updated_at: new Date().toISOString() });
+      if (error) throw error;
+      res.json({ success: true, positions: next });
+    } catch (e) {
+      console.error('Failed to save positions:', e);
+      res.status(500).json({ error: 'Не удалось сохранить. Попробуйте ещё раз.' });
+    }
+  });
 
   // Порядок строк и подразделения табеля. Только отображение: смены, ставки и авансы
   // привязаны к сотруднику, а не к подразделению, поэтому перестановка ничего не пересчитывает.
