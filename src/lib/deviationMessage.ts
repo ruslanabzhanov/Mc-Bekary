@@ -1,4 +1,5 @@
-import { Deviation, isRed, fmtPcs } from './orderNorms';
+import { isRed, fmtPcs } from './orderNorms.js';
+import type { Deviation } from './orderNorms.js';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 

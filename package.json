@@ -9,7 +9,8 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.cjs",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "check:serverless": "node scripts/check-serverless-load.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

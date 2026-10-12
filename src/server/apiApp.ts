@@ -6,7 +6,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import ExcelJS from 'exceljs';
 import { supabase } from '../lib/supabaseServer.js';
 import { BASE_EMPLOYEE_POSITIONS } from '../types.js';
-import { Deviation, classifyDeviation, isRed, isYellow } from '../lib/orderNorms.js';
+import { classifyDeviation, isRed, isYellow } from '../lib/orderNorms.js';
+import type { Deviation } from '../lib/orderNorms.js';
 import { buildDeviationMessage } from '../lib/deviationMessage.js';
 import {
   shopFromDb,

@@ -13,7 +13,10 @@ npm run dev      # tsx server.ts — local dev server (Express + Vite middleware
 npm run lint      # tsc --noEmit — this is the only "test"; there is no test suite
 npm run build     # vite build (client) + esbuild bundle of server.ts -> dist/server.cjs
 npm run start     # node dist/server.cjs — run the production build locally
+npm run check:serverless  # loads the API as native ESM, exactly like the Vercel function — RUN BEFORE EVERY DEPLOY that touches src/server or src/lib
 ```
+
+**Before pushing to main, always run `npm run check:serverless`.** The Vercel function loads the code as plain Node ESM, where a relative import without a `.js` extension (`from './orderNorms'`) is a hard error, while `tsc` and esbuild accept it — so lint and build pass and the whole `/api` then returns 500 (this took production down once). In files imported by the server, write `from './x.js'` and use `import type` for types.
 
 There are no unit/integration tests in this repo. After any change, run `npm run lint` and, for anything touching the API or a UI flow, actually exercise it against the running dev server (`npm run dev`, then hit `/api/...` with `curl`/`fetch` or drive the UI) — don't rely on the type check alone.
 
