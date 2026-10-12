@@ -904,6 +904,26 @@ export default function App() {
     }).catch((e) => console.error('Failed to save staff:', e));
   };
 
+  // A person who works in the workshop but has no app (no Telegram): added by hand from the
+  // timesheet. Awaited and reported back, because the timesheet puts them into a department
+  // right after — which the server only accepts for a staff id that already exists.
+  const handleAddManualStaff = async (member: StaffMember): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/staff/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staff: [member] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.staff)) return false;
+      hydrateStaff(data.staff);
+      return true;
+    } catch (e) {
+      console.error('Failed to add staff member:', e);
+      return false;
+    }
+  };
+
   // Employee cabinet photo: goes to Storage server-side, the fresh staff list comes back.
   const handleUploadStaffPhoto = async (staffId: string, dataUrl: string): Promise<boolean> => {
     try {
@@ -1483,6 +1503,7 @@ export default function App() {
               orderDeadline={orderDeadline}
               onEditDeadline={() => setIsDeadlineModalOpen(true)}
               isOwner={currentRole === 'owner'}
+              onAddTimesheetPerson={handleAddManualStaff}
               onOpenMyCabinet={
                 currentRole === 'admin' && staff.some((s) => s.id === currentAdminId)
                   ? () => setIsMyCabinetOpen(true)

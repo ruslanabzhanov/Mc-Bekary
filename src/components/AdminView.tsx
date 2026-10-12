@@ -60,6 +60,8 @@ interface AdminViewProps {
   // Set only when the production head is the one using this screen (not the Owner looking in):
   // opens their own employee cabinet — timesheet, advances, check-in, checklists.
   onOpenMyCabinet?: () => void;
+  // Timesheet: add a workshop person who has no app. Resolves false if it could not be saved.
+  onAddTimesheetPerson?: (member: StaffMember) => Promise<boolean>;
   orderDeadline: string;
   onEditDeadline: () => void;
   shops: CoffeeShop[];
@@ -110,6 +112,7 @@ interface AdminViewProps {
 
 export const AdminView: React.FC<AdminViewProps> = ({
   onOpenMyCabinet,
+  onAddTimesheetPerson,
   shops,
   products,
   orders,
@@ -818,6 +821,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               telegramInitData={telegramInitData}
               actorName={actorName}
               onUpdateStaffMember={onUpdateStaffMember}
+              onAddStaffMember={onAddTimesheetPerson}
               advanceRequests={advanceRequests}
             />
           </div>

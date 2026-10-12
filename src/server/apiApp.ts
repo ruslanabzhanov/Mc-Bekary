@@ -3532,7 +3532,7 @@ export function createApiApp() {
   // the comment above the endpoint definitions removed from requireOwner, below.
   app.post('/api/timesheet/shift', async (req, res) => {
     try {
-      const { staffId, workDate, rate, note, actorName } = req.body || {};
+      const { staffId, workDate, rate, note, actorName, units } = req.body || {};
       // Used to be requireOwner-only, back when Owner was the only reachable admin identity.
       // «Заведующий производством» now reaches this same screen (AdminView's "Табель" tile,
       // gated by the manage_personnel permission) and needs to actually be able to save a
@@ -3545,6 +3545,10 @@ export function createApiApp() {
       if (!Number.isFinite(numericRate) || numericRate < 0) {
         return res.status(400).json({ error: 'rate must be a non-negative number' });
       }
+      // Optional: 1 = full shift, 0.5 = half. Left out, the day keeps whatever it already had.
+      if (units != null && Number(units) !== 1 && Number(units) !== 0.5) {
+        return res.status(400).json({ error: 'units must be 1 or 0.5' });
+      }
 
       // Upsert on (staff_id, work_date) so re-recording the same day corrects that row rather
       // than adding a second one — the unique constraint makes double pay impossible anyway,
@@ -3552,7 +3556,13 @@ export function createApiApp() {
       const { data, error } = await supabase
         .from('shifts')
         .upsert(
-          { staff_id: staffId, work_date: workDate, rate: numericRate, note: note || null },
+          {
+            staff_id: staffId,
+            work_date: workDate,
+            rate: numericRate,
+            note: note || null,
+            ...(units != null ? { units: Number(units) } : {}),
+          },
           { onConflict: 'staff_id,work_date' }
         )
         .select()

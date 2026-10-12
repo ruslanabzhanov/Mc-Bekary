@@ -3,7 +3,7 @@ import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, Users, Check, X, Wallet, Printer, History, Table2,
   ListOrdered, Plus, Trash2,
 } from 'lucide-react';
-import { StaffMember, Shift, AdvanceRequest } from '../types';
+import { StaffMember, Shift, AdvanceRequest, EMPLOYEE_POSITIONS } from '../types';
 import { PrintTimesheetModal } from './PrintTimesheetModal';
 
 interface TimesheetManagerProps {
@@ -11,6 +11,8 @@ interface TimesheetManagerProps {
   telegramInitData: string;
   actorName: string;
   onUpdateStaffMember: (staffId: string, updates: Partial<StaffMember>) => void;
+  // Add a person who has no app. Resolves false if it could not be saved.
+  onAddStaffMember?: (member: StaffMember) => Promise<boolean>;
   // For the «Аванс» / «К выдаче» columns of the monthly grid.
   advanceRequests?: AdvanceRequest[];
 }
@@ -114,6 +116,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   telegramInitData,
   actorName,
   onUpdateStaffMember,
+  onAddStaffMember,
   advanceRequests = [],
 }) => {
   const [mode, setMode] = useState<Mode>('grid');
@@ -131,6 +134,10 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   const [draft, setDraft] = useState<LayoutGroup[] | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [isLayoutSaving, setIsLayoutSaving] = useState(false);
+  const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
+  const [newPerson, setNewPerson] = useState({ name: '', position: EMPLOYEE_POSITIONS[0] as string, groupId: '', rate: '' });
+  const [isAddingPerson, setIsAddingPerson] = useState(false);
+  const [addPersonError, setAddPersonError] = useState('');
   const [isLayoutLoaded, setIsLayoutLoaded] = useState(false);
 
   // Only internal employees are on the timesheet — point managers and territorial managers
@@ -155,6 +162,57 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
     () => groups.flatMap((g) => g.staffIds.map((id) => employeeById.get(id)).filter((m): m is StaffMember => !!m)),
     [groups, employeeById]
   );
+
+  // ---- Adding a person who has no app ----
+  const openAddPerson = () => {
+    const position = EMPLOYEE_POSITIONS[0] as string;
+    setNewPerson({ name: '', position, groupId: '', rate: '' });
+    setAddPersonError('');
+    setIsAddPersonOpen(true);
+  };
+  const submitAddPerson = async () => {
+    const name = newPerson.name.trim().replace(/\s+/g, ' ');
+    if (!name) {
+      setAddPersonError('Введите имя.');
+      return;
+    }
+    if (!onAddStaffMember) return;
+    setIsAddingPerson(true);
+    setAddPersonError('');
+    try {
+      const member: StaffMember = {
+        id: `staff-manual-${Date.now()}`,
+        name,
+        role: 'employee',
+        shopId: null,
+        position: newPerson.position,
+        shiftRate: Math.max(0, Number(newPerson.rate) || 0),
+      };
+      if (!(await onAddStaffMember(member))) {
+        setAddPersonError('Не удалось сохранить. Попробуйте ещё раз.');
+        return;
+      }
+      // Into the chosen department (default: where their position normally sits).
+      const target =
+        groups.find((g) => g.id === newPerson.groupId) ||
+        groups.find((g) => g.label === GRID_GROUPS.find((x) => x.positions.includes(newPerson.position))?.label) ||
+        groups[groups.length - 1];
+      const nextGroups = groups.map((g) => (g.id === target.id ? { ...g, staffIds: [...g.staffIds, member.id] } : g));
+      const res = await fetch('/api/settings/timesheet-layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout: { groups: nextGroups } }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.layout?.groups) setLayout(data.layout.groups);
+      setIsAddPersonOpen(false);
+    } catch (e) {
+      console.error('Add person failed:', e);
+      setAddPersonError('Нет связи с сервером.');
+    } finally {
+      setIsAddingPerson(false);
+    }
+  };
 
   // ---- Layout editor: a draft until «Сохранить» ----
   const openLayoutEditor = () => {
@@ -323,6 +381,33 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
         { id: Date.now(), staffId: member.id, workDate: day, rate },
       ]);
     }
+  };
+
+  // Full-shift money for this person on this day: the day's own frozen rate if it exists,
+  // otherwise their current tariff. A half shift is always half of that.
+  const fullRateOf = (member: StaffMember, existing?: Shift) =>
+    existing ? (Number(existing.rate) || 0) / unitsOf(existing) : Number(member.shiftRate) || 0;
+
+  // Put the day at exactly 1 or 0.5 (creating it if needed).
+  const setShiftUnits = async (member: StaffMember, day: string, units: 1 | 0.5) => {
+    const key = `${member.id}:${day}`;
+    const existing = shiftAt(member.id, day);
+    const rate = Math.round(fullRateOf(member, existing) * units);
+    const ok = await write('/api/timesheet/shift', 'POST', { staffId: member.id, workDate: day, rate, units }, key);
+    if (!ok) return;
+    setShifts((prev) =>
+      existing
+        ? prev.map((s) => (s.staffId === member.id && s.workDate === day ? { ...s, rate, units } : s))
+        : [...prev, { id: Date.now(), staffId: member.id, workDate: day, rate, units }]
+    );
+  };
+
+  // The grid cell cycles: empty → 1 → 0,5 → empty.
+  const cycleShift = async (member: StaffMember, day: string) => {
+    const existing = shiftAt(member.id, day);
+    if (!existing) return setShiftUnits(member, day, 1);
+    if (unitsOf(existing) === 1) return setShiftUnits(member, day, 0.5);
+    return toggleShift(member, day); // already 0,5 → remove
   };
 
   const changeShiftRate = async (member: StaffMember, day: string, rate: number) => {
@@ -502,6 +587,18 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       {isLoading && <p className="text-center text-sm text-slate-400 py-2">Загружаем табель…</p>}
 
       {/* ---- Grid mode: the whole month for everyone, laid out like the paper timesheet ---- */}
+      {mode === 'grid' && !draft && onAddStaffMember && (
+        <button
+          id="btn-add-timesheet-person"
+          onClick={openAddPerson}
+          disabled={!isLayoutLoaded}
+          className="w-full min-h-[44px] rounded-xl border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-800 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          Добавить сотрудника без приложения
+        </button>
+      )}
+
       {mode === 'grid' && !draft && (
         <button
           id="btn-timesheet-layout"
@@ -723,9 +820,9 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                               return (
                                 <td key={d} className={`${cellBorder} p-0 ${isWeekendDay(d) ? 'bg-slate-50' : ''}`}>
                                   <button
-                                    onClick={() => toggleShift(r.member, d)}
+                                    onClick={() => cycleShift(r.member, d)}
                                     disabled={busyKey === key}
-                                    title={`${r.member.name}, ${Number(d.slice(8))} — ${s ? `смена ${formatMoney(s.rate)}, нажмите чтобы снять` : 'нажмите, чтобы поставить смену'}`}
+                                    title={`${r.member.name}, ${Number(d.slice(8))} — ${s ? `${unitsOf(s) === 1 ? 'смена' : '0,5 смены'} ${formatMoney(s.rate)}, нажмите: 1 → 0,5 → снять` : 'нажмите, чтобы поставить смену'}`}
                                     className={`w-6 h-7 flex items-center justify-center font-bold transition-colors ${
                                       s
                                         ? unitsOf(s) === 1
@@ -794,7 +891,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
               </table>
             </div>
             <p className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-200">
-              Нажмите на клетку дня, чтобы поставить или снять смену. Тарифную ставку меняйте прямо в таблице — она пересчитает смены этого месяца и сразу видна сотруднику в кабинете
+              Нажмите на клетку дня: первое нажатие — смена (1), второе — полсмены (0,5), третье — снять. Тарифную ставку меняйте прямо в таблице — она пересчитает смены этого месяца и сразу видна сотруднику в кабинете
               . Аванс — одобренные заявки за этот месяц.
             </p>
           </div>
@@ -827,11 +924,11 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
               const key = `${member.id}:${selectedDay}`;
               const isBusy = busyKey === key;
               return (
+                <div key={member.id} className="flex items-stretch">
                 <button
-                  key={member.id}
                   onClick={() => toggleShift(member, selectedDay)}
                   disabled={isBusy}
-                  className={`w-full flex items-center gap-3 px-3 py-3 min-h-[60px] text-left transition-colors ${
+                  className={`flex-1 min-w-0 flex items-center gap-3 px-3 py-3 min-h-[60px] text-left transition-colors ${
                     existing ? 'bg-emerald-50/60' : 'hover:bg-slate-50 active:bg-slate-100'
                   } ${isBusy ? 'opacity-50' : ''}`}
                 >
@@ -862,6 +959,19 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                     {existing ? formatMoney(existing.rate) : formatMoney(member.shiftRate || 0)}
                   </span>
                 </button>
+                {existing && (
+                  <button
+                    onClick={() => setShiftUnits(member, selectedDay, unitsOf(existing) === 1 ? 0.5 : 1)}
+                    disabled={isBusy}
+                    title="Переключить 1 смена ↔ 0,5 смены"
+                    className={`w-16 shrink-0 text-xs font-black border-l border-slate-100 ${
+                      unitsOf(existing) === 1 ? 'bg-emerald-50/60 text-slate-500' : 'bg-amber-100 text-amber-900'
+                    } disabled:opacity-50`}
+                  >
+                    {unitsOf(existing) === 1 ? '→ 0,5' : '0,5 → 1'}
+                  </button>
+                )}
+                </div>
               );
             })}
           </div>
@@ -975,6 +1085,18 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                   </div>
 
                   {existing && (
+                    <button
+                      onClick={() => setShiftUnits(selectedMember, day, unitsOf(existing) === 1 ? 0.5 : 1)}
+                      disabled={isBusy}
+                      title="Переключить 1 смена ↔ 0,5 смены"
+                      className={`w-14 h-11 shrink-0 rounded-lg text-xs font-black border ${
+                        unitsOf(existing) === 1 ? 'border-slate-300 text-slate-500 bg-white' : 'border-amber-300 text-amber-900 bg-amber-100'
+                      } disabled:opacity-50`}
+                    >
+                      {unitsOf(existing) === 1 ? '1' : '0,5'}
+                    </button>
+                  )}
+                  {existing && (
                     <input
                       type="number"
                       min="0"
@@ -1035,6 +1157,82 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {isAddPersonOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => !isAddingPerson && setIsAddPersonOpen(false)}>
+          <div id="add-person-dialog" className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-2xl space-y-3 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Новый сотрудник в табеле</h3>
+              <button onClick={() => setIsAddPersonOpen(false)} disabled={isAddingPerson} className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Для тех, у кого нет приложения: смены им проставляете вы. Он появится в «Персонале» и в табеле.
+            </p>
+            <label className="block">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Имя</span>
+              <input
+                value={newPerson.name}
+                maxLength={80}
+                onChange={(e) => setNewPerson({ ...newPerson, name: e.target.value })}
+                className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Должность</span>
+              <select
+                value={newPerson.position}
+                onChange={(e) => setNewPerson({ ...newPerson, position: e.target.value, groupId: '' })}
+                className="w-full px-2.5 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {EMPLOYEE_POSITIONS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Подразделение в табеле</span>
+              <select
+                value={
+                  newPerson.groupId ||
+                  groups.find((g) => g.label === GRID_GROUPS.find((x) => x.positions.includes(newPerson.position))?.label)?.id ||
+                  groups[groups.length - 1]?.id ||
+                  ''
+                }
+                onChange={(e) => setNewPerson({ ...newPerson, groupId: e.target.value })}
+                className="w-full px-2.5 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Тарифная ставка за смену, ₸</span>
+              <input
+                type="number"
+                min="0"
+                step="500"
+                inputMode="numeric"
+                value={newPerson.rate}
+                onChange={(e) => setNewPerson({ ...newPerson, rate: e.target.value })}
+                placeholder="0"
+                className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            {addPersonError && <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{addPersonError}</p>}
+            <button
+              id="btn-save-new-person"
+              onClick={submitAddPerson}
+              disabled={isAddingPerson || !newPerson.name.trim()}
+              className="w-full min-h-[52px] rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-sm uppercase tracking-wider"
+            >
+              {isAddingPerson ? 'Сохраняем…' : 'Добавить'}
+            </button>
+          </div>
         </div>
       )}
 
