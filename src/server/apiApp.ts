@@ -228,7 +228,7 @@ async function computeShopNorms(shopId: number) {
 // Территориальному управляющему этой точки: заявка подана, и вот что в ней отличается от обычного
 // для точки (по её же заказам за 3 недели). Уходит только когда есть серьёзные (красные) отклонения;
 // жёлтые идут в тот же список ниже. Вызывается после ответа менеджеру и никогда его не задерживает.
-async function notifyOrderDeviations(shopId: number, order: any) {
+export async function notifyOrderDeviations(shopId: number, order: any) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) return;
   const [{ days, usualTotal, norms }, { data: productRows }, { data: shopRow }, { data: staffRows }] = await Promise.all([
