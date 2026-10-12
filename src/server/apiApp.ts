@@ -6,8 +6,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import ExcelJS from 'exceljs';
 import { supabase } from '../lib/supabaseServer.js';
 import { BASE_EMPLOYEE_POSITIONS } from '../types.js';
-import { Deviation, classifyDeviation, isRed, isYellow } from '../lib/orderNorms.js';
-import { buildDeviationMessage } from '../lib/deviationMessage.js';
 import {
   shopFromDb,
   shopToDb,
@@ -173,105 +171,6 @@ const WEB_APP_URL = 'https://mc-bekary.vercel.app';
 
 // Имя бота для ссылок на голосование за блюда (t.me/<бот>?startapp=vote_<id>).
 const DISH_POLL_BOT_USERNAME = 'Master_Bekarybot';
-
-// «Норма» точки по каждой позиции: среднее штук за день заказа за последние 3 недели, считается
-// только по заявкам этой точки. Сегодняшний день не входит (это то, что сейчас составляют), а
-// странные дни — тесты, пробные заявки, в разы меньше или больше обычной для точки — не искажают норму.
-async function computeShopNorms(shopId: number) {
-  const today = almatyToday();
-  const since = new Date(Date.now() - 24 * 86400000).toISOString();
-  const { data, error } = await supabase
-    .from('order_history')
-    .select('items, submitted_at')
-    .eq('shop_id', shopId)
-    .gte('submitted_at', since);
-  if (error) throw error;
-
-  const windowStart = new Date(Date.now() - 22 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
-  const latestByDay = new Map<string, any>();
-  for (const row of data || []) {
-    const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
-    if (day >= today || day < windowStart) continue;
-    const prev = latestByDay.get(day);
-    if (!prev || new Date(row.submitted_at) > new Date(prev.submitted_at)) latestByDay.set(day, row);
-  }
-  const total = (items: any): number => (Object.values(items || {}) as any[]).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
-  let days = Array.from(latestByDay.values());
-  const totals = days.map((r) => total(r.items)).sort((a, b) => a - b);
-  if (totals.length >= 5) {
-    const mid = totals.length >> 1;
-    const median = totals.length % 2 ? totals[mid] : (totals[mid - 1] + totals[mid]) / 2;
-    days = days.filter((r) => {
-      const t = total(r.items);
-      return t >= median * 0.4 && t <= median * 2.5;
-    });
-  }
-  const sums = new Map<string, { sum: number; d: number }>();
-  for (const row of days) {
-    Object.entries(row.items || {}).forEach(([pid, q]) => {
-      const n = Number(q) || 0;
-      if (n <= 0) return;
-      const s = sums.get(pid) || { sum: 0, d: 0 };
-      s.sum += n;
-      s.d += 1;
-      sums.set(pid, s);
-    });
-  }
-  const norms: Record<string, { avg: number; d: number }> = {};
-  sums.forEach((s, pid) => {
-    norms[pid] = { avg: Math.round((s.sum / days.length) * 10) / 10, d: s.d };
-  });
-  const usualTotal = days.length ? Math.round(days.reduce((a, r) => a + total(r.items), 0) / days.length) : 0;
-  return { days: days.length, usualTotal, norms };
-}
-
-// Территориальному управляющему этой точки: заявка подана, и вот что в ней отличается от обычного
-// для точки (по её же заказам за 3 недели). Уходит только когда есть серьёзные (красные) отклонения;
-// жёлтые идут в тот же список ниже. Вызывается после ответа менеджеру и никогда его не задерживает.
-async function notifyOrderDeviations(shopId: number, order: any) {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) return;
-  const [{ days, usualTotal, norms }, { data: productRows }, { data: shopRow }, { data: staffRows }] = await Promise.all([
-    computeShopNorms(shopId),
-    supabase.from('products').select('id, name'),
-    supabase.from('shops').select('*').eq('id', shopId).maybeSingle(),
-    supabase.from('staff').select('*').eq('role', 'territorial_manager'),
-  ]);
-  if (days < 5) return; // мало истории — оценивать нечем
-  const nameById = new Map<string, string>((productRows || []).map((r: any) => [r.id, r.name]));
-  const deviations: Deviation[] = [];
-  let totalPcs = 0;
-  Object.entries(order.items || {}).forEach(([pid, q]) => {
-    const qty = Number(q) || 0;
-    totalPcs += qty;
-  });
-  for (const [pid, norm] of Object.entries(norms) as [string, { avg: number; d: number }][]) {
-    const qty = Number((order.items || {})[pid]) || 0;
-    const level = classifyDeviation(qty, norm);
-    if (isRed(level) || isYellow(level)) deviations.push({ productId: pid, name: nameById.get(pid) || pid, qty, norm, level });
-  }
-  if (!deviations.some((d) => isRed(d.level))) return;
-  deviations.sort((a, b) => Math.abs(b.qty - b.norm.avg) - Math.abs(a.qty - a.norm.avg));
-
-  const shop = shopRow ? shopFromDb(shopRow) : null;
-  const shopLabel = shop ? (shop.district || '').trim() || shop.address || `Точка №${shopId}` : `Точка №${shopId}`;
-  const text = buildDeviationMessage({
-    shopLabel,
-    shopId,
-    managerName: order.managerName || '',
-    submittedAt: new Date(),
-    totalPcs,
-    usualTotal,
-    deviations,
-  });
-  const send = makeSender(botToken, WEB_APP_URL);
-  for (const row of staffRows || []) {
-    const member = staffFromDb(row);
-    if (member.telegramUserId && Array.isArray(member.assignedShopIds) && member.assignedShopIds.includes(shopId)) {
-      await send(member.telegramUserId, text);
-    }
-  }
-}
 
 // A point's order has just gone in. Nobody was told about this before — supervision had to
 // open the app and look, and the point's other staff had no way to know it was already done.
@@ -2650,9 +2549,6 @@ export function createApiApp() {
         notifyOrderSubmitted(shopId, order, reopenedFrom).catch((e) =>
           console.error(`Failed to notify about submitted order for shop ${shopId}:`, e)
         );
-        notifyOrderDeviations(shopId, order).catch((e) =>
-          console.error(`Failed to notify about order deviations for shop ${shopId}:`, e)
-        );
       }
     } catch (e) {
       console.error('Failed to save order:', e);
@@ -2723,11 +2619,58 @@ export function createApiApp() {
     }
   });
 
+  // «Норма» точки: по каждой позиции — среднее штук за день заказа за последние 3 недели, считается
+  // только по заявкам этой точки. Сегодняшний день не входит (это то, что сейчас составляют), а
+  // странные дни — тесты, пробные заявки, в разы меньше или больше обычной для точки — не искажают норму.
   app.get('/api/orders/:shopId/norms', async (req, res) => {
     try {
       const shopId = parseInt(req.params.shopId, 10);
       if (!Number.isFinite(shopId)) return res.status(400).json({ error: 'bad shopId' });
-      res.json(await computeShopNorms(shopId));
+      const today = almatyToday();
+      const since = new Date(Date.now() - 24 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from('order_history')
+        .select('items, submitted_at')
+        .eq('shop_id', shopId)
+        .gte('submitted_at', since);
+      if (error) throw error;
+
+      const windowStart = new Date(Date.now() - 22 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+      const latestByDay = new Map<string, any>();
+      for (const row of data || []) {
+        const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+        if (day >= today || day < windowStart) continue;
+        const prev = latestByDay.get(day);
+        if (!prev || new Date(row.submitted_at) > new Date(prev.submitted_at)) latestByDay.set(day, row);
+      }
+      const total = (items: any): number => (Object.values(items || {}) as any[]).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+      let days = Array.from(latestByDay.values());
+      const totals = days.map((r) => total(r.items)).sort((a, b) => a - b);
+      if (totals.length >= 5) {
+        const mid = totals.length >> 1;
+        const median = totals.length % 2 ? totals[mid] : (totals[mid - 1] + totals[mid]) / 2;
+        days = days.filter((r) => {
+          const t = total(r.items);
+          return t >= median * 0.4 && t <= median * 2.5;
+        });
+      }
+      const sums = new Map<string, { sum: number; d: number }>();
+      for (const row of days) {
+        Object.entries(row.items || {}).forEach(([pid, q]) => {
+          const n = Number(q) || 0;
+          if (n <= 0) return;
+          const s = sums.get(pid) || { sum: 0, d: 0 };
+          s.sum += n;
+          s.d += 1;
+          sums.set(pid, s);
+        });
+      }
+      const norms: Record<string, { avg: number; d: number }> = {};
+      sums.forEach((s, pid) => {
+        norms[pid] = { avg: Math.round((s.sum / days.length) * 10) / 10, d: s.d };
+      });
+      const usualTotal = days.length ? Math.round(days.reduce((a, r) => a + total(r.items), 0) / days.length) : 0;
+      res.json({ days: days.length, usualTotal, norms });
     } catch (e) {
       console.error('Failed to build order norms:', e);
       res.status(500).json({ error: 'Failed to build order norms' });
