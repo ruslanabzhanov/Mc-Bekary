@@ -127,7 +127,7 @@ export const PersonnelManager: React.FC<PersonnelManagerProps> = ({
   };
 
   const handleDeleteMember = (member: StaffMember) => {
-    if (!window.confirm(`Удалить «${member.name}»? Это действие нельзя отменить.`)) return;
+    if (!window.confirm(`Удалить «${member.name}» из системы?\n\nБудут удалены его записи и смены в табеле, а при следующем входе в приложение у него снова запросят регистрацию. Это действие нельзя отменить.`)) return;
     onDeleteStaffMember(member.id);
   };
 

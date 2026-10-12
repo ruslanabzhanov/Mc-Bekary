@@ -1319,6 +1319,76 @@ export default function App() {
     }
   }, [serverDataLoaded, staff, currentRole, currentTerritorialManagerId, currentEmployeeId, currentAdminId]);
 
+  // Человека удалили из персонала — его устройство больше не имеет доступа: забываем, кто это, и
+  // показываем регистрацию заново (как у нового телефона). Владельца это не касается.
+  const evictThisDevice = () => {
+    [STAFF_ID_STORAGE_KEY, TERRITORIAL_ID_STORAGE_KEY, EMPLOYEE_ID_STORAGE_KEY, ADMIN_ID_STORAGE_KEY,
+      REGISTERED_STORAGE_KEY, SHOP_ID_STORAGE_KEY, 'mc-bekary-pending-registration-id',
+    ].forEach((k) => window.localStorage.removeItem(k));
+    setCurrentTerritorialManagerId(null);
+    setCurrentEmployeeId(null);
+    setCurrentAdminId(null);
+    setPreviewEmployeeId(null);
+    setIsMyCabinetOpen(false);
+    setCurrentRole('manager');
+    setHasAccess(false);
+    showToast('Ваш доступ закрыт управляющим. Чтобы продолжить, пройдите регистрацию заново.');
+  };
+  const isOwnerDevice = () => currentRole === 'owner' || !!isOwnerVerified || window.localStorage.getItem(OWNER_VIEW_STORAGE_KEY) === '1';
+
+  // Full staff list arrived and this device's person is not in it (and the list is not empty, so a
+  // broken response can't log everyone out).
+  useEffect(() => {
+    if (!serverDataLoaded || staff.length === 0 || isOwnerDevice()) return;
+    const myId = window.localStorage.getItem(STAFF_ID_STORAGE_KEY);
+    if (myId && !staff.some((s) => s.id === myId)) evictThisDevice();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverDataLoaded, staff]);
+
+  // Pull only this device's own record, once a minute and whenever the app comes back to the
+  // screen: a deleted person is locked out, and a changed point / role / position reaches their
+  // phone without anyone having to reopen the app. A few hundred bytes, not the whole staff table.
+  useEffect(() => {
+    if (!serverDataLoaded) return;
+    let stopped = false;
+    const check = async () => {
+      const myId = window.localStorage.getItem(STAFF_ID_STORAGE_KEY);
+      if (!myId || isOwnerDevice()) return;
+      try {
+        const res = await fetch(`/api/staff-status?id=${encodeURIComponent(myId)}`);
+        if (!res.ok || stopped) return;
+        const d = await res.json();
+        if (stopped) return;
+        if (d.found === false) {
+          evictThisDevice();
+        } else if (d.found && d.staff) {
+          const fresh = d.staff as StaffMember;
+          hydrateStaff((prev) => {
+            const cur = prev.find((s) => s.id === fresh.id);
+            const pick = (x?: StaffMember) =>
+              JSON.stringify([x?.name, x?.role, x?.position, x?.shopId, x?.assignedShopIds, x?.shiftRate]);
+            if (cur && pick(cur) === pick(fresh)) return prev;
+            return cur ? prev.map((s) => (s.id === fresh.id ? { ...s, ...fresh } : s)) : [...prev, fresh];
+          });
+        }
+      } catch {
+        /* offline — try again next time */
+      }
+    };
+    check();
+    const interval = setInterval(check, 60000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverDataLoaded, currentRole, isOwnerVerified]);
+
   // A registered device's role can change after the fact — Владелец edits someone's role or
   // position in «Персонал», or (as actually happened) a request was approved with a role and a
   // position that didn't agree with each other in the first place (shop_manager assigned a shop,
@@ -1340,6 +1410,20 @@ export default function App() {
       me.role === 'territorial_manager' ? 'territorial' :
       me.position === 'Заведующий производством' ? 'admin' :
       'employee';
+
+    // The point was changed in «Персонал» (было Мега — стала Туран): the order screen moves with it.
+    if (
+      currentRole === 'manager' &&
+      shouldBe === 'manager' &&
+      me.shopId != null &&
+      me.shopId !== selectedShopId &&
+      !isOwnerVerified
+    ) {
+      setSelectedShopId(me.shopId);
+      const label = shops.find((s) => s.id === me.shopId);
+      showToast(`Ваша точка изменена: теперь «${label?.district?.trim() || label?.address || `Точка №${me.shopId}`}».`);
+      return;
+    }
 
     if (currentRole === shouldBe) return;
     // Only ever resync a device sitting in one of its own four locked-in roles — never touch
@@ -1364,7 +1448,7 @@ export default function App() {
     window.localStorage.setItem(REGISTERED_STORAGE_KEY, '1');
     setCurrentRole(shouldBe);
     showToast('Ваш доступ обновлён управляющим — открыт новый экран.');
-  }, [serverDataLoaded, staff, currentRole]);
+  }, [serverDataLoaded, staff, currentRole, selectedShopId]);
 
   // Reached via a Telegram deep link (t.me/<bot>?startapp=vote_<id>) — or a bare ?vote=
   // query param, for testing outside Telegram — an anonymous dish-tasting vote, entirely

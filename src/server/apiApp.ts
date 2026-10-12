@@ -1186,6 +1186,22 @@ export function createApiApp() {
     }
   });
 
+  // The device asks about its own person only: one small row instead of the whole staff table
+  // (every registered phone polls this, so it has to stay tiny). found:false is sent only when the
+  // query itself succeeded and there is no such row — an error is a 500, never "deleted".
+  app.get('/api/staff-status', async (req, res) => {
+    try {
+      const id = String(req.query.id || '');
+      if (!id) return res.status(400).json({ error: 'id is required' });
+      const { data, error } = await supabase.from('staff').select('*').eq('id', id).maybeSingle();
+      if (error) throw error;
+      res.json(data ? { found: true, staff: staffFromDb(data) } : { found: false });
+    } catch (e) {
+      console.error('Failed to read staff status:', e);
+      res.status(500).json({ error: 'Failed to read staff status' });
+    }
+  });
+
   app.delete('/api/staff/:staffId', async (req, res) => {
     try {
       const { error } = await supabase.from('staff').delete().eq('id', String(req.params.staffId));
