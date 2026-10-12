@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { OrderHistoryModal } from './OrderHistoryModal';
 import { SubmitConfirmDialog } from './SubmitConfirmDialog';
+import { OneClickDialog } from './OneClickDialog';
 
 interface ManagerViewProps {
   coffeeShops: CoffeeShop[];
@@ -90,6 +91,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   // Норма точки по позициям — среднее за последние 3 недели по её же заявкам.
   const [norms, setNorms] = useState<Record<string, ProductNorm>>({});
   const [usualTotal, setUsualTotal] = useState(0);
+  const [normDays, setNormDays] = useState(0);
+  const [isOneClickOpen, setIsOneClickOpen] = useState(false);
   // Only while the order is still being put together — once it's sent, the screen shows the
   // receipt (alphabetical) instead of the product grid, so there's nothing to sort.
   const isDraft = (currentOrder?.status || 'draft') === 'draft';
@@ -118,6 +121,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         if (cancelled || !d?.norms) return;
         setNorms(d.norms);
         setUsualTotal(Number(d.usualTotal) || 0);
+        setNormDays(Number(d.days) || 0);
       })
       .catch(() => {});
     return () => {
@@ -207,13 +211,30 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     handleQuantityChange(productId, String(Math.max(1, Math.round(norm.avg))));
   };
 
-  const handleApplyAllAiRecommendations = () => {
-    const newItems: Record<string, number> = { ...shopOrderItems };
+  // «Заявка в один клик»: обычное для точки (среднее за 3 недели) по регулярным позициям, и +1 шт
+  // к тем, что берут от 3 шт. Позиции, которых нет в рекомендации, остаются как были.
+  const MIN_HISTORY_DAYS = 5;
+  const oneClickPlan = useMemo(() => {
+    const plan: Record<string, number> = {};
+    let base = 0;
+    if (normDays < MIN_HISTORY_DAYS) return { plan, base, total: 0 };
+    const minDays = Math.max(MIN_DAYS_FOR_NORM, Math.ceil(normDays * 0.4));
     products.forEach((p) => {
-      const rec = selectedShop?.historicalAvg[p.id] || 10;
-      newItems[p.id] = rec;
+      const norm = norms[p.id];
+      if (!norm || norm.d < minDays) return;
+      const usual = Math.round(norm.avg);
+      if (usual < 1) return;
+      plan[p.id] = usual + (usual >= 3 ? 1 : 0);
+      base += usual;
     });
-    onUpdateOrder(selectedShopId, newItems, 'draft');
+    return { plan, base, total: Object.values(plan).reduce((a, v) => a + v, 0) };
+  }, [products, norms, normDays]);
+  const oneClickReady = Object.keys(oneClickPlan.plan).length > 0;
+
+  const applyOneClick = () => {
+    setIsOneClickOpen(false);
+    setValidationError(null);
+    onUpdateOrder(selectedShopId, { ...shopOrderItems, ...oneClickPlan.plan }, 'draft');
   };
 
   // Calculate totals & anomalies
@@ -254,8 +275,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     });
     return out;
   }, [products, norms, shopOrderItems]);
-  const redCount = deviations.filter((d) => isRed(d.level)).length;
-  const yellowCount = deviations.length - redCount;
+  // Пока заявку собирают, незаполненная позиция — это ещё не отклонение, поэтому на экране заказа
+  // подсвечивается только то, что уже введено. Позиции, обычные для точки, но не заказанные совсем,
+  // попадают в список при отправке (окно подтверждения) и в сообщение территориальному.
+  const liveDeviations = deviations.filter((d) => d.qty > 0);
+  const redCount = liveDeviations.filter((d) => isRed(d.level)).length;
+  const yellowCount = liveDeviations.length - redCount;
 
   // Submit order handler
   const handleSubmitOrder = () => {
@@ -382,19 +407,26 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             )}
           </div>
 
-          {/* Tile 4: Заявка в один клик — временно отключена, ИИ-нормы дня ещё не готовы к запуску */}
-          <div
-            className="bg-rose-500/10 p-3 rounded-xl border border-rose-300 flex items-center justify-between text-left cursor-not-allowed"
-            title="Скоро будет работать"
+          {/* Tile 4: Заявка в один клик — обычное для точки по её же заказам за 3 недели, +1 шт */}
+          <button
+            id="btn-one-click"
+            onClick={() => setIsOneClickOpen(true)}
+            disabled={!isDraft || !oneClickReady}
+            className={`p-3 rounded-xl border flex items-center justify-between text-left transition-all ${
+              isDraft && oneClickReady
+                ? 'bg-indigo-50 border-indigo-300 hover:bg-indigo-100 active:scale-[0.98] cursor-pointer'
+                : 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed'
+            }`}
+            title={!isDraft ? 'Заявка уже отправлена' : !oneClickReady ? 'Пока мало заявок точки для расчёта' : 'Заполнить обычным количеством +1 шт'}
           >
             <div>
-              <span className="text-[10px] font-black uppercase text-rose-400 block mb-1">Заявка</span>
-              <span className="font-bold uppercase tracking-wider text-xs text-rose-600">
-                Скоро будет работать
+              <span className="text-[10px] font-black uppercase text-indigo-500 block mb-1">Заявка в один клик</span>
+              <span className="font-bold uppercase tracking-wider text-xs text-indigo-800">
+                {!isDraft ? 'Уже отправлена' : oneClickReady ? 'Обычное + 1 шт' : 'Мало истории'}
               </span>
             </div>
-            <Zap className="w-5 h-5 text-rose-400 flex-shrink-0" />
-          </div>
+            <Zap className="w-5 h-5 text-indigo-500 flex-shrink-0" />
+          </button>
         </div>
       </div>
 
@@ -516,7 +548,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <i className="w-2 h-2 rounded-full bg-amber-500 inline-block" /> жёлтых: {yellowCount}
             </span>
           )}
-          {deviations.length === 0 && <span className="text-emerald-700 font-bold">всё в пределах обычного</span>}
+          {liveDeviations.length === 0 && <span className="text-emerald-700 font-bold">всё в пределах обычного</span>}
           {usualTotal > 0 && <span className="text-slate-500 ml-auto">обычно в заявке ≈ {usualTotal} шт</span>}
         </div>
       )}
@@ -526,7 +558,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           const currentQty = shopOrderItems[product.id] || 0;
           const norm = norms[product.id];
           const hasNorm = !!norm && norm.d >= MIN_DAYS_FOR_NORM;
-          const level = classifyDeviation(currentQty, norm);
+          const level = currentQty > 0 ? classifyDeviation(currentQty, norm) : 'ok';
           const devRed = isRed(level);
           const devYellow = isYellow(level);
           const avgQty = selectedShop?.historicalAvg[product.id] || 10;
@@ -742,6 +774,17 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         </div>
       </div>
       )}
+
+      <OneClickDialog
+        isOpen={isOneClickOpen}
+        days={normDays}
+        positions={Object.keys(oneClickPlan.plan).length}
+        basePcs={oneClickPlan.base}
+        totalPcs={oneClickPlan.total}
+        hasDraft={Object.values(shopOrderItems).some((q) => (Number(q) || 0) > 0)}
+        onCancel={() => setIsOneClickOpen(false)}
+        onConfirm={applyOneClick}
+      />
 
       <SubmitConfirmDialog
         isOpen={isSubmitConfirmOpen}
