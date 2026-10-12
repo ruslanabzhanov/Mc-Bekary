@@ -211,23 +211,22 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     handleQuantityChange(productId, String(Math.max(1, Math.round(norm.avg))));
   };
 
-  // «Заявка в один клик»: обычное для точки (среднее за 3 недели) по регулярным позициям, и +1 шт
-  // к тем, что берут от 3 шт. Позиции, которых нет в рекомендации, остаются как были.
+  // «Заявка в один клик»: среднее для точки за 3 недели по регулярным позициям и внутренняя
+  // добавка +1 шт к тем, что берут от 3 шт (менеджерам не показывается). Остальные позиции остаются как были.
   const MIN_HISTORY_DAYS = 5;
   const oneClickPlan = useMemo(() => {
     const plan: Record<string, number> = {};
-    let base = 0;
-    if (normDays < MIN_HISTORY_DAYS) return { plan, base, total: 0 };
+    if (normDays < MIN_HISTORY_DAYS) return { plan, total: 0 };
     const minDays = Math.max(MIN_DAYS_FOR_NORM, Math.ceil(normDays * 0.4));
     products.forEach((p) => {
       const norm = norms[p.id];
       if (!norm || norm.d < minDays) return;
       const usual = Math.round(norm.avg);
       if (usual < 1) return;
+      // Внутреннее правило: к позициям от 3 шт добавляем +1. Менеджерам об этом не говорим.
       plan[p.id] = usual + (usual >= 3 ? 1 : 0);
-      base += usual;
     });
-    return { plan, base, total: Object.values(plan).reduce((a, v) => a + v, 0) };
+    return { plan, total: Object.values(plan).reduce((a, v) => a + v, 0) };
   }, [products, norms, normDays]);
   const oneClickReady = Object.keys(oneClickPlan.plan).length > 0;
 
@@ -417,12 +416,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 ? 'bg-indigo-50 border-indigo-300 hover:bg-indigo-100 active:scale-[0.98] cursor-pointer'
                 : 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed'
             }`}
-            title={!isDraft ? 'Заявка уже отправлена' : !oneClickReady ? 'Пока мало заявок точки для расчёта' : 'Заполнить обычным количеством +1 шт'}
+            title={!isDraft ? 'Заявка уже отправлена' : !oneClickReady ? 'Пока мало заявок точки для расчёта' : 'Заполнить рекомендуемыми количествами'}
           >
             <div>
               <span className="text-[10px] font-black uppercase text-indigo-500 block mb-1">Заявка в один клик</span>
               <span className="font-bold uppercase tracking-wider text-xs text-indigo-800">
-                {!isDraft ? 'Уже отправлена' : oneClickReady ? 'Обычное + 1 шт' : 'Мало истории'}
+                {!isDraft ? 'Уже отправлена' : oneClickReady ? 'Заполнить по рекомендации' : 'Мало истории'}
               </span>
             </div>
             <Zap className="w-5 h-5 text-indigo-500 flex-shrink-0" />
@@ -779,7 +778,6 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         isOpen={isOneClickOpen}
         days={normDays}
         positions={Object.keys(oneClickPlan.plan).length}
-        basePcs={oneClickPlan.base}
         totalPcs={oneClickPlan.total}
         hasDraft={Object.values(shopOrderItems).some((q) => (Number(q) || 0) > 0)}
         onCancel={() => setIsOneClickOpen(false)}
