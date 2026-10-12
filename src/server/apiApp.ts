@@ -6,7 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import ExcelJS from 'exceljs';
 import { supabase } from '../lib/supabaseServer.js';
 import { BASE_EMPLOYEE_POSITIONS } from '../types.js';
-import { classifyDeviation, isRed, isYellow } from '../lib/orderNorms.js';
+import { classifyDeviation, describeDeviation, isRed, isYellow } from '../lib/orderNorms.js';
 import type { Deviation } from '../lib/orderNorms.js';
 import { buildDeviationMessage } from '../lib/deviationMessage.js';
 import {
@@ -224,6 +224,26 @@ async function computeShopNorms(shopId: number) {
   });
   const usualTotal = days.length ? Math.round(days.reduce((a, r) => a + total(r.items), 0) / days.length) : 0;
   return { days: days.length, usualTotal, norms };
+}
+
+// Красные (серьёзные) отклонения заявки от обычного для точки — то, что считает плитка «Аномалия
+// в заявке» у управляющего. Норма — по заказам этой же точки за 3 недели; позиции, которые точка
+// обычно берёт, но не заказала совсем, тоже считаются. productId -> пояснение. Пусто, если истории
+// меньше 5 дней (оценивать нечем) или расчёт не удался: заявку из-за этого никогда не задерживаем.
+export async function computeRedAnomalies(shopId: number, items: Record<string, any>): Promise<Record<string, string>> {
+  try {
+    const { days, norms } = await computeShopNorms(shopId);
+    if (days < 5) return {};
+    const out: Record<string, string> = {};
+    for (const [pid, norm] of Object.entries(norms) as [string, { avg: number; d: number }][]) {
+      const qty = Number(items?.[pid]) || 0;
+      if (isRed(classifyDeviation(qty, norm))) out[pid] = describeDeviation(qty, norm);
+    }
+    return out;
+  } catch (e) {
+    console.error(`Failed to compute red anomalies for shop ${shopId}:`, e);
+    return {};
+  }
 }
 
 // Территориальному управляющему этой точки: заявка подана, и вот что в ней отличается от обычного
@@ -2591,24 +2611,10 @@ export function createApiApp() {
         });
       }
 
-      // Detect anomalies compared to historical average
-      const anomalies: Record<string, string> = {};
-      {
-        Object.entries(cleanItems).forEach(([productId, qtyVal]) => {
-          const qty = Number(qtyVal) || 0;
-          const avg = shop.historicalAvg[productId] || 10;
-          if (avg > 0) {
-            const ratio = qty / avg;
-            if (ratio >= 2.0 && qty > 10) {
-              const pct = Math.round((ratio - 1) * 100);
-              anomalies[productId] = `⚠️ Завышение на +${pct}% (заказано ${qty} шт при норме ${avg} шт)`;
-            } else if (ratio <= 0.3 && avg >= 10 && qty > 0) {
-              const pct = Math.round((1 - ratio) * 100);
-              anomalies[productId] = `⚠️ Занижение на -${pct}% (заказано ${qty} шт при норме ${avg} шт)`;
-            }
-          }
-        });
-      }
+      // Только красные отклонения от обычного для точки (её же заказы за 3 недели), и только у отправленной
+      // заявки: черновик ничего не показывает, а считать норму на каждое сохранение черновика незачем.
+      const anomalies: Record<string, string> =
+        status === 'submitted' ? await computeRedAnomalies(shopId, cleanItems) : {};
 
       const timeStr = timeNow();
       const order = {

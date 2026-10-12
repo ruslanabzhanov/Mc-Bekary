@@ -392,10 +392,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
               Аномалия в заявке
             </span>
             <div className="text-2xl font-black text-rose-900 mt-1">
-              {networkAnomalies} <span className="text-xs text-rose-700 font-normal">сигналов</span>
+              {networkAnomalies} <span className="text-xs text-rose-700 font-normal">красных</span>
             </div>
             <span className="text-[11px] text-rose-800 font-medium block mt-1">
-              Авто-детекция ИИ по нормативам
+              Серьёзно отличается от обычного
             </span>
           </div>
 
