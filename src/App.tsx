@@ -1478,6 +1478,7 @@ export default function App() {
               orderDeadline={orderDeadline}
               onEditDeadline={() => setIsDeadlineModalOpen(true)}
               isOwner={currentRole === 'owner'}
+              checkInStaffId={currentRole === 'admin' ? currentAdminId || undefined : undefined}
               // Who's actually at the keyboard right now — attributed on the timesheet's
               // change log, since neither role is server-verified enough to log anything
               // stronger than "whichever name this device is currently showing".

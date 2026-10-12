@@ -8,6 +8,7 @@ import { SalesPointsManager } from './SalesPointsManager';
 import { RolePermissionsModal } from './RolePermissionsModal';
 import { TimesheetManager } from './TimesheetManager';
 import { AttendanceManager } from './AttendanceManager';
+import { CheckInCard } from './CheckInCard';
 import { DishPollsManager } from './DishPollsManager';
 import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
 import { AnalyticsView } from './AnalyticsView';
@@ -56,6 +57,9 @@ const CHECKLIST_DEPTS: { key: ChecklistDeptKey; icon: string; label: string }[] 
 ];
 
 interface AdminViewProps {
+  // The production head's own staff id — only set when they are the one using this screen (not the
+  // Owner looking in), so they can mark their own arrival.
+  checkInStaffId?: string;
   orderDeadline: string;
   onEditDeadline: () => void;
   shops: CoffeeShop[];
@@ -105,6 +109,7 @@ interface AdminViewProps {
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
+  checkInStaffId,
   shops,
   products,
   orders,
@@ -303,6 +308,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <h2 className="text-base sm:text-xl font-bold tracking-tight uppercase text-indigo-900">Управляющий производством</h2>
           </div>
         </div>
+
+        {checkInStaffId && <CheckInCard staffId={checkInStaffId} />}
 
         {/* Дедлайн подачи. В шапке он виден только на широком экране, а двигают его чаще всего
             с телефона — поэтому здесь отдельной заметной кнопкой. */}
