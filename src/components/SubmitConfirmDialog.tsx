@@ -1,14 +1,11 @@
 import React from 'react';
 import { AlertTriangle, Send } from 'lucide-react';
-import { Deviation, describeDeviation, isRed, fmtPcs } from '../lib/orderNorms';
 
 interface SubmitConfirmDialogProps {
   isOpen: boolean;
   positions: number;
   totalPcs: number;
   totalCost: number;
-  // Позиции, сильно отличающиеся от обычного для этой точки (жёлтые и красные).
-  deviations?: Deviation[];
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -20,7 +17,6 @@ export const SubmitConfirmDialog: React.FC<SubmitConfirmDialogProps> = ({
   positions,
   totalPcs,
   totalCost,
-  deviations = [],
   onCancel,
   onConfirm,
 }) => {
@@ -62,42 +58,13 @@ export const SubmitConfirmDialog: React.FC<SubmitConfirmDialogProps> = ({
           </div>
         </div>
 
-        {deviations.length > 0 && (
-          <div id="submit-deviations" className="rounded-xl border border-slate-200 overflow-hidden">
-            <p className="px-3 py-2 text-[11px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border-b border-slate-200">
-              Отличается от обычного ({deviations.length})
-            </p>
-            <div className="max-h-48 overflow-y-auto divide-y divide-slate-100">
-              {[...deviations]
-                .sort((a, b) => Number(isRed(b.level)) - Number(isRed(a.level)))
-                .map((d) => {
-                  const red = isRed(d.level);
-                  const diff = d.qty - d.norm.avg;
-                  return (
-                    <div key={d.productId} className={`px-3 py-2 flex items-center justify-between gap-2 ${red ? 'bg-rose-50' : 'bg-amber-50'}`}>
-                      <div className="min-w-0">
-                        <p className={`text-xs font-bold leading-tight ${red ? 'text-rose-950' : 'text-amber-950'}`}>{d.name}</p>
-                        <p className={`text-[11px] ${red ? 'text-rose-800' : 'text-amber-800'}`}>
-                          обычно ≈ {fmtPcs(d.norm.avg)}, сейчас {d.qty}
-                        </p>
-                      </div>
-                      <span className={`shrink-0 text-[11px] font-black px-2 py-1 rounded-md border ${red ? 'bg-rose-100 border-rose-300 text-rose-900' : 'bg-amber-100 border-amber-300 text-amber-900'}`}>
-                        {diff > 0 ? '+' : '−'}{fmtPcs(Math.abs(diff))} шт
-                      </span>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        )}
-
         <div className="grid grid-cols-2 gap-2">
           <button
             id="btn-confirm-cancel"
             onClick={onCancel}
             className="min-h-[48px] rounded-lg text-xs font-bold uppercase tracking-wider bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700"
           >
-            {deviations.length > 0 ? 'Вернуться и проверить' : 'Нет, вернуться'}
+            Нет, вернуться
           </button>
           <button
             id="btn-confirm-yes"

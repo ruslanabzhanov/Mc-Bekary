@@ -2619,64 +2619,6 @@ export function createApiApp() {
     }
   });
 
-  // «Норма» точки: по каждой позиции — среднее штук за день заказа за последние 3 недели, считается
-  // только по заявкам этой точки. Сегодняшний день не входит (это то, что сейчас составляют), а
-  // странные дни — тесты, пробные заявки, в разы меньше или больше обычной для точки — не искажают норму.
-  app.get('/api/orders/:shopId/norms', async (req, res) => {
-    try {
-      const shopId = parseInt(req.params.shopId, 10);
-      if (!Number.isFinite(shopId)) return res.status(400).json({ error: 'bad shopId' });
-      const today = almatyToday();
-      const since = new Date(Date.now() - 24 * 86400000).toISOString();
-      const { data, error } = await supabase
-        .from('order_history')
-        .select('items, submitted_at')
-        .eq('shop_id', shopId)
-        .gte('submitted_at', since);
-      if (error) throw error;
-
-      const windowStart = new Date(Date.now() - 22 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
-      const latestByDay = new Map<string, any>();
-      for (const row of data || []) {
-        const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
-        if (day >= today || day < windowStart) continue;
-        const prev = latestByDay.get(day);
-        if (!prev || new Date(row.submitted_at) > new Date(prev.submitted_at)) latestByDay.set(day, row);
-      }
-      const total = (items: any): number => (Object.values(items || {}) as any[]).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
-      let days = Array.from(latestByDay.values());
-      const totals = days.map((r) => total(r.items)).sort((a, b) => a - b);
-      if (totals.length >= 5) {
-        const mid = totals.length >> 1;
-        const median = totals.length % 2 ? totals[mid] : (totals[mid - 1] + totals[mid]) / 2;
-        days = days.filter((r) => {
-          const t = total(r.items);
-          return t >= median * 0.4 && t <= median * 2.5;
-        });
-      }
-      const sums = new Map<string, { sum: number; d: number }>();
-      for (const row of days) {
-        Object.entries(row.items || {}).forEach(([pid, q]) => {
-          const n = Number(q) || 0;
-          if (n <= 0) return;
-          const s = sums.get(pid) || { sum: 0, d: 0 };
-          s.sum += n;
-          s.d += 1;
-          sums.set(pid, s);
-        });
-      }
-      const norms: Record<string, { avg: number; d: number }> = {};
-      sums.forEach((s, pid) => {
-        norms[pid] = { avg: Math.round((s.sum / days.length) * 10) / 10, d: s.d };
-      });
-      const usualTotal = days.length ? Math.round(days.reduce((a, r) => a + total(r.items), 0) / days.length) : 0;
-      res.json({ days: days.length, usualTotal, norms });
-    } catch (e) {
-      console.error('Failed to build order norms:', e);
-      res.status(500).json({ error: 'Failed to build order norms' });
-    }
-  });
-
   app.get('/api/orders/:shopId/history', async (req, res) => {
     try {
       const shopId = parseInt(req.params.shopId, 10);
