@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CoffeeShop, Product, ShopOrder, SemiFinishedProduct, DishCosting, StaffMember, RegistrationRequest, AdvanceRequest, RawMaterial, ChecklistAssignments, RolePermissions } from '../types';
 import { PrintChecklistsModal } from './PrintChecklistsModal';
 import { PRODUCTS as DEMO_PRODUCTS } from '../data/mockData';
@@ -9,11 +9,13 @@ import { RolePermissionsModal } from './RolePermissionsModal';
 import { TimesheetManager } from './TimesheetManager';
 import { AttendanceManager } from './AttendanceManager';
 import { ReimbursementManager } from './ReimbursementManager';
+import { TaskManager } from './TaskManager';
 import { DishPollsManager } from './DishPollsManager';
 import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
 import { AnalyticsView } from './AnalyticsView';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
+  ListChecks,
   Wallet,
   UserCircle,
   UserCheck,
@@ -170,6 +172,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
   const [isReimbursementOpen, setIsReimbursementOpen] = useState(false);
+  const [isTasksOpen, setIsTasksOpen] = useState(false);
+  // Сколько задач ждут проверки / просрочено — число на плитке «Задачи».
+  const [taskSummary, setTaskSummary] = useState<{ review: number; overdue: number } | null>(null);
+  const loadTaskSummary = React.useCallback(() => {
+    if (!telegramInitData) return;
+    fetch('/api/tasks/summary', { headers: { 'x-telegram-init-data': telegramInitData } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setTaskSummary({ review: Number(d.review) || 0, overdue: Number(d.overdue) || 0 }))
+      .catch(() => {});
+  }, [telegramInitData]);
+  useEffect(() => {
+    loadTaskSummary();
+  }, [loadTaskSummary]);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [advanceTab, setAdvanceTab] = useState<'requests' | 'approved'>('requests');
   const [advanceMonth, setAdvanceMonth] = useState(() =>
@@ -190,6 +205,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
   useTelegramBackButton(isTimesheetOpen, () => setIsTimesheetOpen(false));
   useTelegramBackButton(isAttendanceOpen, () => setIsAttendanceOpen(false));
   useTelegramBackButton(isReimbursementOpen, () => setIsReimbursementOpen(false));
+  useTelegramBackButton(isTasksOpen, () => {
+    setIsTasksOpen(false);
+    loadTaskSummary();
+  });
   useTelegramBackButton(isAdvanceModalOpen, () => setIsAdvanceModalOpen(false));
   useTelegramBackButton(isDishPollsOpen && !!isOwner, () => setIsDishPollsOpen(false));
   useTelegramBackButton(isAnalyticsOpen, () => setIsAnalyticsOpen(false));
@@ -524,6 +543,24 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </button>
 
           <button
+            id="btn-open-tasks-modal"
+            onClick={() => setIsTasksOpen(true)}
+            disabled={!canDo('manage_personnel')}
+            title={!canDo('manage_personnel') ? 'Отключено Владельцем' : undefined}
+            className="relative bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
+          >
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Задачи
+            </span>
+            <ListChecks className="w-6 h-6 text-slate-900 mt-1.5" />
+            {taskSummary && (taskSummary.review > 0 || taskSummary.overdue > 0) && (
+              <span className={`absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1 rounded-full text-[10px] font-black text-white flex items-center justify-center ${taskSummary.review > 0 ? 'bg-amber-500' : 'bg-rose-600'}`}>
+                {taskSummary.review > 0 ? taskSummary.review : taskSummary.overdue}
+              </span>
+            )}
+          </button>
+
+          <button
             id="btn-open-reimbursement-modal"
             onClick={() => setIsReimbursementOpen(true)}
             disabled={!canDo('manage_personnel')}
@@ -841,6 +878,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
               onAddStaffMember={onAddTimesheetPerson}
               advanceRequests={advanceRequests}
             />
+          </div>
+        </div>
+      )}
+
+      {isTasksOpen && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <ListChecks className="w-5 h-5 text-indigo-600" />
+              <span>Задачи</span>
+            </h2>
+            <button
+              onClick={() => {
+                setIsTasksOpen(false);
+                loadTaskSummary();
+              }}
+              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-3 sm:p-6">
+            <TaskManager telegramInitData={telegramInitData} actorName={actorName} staff={staff} />
           </div>
         </div>
       )}

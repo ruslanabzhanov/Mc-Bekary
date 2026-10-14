@@ -361,3 +361,43 @@ create table if not exists reimbursement_changes (
 );
 create index if not exists reimbursement_changes_parent_idx on reimbursement_changes(reimbursement_id);
 alter table reimbursement_changes enable row level security;
+
+-- ===== Задачи сотрудникам цеха =====
+-- Ставит владелец или управляющий производством. Исполнитель закрывает задачу с доказательством
+-- (фото, файл или ссылка): статус open -> review. Руководитель принимает (done) или возвращает
+-- на доработку (снова open с причиной). assignee_name хранится копией, чтобы задача читалась и
+-- после удаления сотрудника.
+create table if not exists tasks (
+  id bigserial primary key,
+  title text not null,
+  description text,
+  assignee_id text not null,
+  assignee_name text not null,
+  deadline date not null,
+  status text not null default 'open' check (status in ('open', 'review', 'done')),
+  created_by text,
+  created_at timestamptz not null default now(),
+  submitted_at timestamptz,
+  proof_comment text,
+  proof_link text,
+  proof_file_url text,
+  proof_file_name text,
+  returned_reason text,
+  returned_count int not null default 0,
+  accepted_by text,
+  accepted_at timestamptz
+);
+create index if not exists tasks_status_deadline_idx on tasks(status, deadline);
+create index if not exists tasks_assignee_idx on tasks(assignee_id);
+alter table tasks enable row level security;
+
+create table if not exists task_events (
+  id bigserial primary key,
+  task_id bigint not null,
+  action text not null,
+  details text,
+  actor text,
+  created_at timestamptz not null default now()
+);
+create index if not exists task_events_task_idx on task_events(task_id);
+alter table task_events enable row level security;

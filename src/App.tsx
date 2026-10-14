@@ -1579,6 +1579,7 @@ export default function App() {
           ) : currentRole === 'employee' ? (
             <EmployeeView
               employee={viewedEmployee}
+              telegramInitData={telegramInitData}
               // Only the Owner previewing someone else's cabinet gets the picker; a real
               // employee device sees exactly one person's timesheet — their own.
               allEmployees={isOwnerVerified ? employees : undefined}
@@ -1696,6 +1697,7 @@ export default function App() {
           <div className="max-w-3xl mx-auto p-4 sm:p-6">
             <EmployeeView
               employee={staff.find((s) => s.id === currentAdminId) || null}
+              telegramInitData={telegramInitData}
               advanceRequests={advanceRequests}
               onSubmitAdvanceRequest={handleSubmitAdvanceRequest}
               shops={shops}

@@ -10,6 +10,7 @@ import { classifyDeviation, describeDeviation, isRed, isYellow } from '../lib/or
 import type { Deviation } from '../lib/orderNorms.js';
 import { buildDeviationMessage } from '../lib/deviationMessage.js';
 import { computeReimbursementTotals, reimbursementFormula } from '../lib/reimbursement.js';
+import { TASK_ALLOWED_MIME, TASK_FILE_MAX_BYTES, formatTaskDate } from '../lib/tasks.js';
 import {
   shopFromDb,
   shopToDb,
@@ -3895,6 +3896,398 @@ export function createApiApp() {
   };
   app.get('/api/cron/deadline-tick', runDeadlineTick);
   app.post('/api/cron/deadline-tick', runDeadlineTick);
+
+  // ---- Задачи сотрудникам цеха ----
+  // Руководитель (владелец или управляющий производством) ставит, проверяет, принимает; исполнитель
+  // видит только свои и закрывает их доказательством. Личность — по подписи Telegram.
+  const TASK_PROOFS_BUCKET = 'task-proofs';
+  const escHtml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const taskInit = (req: any) => String(req.headers['x-telegram-init-data'] || req.query?.initData || '');
+  const taskAdminOk = async (req: any, res: any): Promise<boolean> => {
+    if (await canManageDeadline(taskInit(req))) return true;
+    res.status(403).json({ error: 'Задачи ставит и проверяет только владелец или управляющий производством. Откройте приложение через Telegram.' });
+    return false;
+  };
+  // Кто делает запрос как исполнитель: подписанный Telegram id должен совпасть с записью сотрудника.
+  const taskVerifiedUserId = (req: any): string | null => {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const init = taskInit(req);
+    if (!botToken || !init) return null;
+    const { valid, userId } = verifyTelegramInitData(init, botToken);
+    return valid && userId != null ? String(userId) : null;
+  };
+  const taskStaffMatchesUser = async (staffId: string, userId: string | null): Promise<boolean> => {
+    if (!userId) return false;
+    const { data } = await supabase.from('staff').select('telegram_user_id').eq('id', staffId).maybeSingle();
+    return !!data && String(data.telegram_user_id || '') === userId;
+  };
+  const taskTablesMissing = (e: any) =>
+    /tasks|task_events/i.test(String(e?.message || '')) &&
+    (e?.code === '42P01' || e?.code === 'PGRST205' || /does not exist|schema cache/i.test(String(e?.message || '')));
+  const taskFail = (res: any, e: any, what: string) => {
+    if (taskTablesMissing(e)) return res.status(503).json({ code: 'no_tables', error: 'Задачи ещё не включены: нужно выполнить SQL из инструкции в Supabase.' });
+    console.error(`Tasks: failed to ${what}:`, e);
+    return res.status(500).json({ error: `Не удалось ${what}. Попробуйте ещё раз.` });
+  };
+  const taskOut = (r: any) => ({
+    id: Number(r.id),
+    title: r.title,
+    description: r.description || '',
+    assigneeId: r.assignee_id,
+    assigneeName: r.assignee_name,
+    deadline: typeof r.deadline === 'string' ? r.deadline.slice(0, 10) : r.deadline,
+    status: r.status,
+    createdBy: r.created_by || '',
+    createdAt: r.created_at,
+    submittedAt: r.submitted_at,
+    proofComment: r.proof_comment || '',
+    proofLink: r.proof_link || '',
+    proofFileUrl: r.proof_file_url || '',
+    proofFileName: r.proof_file_name || '',
+    returnedReason: r.returned_reason || '',
+    returnedCount: Number(r.returned_count) || 0,
+    acceptedBy: r.accepted_by || '',
+    acceptedAt: r.accepted_at,
+  });
+  const taskEvent = (taskId: number, action: string, details: string, actor: string) => {
+    supabase
+      .from('task_events')
+      .insert({ task_id: taskId, action, details, actor: actor || 'Неизвестно' })
+      .then(({ error }) => {
+        if (error) console.error('Failed to log a task event:', error);
+      });
+  };
+  const taskNotify = async (chatIds: Iterable<string | null | undefined>, text: string) => {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) return;
+    const send = makeSender(botToken, WEB_APP_URL);
+    for (const id of chatIds) await send(id, text);
+  };
+  // Руководители, которым приходит «задача закрыта»: владелец и все заведующие производством.
+  const taskReviewerIds = async (): Promise<Set<string>> => {
+    const ids = new Set<string>(supervisorRecipientIds());
+    const { data } = await supabase.from('staff').select('telegram_user_id, position, role').eq('position', 'Заведующий производством');
+    (data || []).forEach((r: any) => r.telegram_user_id && ids.add(String(r.telegram_user_id)));
+    return ids;
+  };
+  const taskAssigneeTelegram = async (assigneeId: string) => {
+    const { data } = await supabase.from('staff').select('telegram_user_id').eq('id', assigneeId).maybeSingle();
+    return data?.telegram_user_id ? String(data.telegram_user_id) : null;
+  };
+  const taskLoad = async (id: number) => {
+    const { data, error } = await supabase.from('tasks').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data;
+  };
+
+  // Плитка у руководителя: сколько ждут проверки и сколько просрочено.
+  app.get('/api/tasks/summary', async (req, res) => {
+    if (!(await taskAdminOk(req, res))) return;
+    try {
+      const { data, error } = await supabase.from('tasks').select('status, deadline').neq('status', 'done');
+      if (error) throw error;
+      const today = almatyToday();
+      const rows = data || [];
+      res.json({
+        review: rows.filter((r: any) => r.status === 'review').length,
+        open: rows.filter((r: any) => r.status === 'open').length,
+        overdue: rows.filter((r: any) => r.status === 'open' && String(r.deadline).slice(0, 10) < today).length,
+      });
+    } catch (e) {
+      taskFail(res, e, 'загрузить задачи');
+    }
+  });
+
+  app.get('/api/tasks', async (req, res) => {
+    if (!(await taskAdminOk(req, res))) return;
+    try {
+      const { data, error } = await supabase.from('tasks').select('*').order('id', { ascending: false }).limit(400);
+      if (error) throw error;
+      res.json({ tasks: (data || []).map(taskOut) });
+    } catch (e) {
+      taskFail(res, e, 'загрузить задачи');
+    }
+  });
+
+  // Мои задачи: исполнитель видит только свои (подпись Telegram должна совпасть с этим сотрудником);
+  // руководитель может открыть кабинет любого сотрудника.
+  app.get('/api/tasks/mine', async (req, res) => {
+    try {
+      const staffId = String(req.query?.staffId || '');
+      if (!staffId) return res.status(400).json({ error: 'staffId is required' });
+      const isAdmin = await canManageDeadline(taskInit(req));
+      if (!isAdmin && !(await taskStaffMatchesUser(staffId, taskVerifiedUserId(req)))) {
+        return res.status(403).json({ error: 'Свои задачи видны только самому сотруднику. Откройте приложение через Telegram.' });
+      }
+      const { data, error } = await supabase.from('tasks').select('*').eq('assignee_id', staffId).order('id', { ascending: false }).limit(100);
+      if (error) throw error;
+      res.json({ tasks: (data || []).map(taskOut) });
+    } catch (e) {
+      taskFail(res, e, 'загрузить задачи');
+    }
+  });
+
+  app.get('/api/tasks/:id/events', async (req, res) => {
+    if (!(await taskAdminOk(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const { data, error } = await supabase.from('task_events').select('*').eq('task_id', id).order('id', { ascending: false }).limit(60);
+      if (error) throw error;
+      res.json({ events: (data || []).map((e: any) => ({ id: Number(e.id), action: e.action, details: e.details || '', actor: e.actor || '', createdAt: e.created_at })) });
+    } catch (e) {
+      taskFail(res, e, 'загрузить журнал');
+    }
+  });
+
+  const taskInput = async (body: any, { partial }: { partial: boolean }) => {
+    const out: Record<string, any> = {};
+    if (!partial || body.title !== undefined) {
+      const title = String(body.title || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+      if (title.length < 2) return { error: 'Напишите, что нужно сделать' };
+      out.title = title;
+    }
+    if (body.description !== undefined) out.description = String(body.description || '').trim().slice(0, 1500) || null;
+    if (!partial || body.deadline !== undefined) {
+      const d = String(body.deadline || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { error: 'Выберите срок в календаре' };
+      if (d < almatyToday()) return { error: 'Срок не может быть в прошлом' };
+      out.deadline = d;
+    }
+    if (!partial || body.assigneeId !== undefined) {
+      const { data } = await supabase.from('staff').select('id, name, role').eq('id', String(body.assigneeId || '')).maybeSingle();
+      if (!data || data.role !== 'employee') return { error: 'Выберите ответственного из сотрудников цеха' };
+      out.assignee_id = data.id;
+      out.assignee_name = data.name;
+    }
+    return { value: out };
+  };
+
+  app.post('/api/tasks', async (req, res) => {
+    if (!(await taskAdminOk(req, res))) return;
+    try {
+      const parsed = await taskInput(req.body || {}, { partial: false });
+      if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+      const actor = String(req.body?.actorName || '');
+      const { data, error } = await supabase.from('tasks').insert({ ...parsed.value, status: 'open', created_by: actor || null }).select().single();
+      if (error) throw error;
+      taskEvent(Number(data.id), 'create', `Поставлена: ${data.title} (срок ${data.deadline}), ответственный ${data.assignee_name}`, actor);
+      res.json({ task: taskOut(data) });
+      taskAssigneeTelegram(data.assignee_id)
+        .then((tg) =>
+          taskNotify(
+            [tg],
+            `📌 <b>Вам назначена задача</b>\n\n${escHtml(data.title)}` +
+              (data.description ? `\n${escHtml(data.description)}` : '') +
+              `\n\n📅 Срок: ${formatTaskDate(String(data.deadline))}\n👤 Поставил: ${escHtml(actor || 'руководитель')}\n\nОткройте «Мои задачи» в кабинете.`
+          )
+        )
+        .catch((e) => console.error('Failed to notify the assignee about a new task:', e));
+    } catch (e) {
+      taskFail(res, e, 'поставить задачу');
+    }
+  });
+
+  app.patch('/api/tasks/:id', async (req, res) => {
+    if (!(await taskAdminOk(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const task = await taskLoad(id);
+      if (!task) return res.status(404).json({ error: 'Задача не найдена' });
+      if (task.status !== 'open') return res.status(409).json({ error: 'Менять можно только задачу в работе' });
+      const parsed = await taskInput(req.body || {}, { partial: true });
+      if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+      if (!Object.keys(parsed.value).length) return res.status(400).json({ error: 'Нечего менять' });
+      const { data, error } = await supabase.from('tasks').update(parsed.value).eq('id', id).eq('status', 'open').select().maybeSingle();
+      if (error) throw error;
+      if (!data) return res.status(409).json({ error: 'Задачу уже закрыли, изменить нельзя' });
+      const actor = String(req.body?.actorName || '');
+      taskEvent(id, 'edit', 'Задача изменена', actor);
+      res.json({ task: taskOut(data) });
+      const reassigned = parsed.value.assignee_id && parsed.value.assignee_id !== task.assignee_id;
+      const redated = parsed.value.deadline && parsed.value.deadline !== String(task.deadline).slice(0, 10);
+      if (reassigned || redated) {
+        taskAssigneeTelegram(data.assignee_id)
+          .then((tg) =>
+            taskNotify(
+              [tg],
+              reassigned
+                ? `📌 <b>Вам назначена задача</b>\n\n${escHtml(data.title)}\n\n📅 Срок: ${formatTaskDate(String(data.deadline))}`
+                : `📅 <b>Изменён срок задачи</b>\n\n${escHtml(data.title)}\n\nНовый срок: ${formatTaskDate(String(data.deadline))}`
+            )
+          )
+          .catch((e) => console.error('Failed to notify about a changed task:', e));
+      }
+    } catch (e) {
+      taskFail(res, e, 'изменить задачу');
+    }
+  });
+
+  app.delete('/api/tasks/:id', async (req, res) => {
+    if (!(await taskAdminOk(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const task = await taskLoad(id);
+      if (!task) return res.status(404).json({ error: 'Задача не найдена' });
+      if (task.status === 'done') return res.status(409).json({ error: 'Принятую задачу удалить нельзя' });
+      const { error } = await supabase.from('tasks').delete().eq('id', id).neq('status', 'done');
+      if (error) throw error;
+      taskEvent(id, 'delete', `Задача удалена: ${task.title}`, String(req.body?.actorName || ''));
+      res.json({ success: true });
+    } catch (e) {
+      taskFail(res, e, 'удалить задачу');
+    }
+  });
+
+  // Исполнитель закрывает задачу: нужно доказательство — фото/файл или ссылка.
+  app.post('/api/tasks/:id/submit', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const task = await taskLoad(id);
+      if (!task) return res.status(404).json({ error: 'Задача не найдена' });
+      if (!(await taskStaffMatchesUser(String(task.assignee_id), taskVerifiedUserId(req)))) {
+        return res.status(403).json({ error: 'Закрыть задачу может только её исполнитель. Откройте приложение через Telegram.' });
+      }
+      if (task.status !== 'open') return res.status(409).json({ error: task.status === 'review' ? 'Задача уже ждёт проверки' : 'Задача уже принята' });
+
+      const comment = String(req.body?.comment || '').trim().slice(0, 1000);
+      const linkRaw = String(req.body?.link || '').trim();
+      let link = '';
+      if (linkRaw) {
+        try {
+          const u = new URL(/^https?:\/\//i.test(linkRaw) ? linkRaw : `https://${linkRaw}`);
+          if (!/^https?:$/.test(u.protocol)) throw new Error('protocol');
+          link = u.toString().slice(0, 500);
+        } catch {
+          return res.status(400).json({ error: 'Ссылка выглядит неверно. Проверьте и вставьте её целиком.' });
+        }
+      }
+      let fileUrl = '';
+      let fileName = '';
+      const file = req.body?.file;
+      if (file?.dataUrl) {
+        const m = /^data:([^;]+);base64,(.+)$/s.exec(String(file.dataUrl));
+        if (!m) return res.status(400).json({ error: 'Не удалось прочитать файл' });
+        const mime = m[1];
+        const ext = TASK_ALLOWED_MIME[mime];
+        if (!ext) return res.status(400).json({ error: 'Такой тип файла не подходит. Прикрепите фото, PDF, документ Word или таблицу Excel, либо ссылку.' });
+        const buf = Buffer.from(m[2], 'base64');
+        if (buf.length > TASK_FILE_MAX_BYTES) return res.status(400).json({ error: 'Файл слишком большой (до 2,5 МБ). Сожмите его или дайте ссылку.' });
+        fileName = String(file.name || `файл.${ext}`).replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80);
+        const path = `${id}/${Date.now()}.${ext}`;
+        let up = await supabase.storage.from(TASK_PROOFS_BUCKET).upload(path, buf, { contentType: mime, cacheControl: '31536000' });
+        if (up.error && /not found|does not exist/i.test(String(up.error.message))) {
+          await supabase.storage.createBucket(TASK_PROOFS_BUCKET, { public: true });
+          up = await supabase.storage.from(TASK_PROOFS_BUCKET).upload(path, buf, { contentType: mime, cacheControl: '31536000' });
+        }
+        if (up.error) throw up.error;
+        fileUrl = supabase.storage.from(TASK_PROOFS_BUCKET).getPublicUrl(path).data.publicUrl;
+      }
+      if (!fileUrl && !link) return res.status(400).json({ error: 'Прикрепите фото или файл либо вставьте ссылку: это подтверждает, что задача выполнена.' });
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({
+          status: 'review',
+          submitted_at: new Date().toISOString(),
+          proof_comment: comment || null,
+          proof_link: link || null,
+          proof_file_url: fileUrl || null,
+          proof_file_name: fileName || null,
+        })
+        .eq('id', id)
+        .eq('status', 'open')
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return res.status(409).json({ error: 'Задача уже закрыта' });
+      taskEvent(id, 'submit', `Закрыта исполнителем: ${[fileName && 'файл ' + fileName, link && 'ссылка'].filter(Boolean).join(', ')}`, task.assignee_name);
+      res.json({ task: taskOut(data) });
+
+      const late = almatyToday() > String(data.deadline).slice(0, 10);
+      taskReviewerIds()
+        .then((ids) =>
+          taskNotify(
+            ids,
+            `✅ <b>Задача закрыта: проверьте</b>\n\n${escHtml(data.title)}\n👤 Исполнитель: ${escHtml(data.assignee_name)}\n📅 Срок: ${formatTaskDate(String(data.deadline))}${late ? ' (закрыта с опозданием)' : ''}` +
+              `\n📎 Подтверждение: ${[fileUrl && 'файл', link && 'ссылка'].filter(Boolean).join(' и ')}` +
+              (comment ? `\n💬 ${escHtml(comment)}` : '') +
+              `\n\nПринять или вернуть — в «Задачи» → «На проверке».`
+          )
+        )
+        .catch((e) => console.error('Failed to notify reviewers about a closed task:', e));
+    } catch (e) {
+      taskFail(res, e, 'закрыть задачу');
+    }
+  });
+
+  app.post('/api/tasks/:id/accept', async (req, res) => {
+    if (!(await taskAdminOk(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const actor = String(req.body?.actorName || '');
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({ status: 'done', accepted_by: actor || null, accepted_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('status', 'review')
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return res.status(409).json({ error: 'Принять можно только задачу, которая ждёт проверки' });
+      taskEvent(id, 'accept', 'Принята', actor);
+      res.json({ task: taskOut(data) });
+      taskAssigneeTelegram(data.assignee_id)
+        .then((tg) => taskNotify([tg], `👍 <b>Задача принята</b>\n\n${escHtml(data.title)}\n\nСпасибо, она в выполненных.`))
+        .catch((e) => console.error('Failed to notify the assignee about an accepted task:', e));
+    } catch (e) {
+      taskFail(res, e, 'принять задачу');
+    }
+  });
+
+  app.post('/api/tasks/:id/reject', async (req, res) => {
+    if (!(await taskAdminOk(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const reason = String(req.body?.reason || '').trim().slice(0, 500);
+      if (reason.length < 3) return res.status(400).json({ error: 'Напишите, что нужно исправить' });
+      const task = await taskLoad(id);
+      if (!task) return res.status(404).json({ error: 'Задача не найдена' });
+      const actor = String(req.body?.actorName || '');
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({
+          status: 'open',
+          returned_reason: reason,
+          returned_count: (Number(task.returned_count) || 0) + 1,
+          submitted_at: null,
+          proof_comment: null,
+          proof_link: null,
+          proof_file_url: null,
+          proof_file_name: null,
+        })
+        .eq('id', id)
+        .eq('status', 'review')
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return res.status(409).json({ error: 'Вернуть можно только задачу, которая ждёт проверки' });
+      taskEvent(id, 'reject', `Возвращена: ${reason}`, actor);
+      res.json({ task: taskOut(data) });
+      taskAssigneeTelegram(data.assignee_id)
+        .then((tg) =>
+          taskNotify([tg], `↩️ <b>Задача возвращена на доработку</b>\n\n${escHtml(data.title)}\n\n💬 ${escHtml(reason)}\n\n📅 Срок: ${formatTaskDate(String(data.deadline))}`)
+        )
+        .catch((e) => console.error('Failed to notify the assignee about a returned task:', e));
+    } catch (e) {
+      taskFail(res, e, 'вернуть задачу');
+    }
+  });
 
   // ---- Возмещение (подотчётные деньги) ----
   // Деньги: каждый запрос проверяет подпись Telegram и что человек — владелец или управляющий

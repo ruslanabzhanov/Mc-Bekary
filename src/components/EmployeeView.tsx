@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, Wallet, ChevronLeft, ChevronRight, BadgeCheck, HandCoins, Clock,
-  CheckCircle2, XCircle, X, Banknote, ClipboardList, Cake, FileHeart, Camera, Loader2, Pencil,
+  CheckCircle2, XCircle, X, Banknote, ClipboardList, ListChecks, Cake, FileHeart, Camera, Loader2, Pencil,
 } from 'lucide-react';
 import { compressImage } from '../utils/compressImage';
 import { formatDateRu, ageOf, sanbookState, SANBOOK_STYLE } from '../utils/staffDocs';
@@ -12,6 +12,8 @@ import {
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import { PrintChecklistsModal, DEPARTMENT_CONFIG, ChecklistDeptKey } from './PrintChecklistsModal';
 import { CheckInCard } from './CheckInCard';
+import { MyTasksPanel } from './MyTasksPanel';
+import { Task, isTaskOverdue } from '../lib/tasks';
 
 interface EmployeeViewProps {
   employee: StaffMember | null;
@@ -41,6 +43,8 @@ interface EmployeeViewProps {
   // Only passed for the Owner previewing: birthday and sanitary-book dates are filled in by
   // management, not by the employee.
   onUpdateStaffMember?: (staffId: string, updates: Partial<StaffMember>) => void;
+  // Подпись Telegram этого устройства: по ней сервер отдаёт «Мои задачи» только их хозяину.
+  telegramInitData?: string;
 }
 
 // Best-effort guess at which checklist a position mostly cares about — shown first, but the
@@ -104,6 +108,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   rawMaterials,
   onUploadPhoto,
   onUpdateStaffMember,
+  telegramInitData = '',
 }) => {
   const [isAdvanceOpen, setIsAdvanceOpen] = useState(false);
   const [isChecklistPickerOpen, setIsChecklistPickerOpen] = useState(false);
@@ -126,6 +131,10 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   const [advanceSent, setAdvanceSent] = useState(false);
   const [isAdvanceSending, setIsAdvanceSending] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
+  // «Мои задачи»: ставит руководитель, исполнитель закрывает с доказательством.
+  const [myTasks, setMyTasks] = useState<Task[]>([]);
+  const [tasksOff, setTasksOff] = useState(false); // таблиц ещё нет или нет доступа — плитку не показываем
+  const [isTasksOpen, setIsTasksOpen] = useState(false);
   const [checklistDept, setChecklistDept] = useState<ChecklistDeptKey>(
     () => (employee?.position && POSITION_DEPARTMENT[employee.position]) || 'bakery'
   );
@@ -138,6 +147,23 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   }, [employee?.id]);
 
   const staffId = employee?.id;
+
+  const loadMyTasks = React.useCallback(() => {
+    if (!employee?.id) return;
+    fetch(`/api/tasks/mine?staffId=${encodeURIComponent(employee.id)}`, { headers: { 'x-telegram-init-data': telegramInitData } })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
+      .then((d) => {
+        setMyTasks(Array.isArray(d.tasks) ? d.tasks : []);
+        setTasksOff(false);
+      })
+      .catch(() => setTasksOff(true));
+  }, [employee?.id, telegramInitData]);
+  useEffect(() => {
+    loadMyTasks();
+  }, [loadMyTasks]);
 
   useEffect(() => {
     if (!staffId) {
@@ -476,9 +502,41 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
                 {DEPARTMENT_CONFIG[checklistDept].icon} {DEPARTMENT_CONFIG[checklistDept].shortTitle.replace('Чек-лист ', '')}
               </span>
             </button>
+
+            {!tasksOff && (() => {
+              const active = myTasks.filter((t) => t.status === 'open');
+              const overdue = active.filter((t) => isTaskOverdue(t, almatyToday())).length;
+              const waiting = myTasks.filter((t) => t.status === 'review').length;
+              return (
+                <button
+                  id="btn-open-my-tasks"
+                  onClick={() => setIsTasksOpen(true)}
+                  className={`${tileBase} ${overdue > 0 ? 'bg-rose-50 border-rose-200' : active.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'} ${clickable}`}
+                >
+                  <ListChecks className={`w-5 h-5 ${overdue > 0 ? 'text-rose-600' : 'text-violet-600'}`} />
+                  <Label>Мои задачи</Label>
+                  <span className="text-xs font-extrabold text-slate-900 leading-tight">
+                    {active.length > 0 ? `${active.length} в работе` : waiting > 0 ? 'на проверке' : 'нет задач'}
+                  </span>
+                  {overdue > 0 && <span className="text-[10px] font-bold text-rose-600">просрочено: {overdue}</span>}
+                </button>
+              );
+            })()}
           </div>
         );
       })()}
+
+      {isTasksOpen && (
+        <MyTasksPanel
+          tasks={myTasks}
+          telegramInitData={telegramInitData}
+          onClose={() => {
+            setIsTasksOpen(false);
+            loadMyTasks();
+          }}
+          onChanged={(t) => setMyTasks((prev) => prev.map((x) => (x.id === t.id ? t : x)))}
+        />
+      )}
 
       {/* Which checklist to open */}
       {isChecklistPickerOpen && (
