@@ -8,11 +8,13 @@ import { SalesPointsManager } from './SalesPointsManager';
 import { RolePermissionsModal } from './RolePermissionsModal';
 import { TimesheetManager } from './TimesheetManager';
 import { AttendanceManager } from './AttendanceManager';
+import { ReimbursementManager } from './ReimbursementManager';
 import { DishPollsManager } from './DishPollsManager';
 import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
 import { AnalyticsView } from './AnalyticsView';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
+  Wallet,
   UserCircle,
   UserCheck,
   ShieldCheck,
@@ -167,6 +169,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isCostingsModalOpen, setIsCostingsModalOpen] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
+  const [isReimbursementOpen, setIsReimbursementOpen] = useState(false);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [advanceTab, setAdvanceTab] = useState<'requests' | 'approved'>('requests');
   const [advanceMonth, setAdvanceMonth] = useState(() =>
@@ -186,6 +189,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   useTelegramBackButton(isSalesPointsModalOpen, () => setIsSalesPointsModalOpen(false));
   useTelegramBackButton(isTimesheetOpen, () => setIsTimesheetOpen(false));
   useTelegramBackButton(isAttendanceOpen, () => setIsAttendanceOpen(false));
+  useTelegramBackButton(isReimbursementOpen, () => setIsReimbursementOpen(false));
   useTelegramBackButton(isAdvanceModalOpen, () => setIsAdvanceModalOpen(false));
   useTelegramBackButton(isDishPollsOpen && !!isOwner, () => setIsDishPollsOpen(false));
   useTelegramBackButton(isAnalyticsOpen, () => setIsAnalyticsOpen(false));
@@ -520,6 +524,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </button>
 
           <button
+            id="btn-open-reimbursement-modal"
+            onClick={() => setIsReimbursementOpen(true)}
+            disabled={!canDo('manage_personnel')}
+            title={!canDo('manage_personnel') ? 'Отключено Владельцем' : undefined}
+            className="bg-slate-50 hover:bg-indigo-50/60 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs text-center flex flex-col items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-50"
+          >
+            <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest group-hover:text-indigo-900 transition-colors block">
+              Возмещение
+            </span>
+            <Wallet className="w-6 h-6 text-slate-900 mt-1.5" />
+          </button>
+
+          <button
             id="btn-open-attendance-modal"
             onClick={() => setIsAttendanceOpen(true)}
             disabled={!canDo('manage_personnel')}
@@ -824,6 +841,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
               onAddStaffMember={onAddTimesheetPerson}
               advanceRequests={advanceRequests}
             />
+          </div>
+        </div>
+      )}
+
+      {isReimbursementOpen && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
+              <Wallet className="w-5 h-5 text-indigo-600" />
+              <span>Возмещение</span>
+            </h2>
+            <button
+              onClick={() => setIsReimbursementOpen(false)}
+              className="w-11 h-11 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-3 sm:p-6">
+            <ReimbursementManager telegramInitData={telegramInitData} actorName={actorName} staff={staff} />
           </div>
         </div>
       )}

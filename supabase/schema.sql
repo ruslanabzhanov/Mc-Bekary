@@ -317,3 +317,47 @@ insert into app_settings(key, value) values ('order_deadline', '10:30') on confl
 --   create extension if not exists pg_net with schema extensions;
 --   select cron.schedule('deadline-tick', '* * * * *',
 --     $$select net.http_get('https://mc-bekary.vercel.app/api/cron/deadline-tick')$$);
+
+-- ===== Возмещение подотчётных денег =====
+-- Одно возмещение = один отчёт (как лист в Excel): остаток с прошлого + пополнения − расходы.
+-- Пока идёт заполнение, это черновик (draft); после «Сохранить» — saved, и его нельзя править.
+-- Остаток сохранённого возмещения (closing_balance) становится opening_balance следующего.
+create table if not exists reimbursements (
+  id bigserial primary key,
+  status text not null default 'draft' check (status in ('draft', 'saved')),
+  opening_balance numeric not null default 0,
+  closing_balance numeric,
+  created_at timestamptz not null default now(),
+  saved_at timestamptz,
+  created_by text
+);
+-- Черновик может быть только один: база сама не даст создать второй.
+create unique index if not exists reimbursements_one_draft on reimbursements ((true)) where status = 'draft';
+create index if not exists reimbursements_saved_idx on reimbursements(saved_at desc);
+alter table reimbursements enable row level security;
+
+create table if not exists reimbursement_lines (
+  id bigserial primary key,
+  reimbursement_id bigint not null references reimbursements(id) on delete cascade,
+  kind text not null check (kind in ('expense', 'topup')),
+  who text,
+  title text,
+  amount numeric not null check (amount > 0),
+  line_date date not null,
+  created_by text,
+  created_at timestamptz not null default now()
+);
+create index if not exists reimbursement_lines_parent_idx on reimbursement_lines(reimbursement_id);
+alter table reimbursement_lines enable row level security;
+
+-- Журнал: кто и что менял. Без внешнего ключа, чтобы запись о удалённом черновике осталась.
+create table if not exists reimbursement_changes (
+  id bigserial primary key,
+  reimbursement_id bigint not null,
+  action text not null,
+  details text,
+  actor text,
+  created_at timestamptz not null default now()
+);
+create index if not exists reimbursement_changes_parent_idx on reimbursement_changes(reimbursement_id);
+alter table reimbursement_changes enable row level security;

@@ -9,6 +9,7 @@ import { BASE_EMPLOYEE_POSITIONS } from '../types.js';
 import { classifyDeviation, describeDeviation, isRed, isYellow } from '../lib/orderNorms.js';
 import type { Deviation } from '../lib/orderNorms.js';
 import { buildDeviationMessage } from '../lib/deviationMessage.js';
+import { computeReimbursementTotals, reimbursementFormula } from '../lib/reimbursement.js';
 import {
   shopFromDb,
   shopToDb,
@@ -3894,6 +3895,349 @@ export function createApiApp() {
   };
   app.get('/api/cron/deadline-tick', runDeadlineTick);
   app.post('/api/cron/deadline-tick', runDeadlineTick);
+
+  // ---- Возмещение (подотчётные деньги) ----
+  // Деньги: каждый запрос проверяет подпись Telegram и что человек — владелец или управляющий
+  // производством. Черновик один; сохранённое возмещение не меняется, его остаток уходит в следующее.
+  const reimbAccess = async (req: any, res: any): Promise<boolean> => {
+    const initData = String(req.headers['x-telegram-init-data'] || req.query?.initData || '');
+    if (await canManageDeadline(initData)) return true;
+    res.status(403).json({ error: 'Возмещение доступно только владельцу и управляющему производством. Откройте приложение через Telegram.' });
+    return false;
+  };
+  const reimbTablesMissing = (e: any) =>
+    /reimbursement/i.test(String(e?.message || '')) &&
+    (e?.code === '42P01' || e?.code === 'PGRST205' || /does not exist|schema cache/i.test(String(e?.message || '')));
+  const reimbFail = (res: any, e: any, what: string) => {
+    if (reimbTablesMissing(e)) {
+      return res.status(503).json({ code: 'no_tables', error: 'Возмещение ещё не включено: нужно выполнить SQL из инструкции в Supabase.' });
+    }
+    console.error(`Reimbursement: failed to ${what}:`, e);
+    return res.status(500).json({ error: `Не удалось ${what}. Попробуйте ещё раз.` });
+  };
+  const reimbLineOut = (r: any) => ({
+    id: Number(r.id),
+    reimbursementId: Number(r.reimbursement_id),
+    kind: r.kind,
+    who: r.who || '',
+    title: r.title || '',
+    amount: Number(r.amount) || 0,
+    date: typeof r.line_date === 'string' ? r.line_date.slice(0, 10) : r.line_date,
+    createdBy: r.created_by || '',
+  });
+  const reimbOut = (r: any, lines: any[]) => ({
+    id: Number(r.id),
+    status: r.status,
+    openingBalance: Number(r.opening_balance) || 0,
+    closingBalance: r.closing_balance == null ? null : Number(r.closing_balance),
+    createdAt: r.created_at,
+    savedAt: r.saved_at,
+    createdBy: r.created_by || '',
+    linesCount: lines.length,
+    ...computeReimbursementTotals(Number(r.opening_balance) || 0, lines),
+  });
+  const reimbLog = (reimbursementId: number, action: string, details: string, actor: string) => {
+    supabase
+      .from('reimbursement_changes')
+      .insert({ reimbursement_id: reimbursementId, action, details, actor: actor || 'Неизвестно' })
+      .then(({ error }) => {
+        if (error) console.error('Failed to log a reimbursement change:', error);
+      });
+  };
+  const reimbLoad = async (id: number) => {
+    const [{ data: row, error }, { data: lines, error: lerr }] = await Promise.all([
+      supabase.from('reimbursements').select('*').eq('id', id).maybeSingle(),
+      supabase.from('reimbursement_lines').select('*').eq('reimbursement_id', id).order('line_date').order('id'),
+    ]);
+    if (error) throw error;
+    if (lerr) throw lerr;
+    return { row, lines: lines || [] };
+  };
+
+  app.get('/api/reimbursements', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const [{ data: rows, error }, { data: lines, error: lerr }] = await Promise.all([
+        supabase.from('reimbursements').select('*').order('id', { ascending: false }),
+        supabase.from('reimbursement_lines').select('reimbursement_id, kind, amount'),
+      ]);
+      if (error) throw error;
+      if (lerr) throw lerr;
+      const byParent = new Map<number, any[]>();
+      (lines || []).forEach((l: any) => byParent.set(Number(l.reimbursement_id), [...(byParent.get(Number(l.reimbursement_id)) || []), l]));
+      res.json({ reimbursements: (rows || []).map((r: any) => reimbOut(r, byParent.get(Number(r.id)) || [])) });
+    } catch (e) {
+      reimbFail(res, e, 'загрузить возмещения');
+    }
+  });
+
+  app.get('/api/reimbursements/:id', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const { row, lines } = await reimbLoad(id);
+      if (!row) return res.status(404).json({ error: 'Возмещение не найдено' });
+      const { data: log } = await supabase
+        .from('reimbursement_changes')
+        .select('*')
+        .eq('reimbursement_id', id)
+        .order('id', { ascending: false })
+        .limit(60);
+      res.json({
+        reimbursement: reimbOut(row, lines),
+        lines: lines.map(reimbLineOut),
+        log: (log || []).map((l: any) => ({ id: Number(l.id), action: l.action, details: l.details || '', actor: l.actor || '', createdAt: l.created_at })),
+      });
+    } catch (e) {
+      reimbFail(res, e, 'загрузить возмещение');
+    }
+  });
+
+  // «Добавить новое возмещение»: открывает черновик с остатком прошлого сохранённого возмещения.
+  // Если черновик уже есть, возвращает его (второго не бывает).
+  app.post('/api/reimbursements', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const actor = String(req.body?.actorName || '');
+      const { data: existing, error: exErr } = await supabase.from('reimbursements').select('*').eq('status', 'draft').limit(1);
+      if (exErr) throw exErr;
+      if (existing && existing.length) {
+        const { row, lines } = await reimbLoad(Number(existing[0].id));
+        return res.json({ reimbursement: reimbOut(row, lines), existed: true });
+      }
+      const { data: last, error: lastErr } = await supabase
+        .from('reimbursements')
+        .select('closing_balance')
+        .eq('status', 'saved')
+        .order('saved_at', { ascending: false })
+        .limit(1);
+      if (lastErr) throw lastErr;
+      const opening = last && last.length ? Number(last[0].closing_balance) || 0 : 0;
+      const { data: created, error } = await supabase
+        .from('reimbursements')
+        .insert({ status: 'draft', opening_balance: opening, created_by: actor || null })
+        .select()
+        .single();
+      if (error) {
+        if ((error as any).code === '23505') {
+          const { data: again } = await supabase.from('reimbursements').select('*').eq('status', 'draft').limit(1);
+          if (again && again.length) {
+            const { row, lines } = await reimbLoad(Number(again[0].id));
+            return res.json({ reimbursement: reimbOut(row, lines), existed: true });
+          }
+        }
+        throw error;
+      }
+      reimbLog(Number(created.id), 'create', `Открыто, остаток с прошлого ${opening}`, actor);
+      res.json({ reimbursement: reimbOut(created, []), existed: false });
+    } catch (e) {
+      reimbFail(res, e, 'открыть возмещение');
+    }
+  });
+
+  // Остаток с прошлого можно ввести руками только один раз: у самого первого возмещения.
+  app.patch('/api/reimbursements/:id', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      const value = Number(req.body?.openingBalance);
+      if (!Number.isFinite(id) || !Number.isFinite(value) || Math.abs(value) > 1e9) {
+        return res.status(400).json({ error: 'Введите остаток числом' });
+      }
+      const { row } = await reimbLoad(id);
+      if (!row) return res.status(404).json({ error: 'Возмещение не найдено' });
+      if (row.status !== 'draft') return res.status(409).json({ error: 'Сохранённое возмещение изменить нельзя' });
+      const { count, error: cErr } = await supabase.from('reimbursements').select('id', { count: 'exact', head: true }).eq('status', 'saved');
+      if (cErr) throw cErr;
+      if ((count || 0) > 0) return res.status(409).json({ error: 'Остаток берётся из прошлого возмещения и вручную не меняется' });
+      const rounded = Math.round(value);
+      const { error } = await supabase.from('reimbursements').update({ opening_balance: rounded }).eq('id', id).eq('status', 'draft');
+      if (error) throw error;
+      reimbLog(id, 'opening', `Остаток с прошлого вручную: ${rounded}`, String(req.body?.actorName || ''));
+      const loaded = await reimbLoad(id);
+      res.json({ reimbursement: reimbOut(loaded.row, loaded.lines) });
+    } catch (e) {
+      reimbFail(res, e, 'сохранить остаток');
+    }
+  });
+
+  app.post('/api/reimbursements/:id/lines', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { kind, who, title, amount, date, actorName } = req.body || {};
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      if (kind !== 'expense' && kind !== 'topup') return res.status(400).json({ error: 'Выберите: расход или пополнение' });
+      const sum = Math.round(Number(amount));
+      if (!Number.isFinite(sum) || sum <= 0 || sum > 1e9) return res.status(400).json({ error: 'Сумма должна быть больше нуля' });
+      const day = String(date || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return res.status(400).json({ error: 'Укажите дату' });
+      if (day > almatyToday()) return res.status(400).json({ error: 'Дата не может быть в будущем' });
+      const cleanTitle = String(title || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+      const cleanWho = String(who || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+      if (kind === 'expense') {
+        if (cleanTitle.length < 2) return res.status(400).json({ error: 'Напишите, на что потрачено' });
+        if (cleanWho.length < 2) return res.status(400).json({ error: 'Укажите, кто потратил' });
+      }
+      const { row, lines } = await reimbLoad(id);
+      if (!row) return res.status(404).json({ error: 'Возмещение не найдено' });
+      if (row.status !== 'draft') return res.status(409).json({ error: 'Сохранённое возмещение изменить нельзя' });
+      if (
+        kind === 'expense' &&
+        lines.some((l: any) => l.kind === 'expense' && l.who === cleanWho && l.title === cleanTitle && Number(l.amount) === sum && String(l.line_date).slice(0, 10) === day)
+      ) {
+        return res.status(409).json({ error: 'Такой расход уже внесён: проверьте, не добавляли ли вы его раньше' });
+      }
+      const { data, error } = await supabase
+        .from('reimbursement_lines')
+        .insert({
+          reimbursement_id: id,
+          kind,
+          who: kind === 'expense' ? cleanWho : null,
+          title: kind === 'topup' ? cleanTitle || 'Пополнение' : cleanTitle,
+          amount: sum,
+          line_date: day,
+          created_by: String(actorName || '') || null,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      reimbLog(id, kind === 'expense' ? 'add_expense' : 'add_topup', `${kind === 'expense' ? cleanWho + ': ' : ''}${cleanTitle || 'Пополнение'} — ${sum}`, String(actorName || ''));
+      res.json({ line: reimbLineOut(data) });
+    } catch (e) {
+      reimbFail(res, e, 'добавить строку');
+    }
+  });
+
+  app.delete('/api/reimbursements/:id/lines/:lineId', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      const lineId = parseInt(req.params.lineId, 10);
+      if (!Number.isFinite(id) || !Number.isFinite(lineId)) return res.status(400).json({ error: 'bad id' });
+      const { row, lines } = await reimbLoad(id);
+      if (!row) return res.status(404).json({ error: 'Возмещение не найдено' });
+      if (row.status !== 'draft') return res.status(409).json({ error: 'Сохранённое возмещение изменить нельзя' });
+      const line = lines.find((l: any) => Number(l.id) === lineId);
+      if (!line) return res.status(404).json({ error: 'Строка не найдена' });
+      const { error } = await supabase.from('reimbursement_lines').delete().eq('id', lineId).eq('reimbursement_id', id);
+      if (error) throw error;
+      reimbLog(id, 'delete_line', `${line.kind === 'expense' ? (line.who || '') + ': ' : ''}${line.title} — ${line.amount}`, String(req.body?.actorName || req.query?.actorName || ''));
+      res.json({ success: true });
+    } catch (e) {
+      reimbFail(res, e, 'удалить строку');
+    }
+  });
+
+  // «Сохранить возмещение»: фиксирует остаток; он станет «остатком с прошлого» следующего.
+  app.post('/api/reimbursements/:id/save', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const { row, lines } = await reimbLoad(id);
+      if (!row) return res.status(404).json({ error: 'Возмещение не найдено' });
+      if (row.status !== 'draft') return res.status(409).json({ error: 'Это возмещение уже сохранено' });
+      if (!lines.length) return res.status(400).json({ error: 'Добавьте хотя бы один расход или пополнение' });
+      const totals = computeReimbursementTotals(Number(row.opening_balance) || 0, lines);
+      const { data, error } = await supabase
+        .from('reimbursements')
+        .update({ status: 'saved', closing_balance: totals.balance, saved_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('status', 'draft')
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return res.status(409).json({ error: 'Это возмещение уже сохранено' });
+      reimbLog(id, 'save', `Сохранено, остаток ${totals.balance}`, String(req.body?.actorName || ''));
+      res.json({ reimbursement: reimbOut(data, lines) });
+    } catch (e) {
+      reimbFail(res, e, 'сохранить возмещение');
+    }
+  });
+
+  // Отменить черновик целиком (сохранённое удалить нельзя).
+  app.delete('/api/reimbursements/:id', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const { row, lines } = await reimbLoad(id);
+      if (!row) return res.status(404).json({ error: 'Возмещение не найдено' });
+      if (row.status !== 'draft') return res.status(409).json({ error: 'Сохранённое возмещение удалить нельзя' });
+      const { error } = await supabase.from('reimbursements').delete().eq('id', id).eq('status', 'draft');
+      if (error) throw error;
+      reimbLog(id, 'cancel', `Черновик отменён (строк было: ${lines.length})`, String(req.body?.actorName || ''));
+      res.json({ success: true });
+    } catch (e) {
+      reimbFail(res, e, 'отменить черновик');
+    }
+  });
+
+  // Выгрузка в вашем виде: дата, строки «кто, название, сумма, дата», строка расчёта.
+  app.get('/api/reimbursements/:id/export.xlsx', async (req, res) => {
+    if (!(await reimbAccess(req, res))) return;
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+      const { row, lines } = await reimbLoad(id);
+      if (!row) return res.status(404).json({ error: 'Возмещение не найдено' });
+      const opening = Number(row.opening_balance) || 0;
+      const totals = computeReimbursementTotals(opening, lines);
+      const short = (iso: string) => {
+        const [y, m, d] = String(iso).slice(0, 10).split('-');
+        return `${Number(d)}.${Number(m)}.${y.slice(2)}`;
+      };
+      const reportDate = (row.saved_at ? new Date(row.saved_at) : new Date()).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' });
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Master Bakery';
+      const ws = wb.addWorksheet(`Возмещение ${id}`, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+      ws.addRow(['', reportDate]);
+      const border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } } as const;
+      lines
+        .filter((l: any) => l.kind === 'expense')
+        .forEach((l: any) => {
+          const r = ws.addRow([l.who || '', l.title || '', Number(l.amount), short(l.line_date)]);
+          r.getCell(3).numFmt = '#,##0';
+          r.eachCell((c) => (c.border = border));
+        });
+      ws.addRow([]);
+      const f = ws.addRow(['', reimbursementFormula(opening, totals)]);
+      f.font = { bold: true };
+      ws.addRow([]);
+      const summary: [string, number][] = [
+        ['Остаток с прошлого', opening],
+        ['Пополнения', totals.topups],
+        ['Расходы', totals.expenses],
+        ['Остаток', totals.balance],
+      ];
+      summary.forEach(([label, value], i) => {
+        const r = ws.addRow(['', label, value]);
+        r.getCell(3).numFmt = '#,##0;[Red]-#,##0';
+        if (i === summary.length - 1) r.font = { bold: true };
+      });
+      const tops = lines.filter((l: any) => l.kind === 'topup');
+      if (tops.length) {
+        ws.addRow([]);
+        ws.addRow(['', 'Пополнения']).font = { bold: true };
+        tops.forEach((l: any) => {
+          const r = ws.addRow(['', l.title || 'Пополнение', Number(l.amount), short(l.line_date)]);
+          r.getCell(3).numFmt = '#,##0';
+        });
+      }
+      [16, 46, 16, 12].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const fileName = `Возмещение ${id} — ${reportDate}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="reimbursement-${id}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      res.send(Buffer.from(buffer as ArrayBuffer));
+    } catch (e) {
+      reimbFail(res, e, 'собрать файл');
+    }
+  });
 
   // Свои должности внутренних сотрудников: к встроенным добавляет владелец / заведующий.
   // Хранится в app_settings одним JSON-списком только пользовательских названий.
