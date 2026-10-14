@@ -140,6 +140,32 @@ Extending the same `verifyTelegramInitData` approach used for Owner to Admin/Ter
 ### 🟡 Also still true: nothing else in the API is server-authorized
 `POST /api/role-permissions` is the only endpoint that verifies the caller's identity server-side. Every other endpoint (accept-all, order status changes, catalog edits, etc.) has zero server-side auth — anyone who can reach the URL can call them directly, regardless of what the UI shows. This was already true before the Owner-role work and isn't a regression, but it means the permission matrix's enforcement (see above) is UI-level only for Admin/Territorial, not a real security boundary yet.
 
+## Безопасность и ревизия — план работ (ревизия 2026-10-14, НЕ СДЕЛАНО, владелец сказал «займёмся позже»)
+
+Результат полной ревизии (код, данные, клиентский опыт). Клиентская часть чистая: lint и сборка проходят, на 4 ролях при ширине 360 px 0 ошибок в консоли, 0 неудачных запросов, 0 горизонтальной прокрутки. Ниже то, что нужно закрыть; галочки ставим по мере выполнения.
+
+### 🔴 Критично
+- [ ] **Почти весь API открыт.** Из 47 изменяющих запросов личность на сервере проверяют только 11 (role-permissions, accept-all, reminders/send-all, order-deadline, attendance/location, dish-polls, recognize/contact-status, auth/telegram-owner). Без входа можно читать  (телефоны и Telegram ID 127 сотрудников, номера Kaspi, 144 заявки регистрации с телефонами, вся себестоимость) и менять/удалять сотрудников, смены, ставки, заявки, одобрять авансы. План: проверять подпись Telegram (initData,  уже есть) и роль по Telegram ID на сервере; отдавать данные по роли. Порядок: авансы, персонал, смены/ставки, удаление/статусы заказов, потом остальное. Срок 2–4 дня.
+- [ ] ** и  открыты**, tick принимает  — любой может запустить рассылку напоминаний всем. Закрыть секретом (CRON_SECRET, заголовок от Vercel Cron). ~30 минут.
+- [ ] **ИИ-запросы ,  открыты и платные** (Anthropic API) — закрыть проверкой роли или отключить.
+- [ ] **У 15 из 27 точек нет территориального управляющего**, ещё у 2 точек их двое. Сообщение территориальному об красных отклонениях (notifyOrderDeviations) для этих 15 точек никому не уходит. Решить: назначить территориальных или слать запасному получателю (владелец / управляющий производством).
+- [ ] **Удаление сотрудника каскадно удаляет его смены** () — пропадает табель и суммы. Сделать «архив» (скрыть из списков, историю оставить) вместо удаления.
+
+### 🟠 Важно
+- [ ] Данные: дубль «Master Coffee Syganaq» (один Telegram ID у двух записей), 11 смен по 0 ₸, 1 смена в будущем (26 октября), у 1 внутреннего сотрудника нет ставки, 2 блюда с ценой 0. Править только с согласия владельца.
+- [ ] Скорость: каждое открытие тянет ~263 КБ за 1,6–1,8 с (181 уведомление, 144 заявки регистрации, 150 сырья нужны не всем); «Персонал» рисует всех 127 карточек сразу. План: загрузка по ролям, постраничный «Персонал», чистка уведомлений старше 30 дней.
+- [ ] Табель на телефоне: клетки дней 24×28 px (меньше 44 px) — сделать «По дню» основным режимом на телефоне.
+- [ ] Одновременная правка каталогов (): последняя запись затирает предыдущую — перейти на точечные обновления.
+- [ ] Нет ограничения частоты запросов.
+- [ ] RLS в  включена только для 4 из 23 таблиц — проверить в панели Supabase, что включена на всех.
+- [ ]  растёт на ~6 строк в день (отметки напоминаний), сейчас 155 — чистить записи старше 7 дней.
+
+### 🟡 Код
+- [ ]  4 262 строки,  1 753 — разбить на модули (после безопасности); удалить три мёртвых файла; добавить автотесты на аванс, норму, смены.
+
+### Не проверялось
+Настоящий Telegram на телефоне (геолокация, отправка), нагрузка при сотне пользователей, резервные копии Supabase.
+
 ### 🟡 Secondary, not blocking
 - `GET /api/initial-data` fetches all 11 tables for every session regardless of role — a plain manager pulls raw materials, dish costings, staff, and registration requests it never uses. Wasteful under concurrent load, not broken (Supabase's PostgREST API scales via HTTP, not a per-request Postgres connection, so this doesn't risk connection exhaustion — just adds avoidable latency/payload).
 - Anomaly detection (`apiApp.ts`, `/api/orders/:shopId`) falls back to `avg = 10` when `shop.historicalAvg` has no entry for a product. A newly added product with no historical data seeded for all 27 shops will misfire anomaly warnings until real order history accumulates.
