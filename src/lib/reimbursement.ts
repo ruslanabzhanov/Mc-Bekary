@@ -23,6 +23,7 @@ export interface ReimbursementTotals {
 
 export interface Reimbursement extends ReimbursementTotals {
   id: number;
+  number: number; // порядковый номер среди существующих возмещений (1, 2, 3…)
   status: ReimbursementStatus;
   openingBalance: number; // остаток с прошлого возмещения (минус = перерасход)
   closingBalance: number | null; // фиксируется при сохранении

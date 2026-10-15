@@ -4318,8 +4318,9 @@ export function createApiApp() {
     date: typeof r.line_date === 'string' ? r.line_date.slice(0, 10) : r.line_date,
     createdBy: r.created_by || '',
   });
-  const reimbOut = (r: any, lines: any[]) => ({
+  const reimbOut = (r: any, lines: any[], number = 0) => ({
     id: Number(r.id),
+    number,
     status: r.status,
     openingBalance: Number(r.opening_balance) || 0,
     closingBalance: r.closing_balance == null ? null : Number(r.closing_balance),
@@ -4336,6 +4337,10 @@ export function createApiApp() {
       .then(({ error }) => {
         if (error) console.error('Failed to log a reimbursement change:', error);
       });
+  };
+  const reimbNumber = async (id: number) => {
+    const { count } = await supabase.from('reimbursements').select('id', { count: 'exact', head: true }).lte('id', id);
+    return Number(count) || 0;
   };
   const reimbLoad = async (id: number) => {
     const [{ data: row, error }, { data: lines, error: lerr }] = await Promise.all([
@@ -4358,7 +4363,8 @@ export function createApiApp() {
       if (lerr) throw lerr;
       const byParent = new Map<number, any[]>();
       (lines || []).forEach((l: any) => byParent.set(Number(l.reimbursement_id), [...(byParent.get(Number(l.reimbursement_id)) || []), l]));
-      res.json({ reimbursements: (rows || []).map((r: any) => reimbOut(r, byParent.get(Number(r.id)) || [])) });
+      const total = (rows || []).length;
+      res.json({ reimbursements: (rows || []).map((r: any, i: number) => reimbOut(r, byParent.get(Number(r.id)) || [], total - i)) });
     } catch (e) {
       reimbFail(res, e, 'загрузить возмещения');
     }
@@ -4377,8 +4383,9 @@ export function createApiApp() {
         .eq('reimbursement_id', id)
         .order('id', { ascending: false })
         .limit(60);
+      const { count: upTo } = await supabase.from('reimbursements').select('id', { count: 'exact', head: true }).lte('id', id);
       res.json({
-        reimbursement: reimbOut(row, lines),
+        reimbursement: reimbOut(row, lines, Number(upTo) || 0),
         lines: lines.map(reimbLineOut),
         log: (log || []).map((l: any) => ({ id: Number(l.id), action: l.action, details: l.details || '', actor: l.actor || '', createdAt: l.created_at })),
       });
@@ -4397,7 +4404,7 @@ export function createApiApp() {
       if (exErr) throw exErr;
       if (existing && existing.length) {
         const { row, lines } = await reimbLoad(Number(existing[0].id));
-        return res.json({ reimbursement: reimbOut(row, lines), existed: true });
+        return res.json({ reimbursement: reimbOut(row, lines, await reimbNumber(Number(row.id))), existed: true });
       }
       const { data: last, error: lastErr } = await supabase
         .from('reimbursements')
@@ -4417,13 +4424,13 @@ export function createApiApp() {
           const { data: again } = await supabase.from('reimbursements').select('*').eq('status', 'draft').limit(1);
           if (again && again.length) {
             const { row, lines } = await reimbLoad(Number(again[0].id));
-            return res.json({ reimbursement: reimbOut(row, lines), existed: true });
+            return res.json({ reimbursement: reimbOut(row, lines, await reimbNumber(Number(row.id))), existed: true });
           }
         }
         throw error;
       }
       reimbLog(Number(created.id), 'create', `Открыто, остаток с прошлого ${opening}`, actor);
-      res.json({ reimbursement: reimbOut(created, []), existed: false });
+      res.json({ reimbursement: reimbOut(created, [], await reimbNumber(Number(created.id))), existed: false });
     } catch (e) {
       reimbFail(res, e, 'открыть возмещение');
     }
@@ -4449,7 +4456,7 @@ export function createApiApp() {
       if (error) throw error;
       reimbLog(id, 'opening', `Остаток с прошлого вручную: ${rounded}`, String(req.body?.actorName || ''));
       const loaded = await reimbLoad(id);
-      res.json({ reimbursement: reimbOut(loaded.row, loaded.lines) });
+      res.json({ reimbursement: reimbOut(loaded.row, loaded.lines, await reimbNumber(id)) });
     } catch (e) {
       reimbFail(res, e, 'сохранить остаток');
     }
@@ -4544,7 +4551,7 @@ export function createApiApp() {
       if (error) throw error;
       if (!data) return res.status(409).json({ error: 'Это возмещение уже сохранено' });
       reimbLog(id, 'save', `Сохранено, остаток ${totals.balance}`, String(req.body?.actorName || ''));
-      res.json({ reimbursement: reimbOut(data, lines) });
+      res.json({ reimbursement: reimbOut(data, lines, await reimbNumber(id)) });
     } catch (e) {
       reimbFail(res, e, 'сохранить возмещение');
     }
@@ -4586,7 +4593,7 @@ export function createApiApp() {
 
       const wb = new ExcelJS.Workbook();
       wb.creator = 'Master Bakery';
-      const ws = wb.addWorksheet(`Возмещение ${id}`, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+      const ws = wb.addWorksheet(`Возмещение ${await reimbNumber(id)}`, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
       ws.addRow(['', reportDate]);
       const border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } } as const;
       lines
@@ -4623,7 +4630,7 @@ export function createApiApp() {
       [16, 46, 16, 12].forEach((w, i) => (ws.getColumn(i + 1).width = w));
 
       const buffer = await wb.xlsx.writeBuffer();
-      const fileName = `Возмещение ${id} — ${reportDate}.xlsx`;
+      const fileName = `Возмещение ${await reimbNumber(id)} — ${reportDate}.xlsx`;
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="reimbursement-${id}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
       res.send(Buffer.from(buffer as ArrayBuffer));

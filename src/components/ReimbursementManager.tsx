@@ -117,7 +117,7 @@ export const ReimbursementManager: React.FC<ReimbursementManagerProps> = ({ tele
         {isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-6 h-6" />}
         <span className="text-left">
           <span className="block text-sm font-black uppercase tracking-wider">
-            {draft ? `Продолжить возмещение №${draft.id}` : 'Добавить новое возмещение'}
+            {draft ? `Продолжить возмещение №${draft.number}` : 'Добавить новое возмещение'}
           </span>
           <span className="block text-[11px] opacity-85">
             {draft ? 'Черновик ещё не сохранён' : 'Остаток с прошлого подставится сам'}
@@ -146,7 +146,7 @@ export const ReimbursementManager: React.FC<ReimbursementManagerProps> = ({ tele
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-black text-slate-900">Возмещение №{r.id}</span>
+                    <span className="text-sm font-black text-slate-900">Возмещение №{r.number}</span>
                     {r.status === 'draft' && (
                       <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">черновик</span>
                     )}
@@ -238,7 +238,7 @@ const Editor = ({ id, api, telegramInitData, staff, onBack }: EditorProps) => {
     api<{ reimbursements: Reimbursement[] }>('')
       .then((d) => {
         setIsFirst(!d.reimbursements.some((r) => r.status === 'saved'));
-        setPrevNo(d.reimbursements.find((r) => r.status === 'saved' && r.id < id)?.id ?? null);
+        setPrevNo(d.reimbursements.find((r) => r.status === 'saved' && r.id < id)?.number ?? null);
       })
       .catch(() => {});
   }, [api, id, rm?.status]);
@@ -310,7 +310,7 @@ const Editor = ({ id, api, telegramInitData, staff, onBack }: EditorProps) => {
 
   const download = () => {
     const url = `${window.location.origin}/api/reimbursements/${id}/export.xlsx?initData=${encodeURIComponent(telegramInitData)}`;
-    const fileName = `Возмещение ${id}.xlsx`;
+    const fileName = `Возмещение ${rm?.number ?? id}.xlsx`;
     const tg = (window as any).Telegram?.WebApp;
     if (typeof tg?.downloadFile === 'function') return tg.downloadFile({ url, file_name: fileName });
     const a = document.createElement('a');
@@ -346,7 +346,7 @@ const Editor = ({ id, api, telegramInitData, staff, onBack }: EditorProps) => {
         </button>
         <div className="text-right min-w-0">
           <h3 className="text-sm font-black text-slate-900">
-            Возмещение №{rm.id} {isDraft ? '· черновик' : '· сохранено'}
+            Возмещение №{rm.number} {isDraft ? '· черновик' : '· сохранено'}
           </h3>
           <p className="text-[11px] text-slate-500">{isoLong(dateOf(rm.savedAt || rm.createdAt))}</p>
         </div>
@@ -360,7 +360,7 @@ const Editor = ({ id, api, telegramInitData, staff, onBack }: EditorProps) => {
           <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Остаток с прошлого</span>
           <p className={`text-2xl font-black tabular-nums mt-1 ${rm.openingBalance < 0 ? 'text-rose-600' : 'text-slate-900'}`}>{money(rm.openingBalance)}</p>
           <p className="text-[11px] text-slate-500 mt-1">
-            {prevNo && prevNo < id ? `Подставлен из возмещения №${prevNo}` : isFirst && isDraft ? 'Первое возмещение: введите остаток вручную, если он есть' : 'Это первое возмещение'}
+            {prevNo ? `Подставлен из возмещения №${prevNo}` : isFirst && isDraft ? 'Первое возмещение: введите остаток вручную, если он есть' : 'Это первое возмещение'}
           </p>
           {isDraft && isFirst && (
             <div className="flex gap-2 mt-2">
@@ -519,7 +519,7 @@ const Editor = ({ id, api, telegramInitData, staff, onBack }: EditorProps) => {
         <div className="space-y-2">
           {confirm === 'save' ? (
             <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 space-y-2.5" id="reimb-confirm-save">
-              <p className="text-sm font-bold text-amber-950">Сохранить возмещение №{rm.id}?</p>
+              <p className="text-sm font-bold text-amber-950">Сохранить возмещение №{rm.number}?</p>
               <p className="text-xs text-amber-900">
                 После сохранения править его нельзя. Остаток {money(totals.balance)} станет «остатком с прошлого» в следующем возмещении.
               </p>
