@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, Users, Check, X, Wallet, Printer, History, Table2,
   ListOrdered, Plus, Trash2,
 } from 'lucide-react';
-import { StaffMember, Shift, AdvanceRequest, EMPLOYEE_POSITIONS } from '../types';
+import { StaffMember, Shift, AdvanceRequest, EMPLOYEE_POSITIONS, isCourierPosition } from '../types';
 import { PrintTimesheetModal } from './PrintTimesheetModal';
 
 interface TimesheetManagerProps {
@@ -15,6 +15,8 @@ interface TimesheetManagerProps {
   onAddStaffMember?: (member: StaffMember) => Promise<boolean>;
   // For the «Аванс» / «К выдаче» columns of the monthly grid.
   advanceRequests?: AdvanceRequest[];
+  // Аванс, выставленный здесь вручную, надо отдать наверх, чтобы он сразу попал в кабинет и реестр.
+  onAdvanceAdjusted?: (request: AdvanceRequest) => void;
 }
 
 // Sections of the monthly grid, in the order the paper timesheet lists people.
@@ -22,6 +24,7 @@ const GRID_GROUPS: { label: string; positions: string[] }[] = [
   { label: 'Руководство цеха', positions: ['Заведующий производством'] },
   { label: 'Пекари', positions: ['Шеф-пекарь', 'Пекарь', 'Ночной пекарь'] },
   { label: 'Кондитеры', positions: ['Кондитер'] },
+  { label: 'Курьеры', positions: ['Курьер'] },
   {
     label: 'Заготовщики',
     positions: ['Заготовщик бара', 'Заготовщик кухни', 'Ночной заготовщик кухни', 'Заготовщик полуфабрикатов'],
@@ -111,6 +114,69 @@ const checkTime = (iso: string) =>
 const shiftWord = (n: number) =>
   !Number.isInteger(n) ? 'смены' : n === 1 ? 'смена' : n >= 2 && n <= 4 ? 'смены' : 'смен';
 
+// Клетка курьера: не «1 / 0,5», а число точек за день. Нажали, ввели цифры, Enter — готово;
+// пусто или 0 снимает день.
+const PointsCell = ({ value, busy, title, onCommit, className, inputClassName }: {
+  value: number;
+  busy: boolean;
+  title: string;
+  onCommit: (n: number) => void;
+  className: string;
+  inputClassName: string;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState('');
+  const cancelled = useRef(false);
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          cancelled.current = false;
+          setText(value ? String(value) : '');
+          setEditing(true);
+        }}
+        disabled={busy}
+        title={title}
+        className={className}
+      >
+        {value ? fmtUnits(value) : ''}
+      </button>
+    );
+  }
+  const finish = () => {
+    setEditing(false);
+    if (cancelled.current) return;
+    const n = text.trim() === '' ? 0 : Math.round(Number(text));
+    if (!Number.isFinite(n) || n < 0 || n > 200 || n === value) return;
+    onCommit(n);
+  };
+  return (
+    <input
+      autoFocus
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={200}
+      step={1}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={finish}
+      onFocus={(e) => e.currentTarget.select()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') {
+          cancelled.current = true;
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      className={inputClassName}
+    />
+  );
+};
+
+const pointWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'точка' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'точки' : 'точек');
+
 export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   staff,
   telegramInitData,
@@ -118,6 +184,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   onUpdateStaffMember,
   onAddStaffMember,
   advanceRequests = [],
+  onAdvanceAdjusted,
 }) => {
   const [mode, setMode] = useState<Mode>('grid');
   const [month, setMonth] = useState(() => monthKey(almatyToday()));
@@ -388,8 +455,8 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   const fullRateOf = (member: StaffMember, existing?: Shift) =>
     existing ? (Number(existing.rate) || 0) / unitsOf(existing) : Number(member.shiftRate) || 0;
 
-  // Put the day at exactly 1 or 0.5 (creating it if needed).
-  const setShiftUnits = async (member: StaffMember, day: string, units: 1 | 0.5) => {
+  // Put the day at exactly 1 or 0.5 (creating it if needed). For a courier — that many points.
+  const setShiftUnits = async (member: StaffMember, day: string, units: number) => {
     const key = `${member.id}:${day}`;
     const existing = shiftAt(member.id, day);
     const rate = Math.round(fullRateOf(member, existing) * units);
@@ -408,6 +475,41 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
     if (!existing) return setShiftUnits(member, day, 1);
     if (unitsOf(existing) === 1) return setShiftUnits(member, day, 0.5);
     return toggleShift(member, day); // already 0,5 → remove
+  };
+
+  // Курьер: число точек за день. 0 снимает день, остальное — «точки × тариф за точку».
+  const setCourierPoints = async (member: StaffMember, day: string, points: number) => {
+    if (points <= 0) {
+      if (shiftAt(member.id, day)) await toggleShift(member, day);
+      return;
+    }
+    await setShiftUnits(member, day, points);
+  };
+
+  // Аванс за месяц вводят прямо в табеле — для тех, кто не пользуется приложением.
+  const saveAdvance = async (member: StaffMember, amount: number, current: number) => {
+    if (!Number.isFinite(amount) || amount < 0 || Math.round(amount) === Math.round(current)) return;
+    const key = `${member.id}:advance`;
+    setBusyKey(key);
+    setError(null);
+    try {
+      const res = await fetch('/api/advance-requests/month-total', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId: member.id, month, amount: Math.round(amount), initData: telegramInitData, actorName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error || 'Не удалось сохранить аванс. Попробуйте ещё раз.');
+        return;
+      }
+      if (data.request) onAdvanceAdjusted?.(data.request);
+    } catch (e) {
+      console.error('Advance save failed:', e);
+      setError('Нет связи с сервером.');
+    } finally {
+      setBusyKey(null);
+    }
   };
 
   const changeShiftRate = async (member: StaffMember, day: string, rate: number) => {
@@ -817,6 +919,22 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                             {monthDays.map((d) => {
                               const s = r.byDay.get(d);
                               const key = `${r.member.id}:${d}`;
+                              if (isCourierPosition(r.member.position)) {
+                                return (
+                                  <td key={d} className={`${cellBorder} p-0 ${isWeekendDay(d) ? 'bg-slate-50' : ''}`}>
+                                    <PointsCell
+                                      value={s ? unitsOf(s) : 0}
+                                      busy={busyKey === key}
+                                      title={`${r.member.name}, ${Number(d.slice(8))} — число точек за день${s ? `: ${fmtUnits(unitsOf(s))}` : ''}. Нажмите и введите цифры`}
+                                      onCommit={(n) => setCourierPoints(r.member, d, n)}
+                                      className={`w-6 h-7 flex items-center justify-center font-bold transition-colors ${
+                                        s ? 'text-sky-900 bg-sky-100 hover:bg-sky-200' : 'text-transparent hover:bg-indigo-50'
+                                      } ${busyKey === key ? 'opacity-40' : ''}`}
+                                      inputClassName="w-8 h-7 -mx-1 relative z-[2] px-0 text-center text-[11px] font-bold bg-white text-slate-900 ring-2 ring-indigo-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                    />
+                                  </td>
+                                );
+                              }
                               return (
                                 <td key={d} className={`${cellBorder} p-0 ${isWeekendDay(d) ? 'bg-slate-50' : ''}`}>
                                   <button
@@ -856,7 +974,24 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                               />
                             </td>
                             <td className={`${cellBorder} px-1.5 py-1 text-right font-bold text-slate-900`}>{num(r.earned)}</td>
-                            <td className={`${cellBorder} px-1.5 py-1 text-right text-slate-700`}>{num(r.advance)}</td>
+                            <td className={`${cellBorder} p-0`}>
+                              <input
+                                key={`${r.member.id}-adv-${r.advance}`}
+                                type="number"
+                                min="0"
+                                step="1000"
+                                inputMode="numeric"
+                                defaultValue={r.advance || ''}
+                                placeholder="0"
+                                disabled={busyKey === `${r.member.id}:advance`}
+                                onBlur={(e) => saveAdvance(r.member, Number(e.target.value) || 0, r.advance)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                }}
+                                title="Аванс за месяц — нажмите, введите сумму и Enter. Он сразу появится в кабинете сотрудника"
+                                className="w-full min-w-[72px] h-7 px-1.5 text-right bg-amber-50/60 hover:bg-amber-100 focus:bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </td>
                             <td
                               className={`${cellBorder} px-1.5 py-1 text-right font-black ${
                                 !hasMoney ? '' : r.payout > 0 ? 'bg-emerald-400/80 text-emerald-950' : 'bg-rose-500 text-white'
@@ -892,7 +1027,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
             </div>
             <p className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-200">
               Нажмите на клетку дня: первое нажатие — смена (1), второе — полсмены (0,5), третье — снять. Тарифную ставку меняйте прямо в таблице — она пересчитает смены этого месяца и сразу видна сотруднику в кабинете
-              . Аванс — одобренные заявки за этот месяц.
+              . Аванс — одобренные заявки за этот месяц; его можно поменять прямо в таблице (владелец и заведующий производством) — сумма сразу изменится и в кабинете сотрудника. У курьеров в клетке дня — число точек: нажмите и введите цифры, тариф у них за одну точку.
             </p>
           </div>
         );
@@ -951,7 +1086,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                     {existing?.checkInAt && (
                       <span className="block text-[11px] font-semibold text-emerald-700 mt-0.5">
                         отметился в {checkTime(existing.checkInAt)}
-                        {unitsOf(existing) !== 1 ? ` · ${fmtUnits(unitsOf(existing))} смены` : ''}
+                        {isCourierPosition(member.position) ? ` · ${fmtUnits(unitsOf(existing))} ${pointWord(unitsOf(existing))}` : unitsOf(existing) !== 1 ? ` · ${fmtUnits(unitsOf(existing))} смены` : ''}
                       </span>
                     )}
                   </span>
@@ -959,7 +1094,17 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                     {existing ? formatMoney(existing.rate) : formatMoney(member.shiftRate || 0)}
                   </span>
                 </button>
-                {existing && (
+                {isCourierPosition(member.position) && (
+                  <PointsCell
+                    value={existing ? unitsOf(existing) : 0}
+                    busy={isBusy}
+                    title="Число точек за день"
+                    onCommit={(n) => setCourierPoints(member, selectedDay, n)}
+                    className="w-20 shrink-0 text-xs font-black border-l border-slate-100 bg-sky-50 text-sky-900 disabled:opacity-50"
+                    inputClassName="w-20 shrink-0 text-center text-base font-black border-l border-slate-100 bg-white text-slate-900 ring-2 ring-inset ring-indigo-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                )}
+                {existing && !isCourierPosition(member.position) && (
                   <button
                     onClick={() => setShiftUnits(member, selectedDay, unitsOf(existing) === 1 ? 0.5 : 1)}
                     disabled={isBusy}
@@ -1001,7 +1146,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Ставка за смену
+                {isCourierPosition(selectedMember.position) ? 'Ставка за одну точку' : 'Ставка за смену'}
               </label>
               <input
                 key={`${selectedMember.id}-${selectedMember.shiftRate || 0}`}
@@ -1078,13 +1223,23 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                       {existing && (existing.checkInAt || unitsOf(existing) !== 1) && (
                         <span className="ml-2 text-[11px] font-semibold text-emerald-700">
                           {existing.checkInAt ? `отметился в ${checkTime(existing.checkInAt)}` : ''}
-                          {unitsOf(existing) !== 1 ? ` · ${fmtUnits(unitsOf(existing))} смены` : ''}
+                          {isCourierPosition(selectedMember.position) ? ` · ${fmtUnits(unitsOf(existing))} ${pointWord(unitsOf(existing))}` : unitsOf(existing) !== 1 ? ` · ${fmtUnits(unitsOf(existing))} смены` : ''}
                         </span>
                       )}
                     </p>
                   </div>
 
-                  {existing && (
+                  {isCourierPosition(selectedMember.position) && (
+                    <PointsCell
+                      value={existing ? unitsOf(existing) : 0}
+                      busy={isBusy}
+                      title="Число точек за день"
+                      onCommit={(n) => setCourierPoints(selectedMember, day, n)}
+                      className="w-20 h-11 shrink-0 rounded-lg text-sm font-black border border-sky-300 text-sky-900 bg-sky-50 disabled:opacity-50"
+                      inputClassName="w-20 h-11 shrink-0 rounded-lg text-center text-base font-black border border-indigo-500 bg-white text-slate-900 ring-2 ring-indigo-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                  )}
+                  {existing && !isCourierPosition(selectedMember.position) && (
                     <button
                       onClick={() => setShiftUnits(selectedMember, day, unitsOf(existing) === 1 ? 0.5 : 1)}
                       disabled={isBusy}

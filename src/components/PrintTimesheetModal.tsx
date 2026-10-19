@@ -1,7 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, Printer } from 'lucide-react';
-import { StaffMember, Shift } from '../types';
+import { StaffMember, Shift, isCourierPosition } from '../types';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
 interface PrintTimesheetModalProps {
@@ -103,7 +103,7 @@ export const PrintTimesheetModal: React.FC<PrintTimesheetModalProps> = ({
                       const s = shiftAt(m.id, d);
                       return (
                         <td key={d} className="border border-slate-300 text-center tabular-nums">
-                          {s ? ((Number(s.units ?? 1) || 1) === 1 ? '✓' : '0,5') : ''}
+                          {s ? (isCourierPosition(m.position) ? String(Number(s.units ?? 1) || 1) : (Number(s.units ?? 1) || 1) === 1 ? '✓' : '0,5') : ''}
                         </td>
                       );
                     })}

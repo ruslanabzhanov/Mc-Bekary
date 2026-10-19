@@ -153,8 +153,13 @@ export const BASE_EMPLOYEE_POSITIONS = [
   'Заготовщик кухни',
   'Ночной заготовщик кухни',
   'Заготовщик полуфабрикатов',
-  'Кухонная рабочая'
+  'Кухонная рабочая',
+  'Курьер'
 ] as const;
+
+// У курьера в табеле не смена (1 или 0,5), а число точек за день; тариф — за одну точку.
+export const COURIER_POSITION = 'Курьер';
+export const isCourierPosition = (position?: string) => (position || '').trim().toLowerCase() === COURIER_POSITION.toLowerCase();
 
 // Live list: built-ins + custom. Mutated in place by applyCustomEmployeePositions, so every screen
 // that reads it (personnel, registration form, timesheet) sees the same, current set.

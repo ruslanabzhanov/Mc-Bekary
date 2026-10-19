@@ -1072,6 +1072,10 @@ export default function App() {
     }
   };
 
+  // Аванс, выставленный в табеле вручную: запись заменяет прежнюю, чтобы кабинеты сходились сразу.
+  const handleAdvanceAdjusted = (request: AdvanceRequest) =>
+    hydrateAdvanceRequests((prev) => [request, ...prev.filter((r) => r.id !== request.id)]);
+
   // Personnel: approve/reject an advance request
   const handleDecideAdvanceRequest = (requestId: string, status: 'approved' | 'rejected') => {
     hydrateAdvanceRequests((prev) =>
@@ -1644,6 +1648,7 @@ export default function App() {
               staff={staff}
               registrationRequests={registrationRequests}
               advanceRequests={advanceRequests}
+              onAdvanceAdjusted={handleAdvanceAdjusted}
               onUpdateStaffMember={handleUpdateStaffMember}
               onUpdateRegistrationRequest={handleUpdateRegistrationRequest}
               onApproveRegistrationRequest={handleApproveRegistrationRequest}

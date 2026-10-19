@@ -93,6 +93,7 @@ interface AdminViewProps {
   staff: StaffMember[];
   registrationRequests: RegistrationRequest[];
   advanceRequests: AdvanceRequest[];
+  onAdvanceAdjusted?: (request: AdvanceRequest) => void;
   onUpdateStaffMember: (staffId: string, updates: Partial<StaffMember>) => void;
   onUpdateRegistrationRequest: (requestId: string, updates: Partial<RegistrationRequest>) => void;
   onApproveRegistrationRequest: (requestId: string) => void;
@@ -142,6 +143,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   staff,
   registrationRequests,
   advanceRequests,
+  onAdvanceAdjusted,
   onUpdateStaffMember,
   onUpdateRegistrationRequest,
   onApproveRegistrationRequest,
@@ -877,6 +879,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               onUpdateStaffMember={onUpdateStaffMember}
               onAddStaffMember={onAddTimesheetPerson}
               advanceRequests={advanceRequests}
+              onAdvanceAdjusted={onAdvanceAdjusted}
             />
           </div>
         </div>

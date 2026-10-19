@@ -1691,6 +1691,86 @@ export function createApiApp() {
     }
   });
 
+  // Сумма аванса за месяц, выставленная прямо в табеле. Для тех, кто не пользуется приложением:
+  // владелец или заведующий производством вводит итоговую сумму, а разницу с уже одобренными
+  // заявками записывает одна строка «внесено в табеле» (по одной на сотрудника и месяц). Так
+  // кабинет сотрудника и табель считают аванс из одних и тех же записей и всегда сходятся.
+  app.post('/api/advance-requests/month-total', async (req, res) => {
+    try {
+      const { staffId, month, amount, initData, actorName } = req.body || {};
+      if (!(await canManageDeadline(String(initData || '')))) {
+        return res.status(403).json({ error: 'Править аванс могут владелец и заведующий производством (откройте приложение через Telegram).' });
+      }
+      const target = Math.round(Number(amount));
+      if (!staffId || !/^\d{4}-\d{2}$/.test(String(month || '')) || !Number.isFinite(target) || target < 0 || target > 100000000) {
+        return res.status(400).json({ error: 'Укажите сотрудника, месяц и сумму аванса (не меньше нуля).' });
+      }
+      if (String(month) > almatyToday().slice(0, 7)) return res.status(400).json({ error: 'Нельзя выставить аванс за будущий месяц.' });
+      const [y, m] = String(month).split('-').map(Number);
+      const nextMonth = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+      const { startIso } = almatyDayRangeUtc(`${month}-01`);
+      const { startIso: endIso } = almatyDayRangeUtc(nextMonth);
+      const [staffR, advR] = await Promise.all([
+        supabase.from('staff').select('id, name').eq('id', String(staffId)).maybeSingle(),
+        supabase
+          .from('advance_requests')
+          .select('*')
+          .eq('staff_id', String(staffId))
+          .eq('status', 'approved')
+          .gte('created_at', startIso)
+          .lt('created_at', endIso),
+      ]);
+      if (staffR.error) throw staffR.error;
+      if (advR.error) throw advR.error;
+      if (!staffR.data) return res.status(404).json({ error: 'Сотрудник не найден.' });
+
+      const manualId = `adv-manual-${staffId}-${month}`;
+      const rows = advR.data || [];
+      const existing = rows.find((r: any) => r.id === manualId);
+      const others = rows.filter((r: any) => r.id !== manualId).reduce((n: number, r: any) => n + (Number(r.amount) || 0), 0);
+      const manualAmount = target - others; // может быть отрицательной, если ввели меньше одобренных заявок
+      if (!existing && manualAmount === 0) return res.json({ success: true, request: null, total: target });
+
+      const note = `Внесено в табеле (${String(actorName || 'без имени').slice(0, 60)})`;
+      let saved: any;
+      if (existing) {
+        const { data, error } = await supabase
+          .from('advance_requests')
+          .update({ amount: manualAmount, kaspi_name: note })
+          .eq('id', manualId)
+          .select()
+          .maybeSingle();
+        if (error) throw error;
+        saved = data;
+      } else {
+        const createdAt = String(month) === almatyToday().slice(0, 7) ? new Date().toISOString() : `${month}-15T07:00:00Z`;
+        const { data, error } = await supabase
+          .from('advance_requests')
+          .insert({
+            ...advanceRequestToDb({
+              id: manualId,
+              staffId: String(staffId),
+              staffName: staffR.data.name,
+              amount: manualAmount,
+              kaspiPhone: '',
+              kaspiName: note,
+              status: 'approved',
+              submittedAt: timeNow(),
+            }),
+            created_at: createdAt,
+          })
+          .select()
+          .maybeSingle();
+        if (error) throw error;
+        saved = data;
+      }
+      res.json({ success: true, request: saved ? advanceRequestFromDb(saved) : null, total: target });
+    } catch (e) {
+      console.error('Failed to set the month advance total:', e);
+      res.status(500).json({ error: 'Не удалось сохранить аванс. Попробуйте ещё раз.' });
+    }
+  });
+
   // The decision on one advance request. Reads the stored status first so the employee is
   // notified exactly once, on the real pending -> decided transition.
   app.patch('/api/advance-requests/:id', async (req, res) => {
@@ -3687,8 +3767,12 @@ export function createApiApp() {
         return res.status(400).json({ error: 'rate must be a non-negative number' });
       }
       // Optional: 1 = full shift, 0.5 = half. Left out, the day keeps whatever it already had.
-      if (units != null && Number(units) !== 1 && Number(units) !== 0.5) {
-        return res.status(400).json({ error: 'units must be 1 or 0.5' });
+      // Курьеру ставят число точек за день (целое), остальным — 1 или 0,5.
+      if (units != null) {
+        const u = Number(units);
+        if (!(u === 0.5 || (Number.isInteger(u) && u >= 1 && u <= 200))) {
+          return res.status(400).json({ error: 'units must be 0.5 or a whole number from 1 to 200' });
+        }
       }
 
       // Upsert on (staff_id, work_date) so re-recording the same day corrects that row rather
