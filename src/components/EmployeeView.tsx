@@ -14,6 +14,7 @@ import { PrintChecklistsModal, DEPARTMENT_CONFIG, ChecklistDeptKey } from './Pri
 import { CheckInCard } from './CheckInCard';
 import { MyTasksPanel } from './MyTasksPanel';
 import { Task, isTaskOverdue } from '../lib/tasks';
+import { mergeApprovedAdvances } from '../lib/advances';
 
 interface EmployeeViewProps {
   employee: StaffMember | null;
@@ -724,7 +725,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
                 </p>
               ) : (
                 <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                  {myAdvanceRequests.map((r) => (
+                  {mergeApprovedAdvances(myAdvanceRequests).map((r) => (
                     <div key={r.id} className="px-3 py-2.5 flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-sm font-bold text-slate-900 tabular-nums">{formatMoney(r.amount)}</p>
@@ -735,6 +736,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
                           {' · Kaspi '}
                           {r.kaspiPhone}
                           {r.kaspiName ? ` · ${r.kaspiName}` : ''}
+                          {r.mergedCount > 1 ? ` · сумма за ${r.mergedCount} заявки` : ''}
                         </p>
                       </div>
                       <span

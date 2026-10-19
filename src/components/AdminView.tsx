@@ -14,6 +14,7 @@ import { DishPollsManager } from './DishPollsManager';
 import { OrderHistoryDaysModal } from './OrderHistoryDaysModal';
 import { AnalyticsView } from './AnalyticsView';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
+import { mergeApprovedAdvances } from '../lib/advances';
 import {
   ListChecks,
   Wallet,
@@ -985,9 +986,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
             {advanceTab === 'approved' ? (() => {
               const positionById = new Map(staff.map((s) => [s.id, s.position || '']));
               const nameById = new Map(staff.map((s) => [s.id, s.name]));
-              const approved = advanceRequests
+              const approved = mergeApprovedAdvances(advanceRequests
                 .filter((r) => r.status === 'approved' && r.createdAt &&
-                  new Date(r.createdAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7) === advanceMonth)
+                  new Date(r.createdAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7) === advanceMonth))
                 .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
               const total = approved.reduce((n, r) => n + r.amount, 0);
               const [ay, am] = advanceMonth.split('-').map(Number);
@@ -1051,6 +1052,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 <p className="text-[11px] text-slate-500">
                                   {positionById.get(r.staffId) || '—'} ·{' '}
                                   {new Date(r.createdAt!).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty' })}
+                                  {r.mergedCount > 1 ? ` · ${r.mergedCount} заявки вместе` : ''}
                                 </p>
                               </td>
                               <td className="px-2 py-2">

@@ -11,6 +11,7 @@ import type { Deviation } from '../lib/orderNorms.js';
 import { buildDeviationMessage } from '../lib/deviationMessage.js';
 import { computeReimbursementTotals, reimbursementFormula } from '../lib/reimbursement.js';
 import { TASK_ALLOWED_MIME, TASK_FILE_MAX_BYTES, formatTaskDate } from '../lib/tasks.js';
+import { mergeApprovedAdvances } from '../lib/advances.js';
 import {
   shopFromDb,
   shopToDb,
@@ -1649,7 +1650,10 @@ export function createApiApp() {
       if (advR.error) throw advR.error;
       const positionById = new Map((staffR.data || []).map((s: any) => [s.id, s.position || '']));
       const nameById = new Map((staffR.data || []).map((s: any) => [s.id, s.name || '']));
-      const rows = (advR.data || []).map(advanceRequestFromDb);
+      // Несколько одобренных заявок одного человека за месяц — одной строкой с общей суммой.
+      const rows = mergeApprovedAdvances((advR.data || []).map(advanceRequestFromDb)).sort((a: any, b: any) =>
+        String(a.createdAt).localeCompare(String(b.createdAt))
+      );
 
       const wb = new ExcelJS.Workbook();
       wb.creator = 'Master Bakery';
