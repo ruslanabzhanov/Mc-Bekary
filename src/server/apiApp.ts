@@ -1691,10 +1691,9 @@ export function createApiApp() {
     }
   });
 
-  // Сумма аванса за месяц, выставленная прямо в табеле. Для тех, кто не пользуется приложением:
-  // владелец или заведующий производством вводит итоговую сумму, а разницу с уже одобренными
-  // заявками записывает одна строка «внесено в табеле» (по одной на сотрудника и месяц). Так
-  // кабинет сотрудника и табель считают аванс из одних и тех же записей и всегда сходятся.
+  // Сумма аванса за месяц, выставленная прямо в табеле (владелец и заведующий производством) —
+  // для тех, кто не пользуется приложением. Меняет сами одобренные заявки, так что табель,
+  // кабинет сотрудника и список «Одобренные» всегда сходятся.
   app.post('/api/advance-requests/month-total', async (req, res) => {
     try {
       const { staffId, month, amount, initData, actorName } = req.body || {};
@@ -1724,36 +1723,29 @@ export function createApiApp() {
       if (advR.error) throw advR.error;
       if (!staffR.data) return res.status(404).json({ error: 'Сотрудник не найден.' });
 
-      const manualId = `adv-manual-${staffId}-${month}`;
-      const rows = advR.data || [];
-      const existing = rows.find((r: any) => r.id === manualId);
-      const others = rows.filter((r: any) => r.id !== manualId).reduce((n: number, r: any) => n + (Number(r.amount) || 0), 0);
-      const manualAmount = target - others; // может быть отрицательной, если ввели меньше одобренных заявок
-      if (!existing && manualAmount === 0) return res.json({ success: true, request: null, total: target });
+      // Правим сами одобренные заявки, чтобы табель, кабинет и список «Одобренные» показывали одно
+      // и то же. Нужно больше — прибавляем к последней заявке; меньше — убавляем с последней назад
+      // (заявка не уходит ниже нуля). Одобренных заявок за месяц нет совсем — записываем одну
+      // строку «внесено в табеле», по одной на сотрудника и месяц.
+      const rows = [...(advR.data || [])].sort((x: any, y: any) => String(y.created_at).localeCompare(String(x.created_at)));
+      const total = rows.reduce((n: number, r: any) => n + (Number(r.amount) || 0), 0);
+      let delta = target - total;
+      const changed: any[] = [];
+      if (delta === 0) return res.json({ success: true, requests: [], total: target });
 
-      const note = `Внесено в табеле (${String(actorName || 'без имени').slice(0, 60)})`;
-      let saved: any;
-      if (existing) {
-        const { data, error } = await supabase
-          .from('advance_requests')
-          .update({ amount: manualAmount, kaspi_name: note })
-          .eq('id', manualId)
-          .select()
-          .maybeSingle();
-        if (error) throw error;
-        saved = data;
-      } else {
+      const note = `Изменено в табеле (${String(actorName || 'без имени').slice(0, 60)})`;
+      if (rows.length === 0) {
         const createdAt = String(month) === almatyToday().slice(0, 7) ? new Date().toISOString() : `${month}-15T07:00:00Z`;
         const { data, error } = await supabase
           .from('advance_requests')
           .insert({
             ...advanceRequestToDb({
-              id: manualId,
+              id: `adv-manual-${staffId}-${month}`,
               staffId: String(staffId),
               staffName: staffR.data.name,
-              amount: manualAmount,
+              amount: target,
               kaspiPhone: '',
-              kaspiName: note,
+              kaspiName: `Внесено в табеле (${String(actorName || 'без имени').slice(0, 60)})`,
               status: 'approved',
               submittedAt: timeNow(),
             }),
@@ -1762,9 +1754,22 @@ export function createApiApp() {
           .select()
           .maybeSingle();
         if (error) throw error;
-        saved = data;
+        if (data) changed.push(data);
+      } else {
+        for (const r of rows) {
+          if (delta === 0) break;
+          const cur = Number(r.amount) || 0;
+          const next = delta > 0 ? cur + delta : Math.max(0, cur + delta);
+          delta -= next - cur;
+          if (next === cur) continue;
+          const update: Record<string, any> = { amount: next };
+          if (String(r.id).startsWith('adv-manual-')) update.kaspi_name = note;
+          const { data, error } = await supabase.from('advance_requests').update(update).eq('id', r.id).select().maybeSingle();
+          if (error) throw error;
+          if (data) changed.push(data);
+        }
       }
-      res.json({ success: true, request: saved ? advanceRequestFromDb(saved) : null, total: target });
+      res.json({ success: true, requests: changed.map(advanceRequestFromDb), total: target });
     } catch (e) {
       console.error('Failed to set the month advance total:', e);
       res.status(500).json({ error: 'Не удалось сохранить аванс. Попробуйте ещё раз.' });

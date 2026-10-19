@@ -503,7 +503,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
         setError(data?.error || 'Не удалось сохранить аванс. Попробуйте ещё раз.');
         return;
       }
-      if (data.request) onAdvanceAdjusted?.(data.request);
+      (data.requests || []).forEach((r: AdvanceRequest) => onAdvanceAdjusted?.(r));
     } catch (e) {
       console.error('Advance save failed:', e);
       setError('Нет связи с сервером.');
