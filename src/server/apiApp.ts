@@ -1329,6 +1329,24 @@ export function createApiApp() {
 
   app.delete('/api/staff/:staffId', async (req, res) => {
     try {
+      // Перед удалением запоминаем, кто это был (имя, должность, ставка): смены и авансы прошлых
+      // месяцев остаются в базе, и табель прошлых месяцев по-прежнему показывает этого человека.
+      // Если таблицы архива ещё нет — удаляем как раньше, ничего не ломая.
+      try {
+        const { data: person } = await supabase.from('staff').select('id, name, position, shift_rate').eq('id', String(req.params.staffId)).maybeSingle();
+        if (person) {
+          const { error: archiveError } = await supabase.from('staff_archive').upsert({
+            id: person.id,
+            name: person.name,
+            position: person.position || null,
+            shift_rate: Number(person.shift_rate) || 0,
+            deleted_at: new Date().toISOString(),
+          });
+          if (archiveError) console.error('Could not archive a deleted staff member (run the staff_archive SQL):', archiveError.message);
+        }
+      } catch (archiveErr) {
+        console.error('Archive step failed, deleting anyway:', archiveErr);
+      }
       const { error } = await supabase.from('staff').delete().eq('id', String(req.params.staffId));
       if (error) throw error;
       const { data, error: readError } = await supabase.from('staff').select('*');
@@ -3727,7 +3745,9 @@ export function createApiApp() {
         loadWorkshopLocation(),
       ]);
       if (error) throw error;
-      res.json({ date, location, shifts: (data || []).map(shiftFromDb) });
+      const { data: liveRows } = await supabase.from('staff').select('id');
+      const live = new Set((liveRows || []).map((r: any) => r.id));
+      res.json({ date, location, shifts: (data || []).filter((s: any) => live.has(s.staff_id)).map(shiftFromDb) });
     } catch (e) {
       console.error('Failed to load attendance:', e);
       res.status(500).json({ error: 'Failed to load attendance' });
@@ -3751,7 +3771,29 @@ export function createApiApp() {
 
       const { data, error } = await query;
       if (error) throw error;
-      res.json({ shifts: (data || []).map(shiftFromDb) });
+      if (staffId) return res.json({ shifts: (data || []).map(shiftFromDb), formerStaff: [] });
+
+      // Уволенных (удалённых) сотрудников показываем только в месяцах ДО месяца удаления: там их
+      // смены остаются как были. В месяце удаления и позже их в табеле уже нет.
+      const [{ data: liveRows }, archiveRes] = await Promise.all([
+        supabase.from('staff').select('id'),
+        supabase.from('staff_archive').select('*'),
+      ]);
+      const live = new Set((liveRows || []).map((r: any) => r.id));
+      const monthOfIso = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7);
+      const month = String(req.query.month);
+      const former = (archiveRes.error ? [] : archiveRes.data || []).filter(
+        (a: any) => !live.has(a.id) && a.deleted_at && monthOfIso(a.deleted_at) > month
+      );
+      const formerIds = new Set(former.map((a: any) => a.id));
+      const visible = (data || []).filter((s: any) => live.has(s.staff_id) || formerIds.has(s.staff_id));
+      const withShifts = new Set(visible.map((s: any) => s.staff_id));
+      res.json({
+        shifts: visible.map(shiftFromDb),
+        formerStaff: former
+          .filter((a: any) => withShifts.has(a.id))
+          .map((a: any) => ({ id: a.id, name: a.name, role: 'employee', shopId: null, position: a.position || undefined, shiftRate: Number(a.shift_rate) || 0 })),
+      });
     } catch (e) {
       console.error('Failed to load timesheet:', e);
       res.status(500).json({ error: 'Failed to load timesheet' });

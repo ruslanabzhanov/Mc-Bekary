@@ -401,3 +401,17 @@ create table if not exists task_events (
 );
 create index if not exists task_events_task_idx on task_events(task_id);
 alter table task_events enable row level security;
+
+-- Уволенные (удалённые) сотрудники: кто это был, чтобы табель прошлых месяцев по-прежнему показывал
+-- их смены. Сами смены и авансы остаются в базе — внешние ключи на staff убраны, иначе удаление
+-- человека стирало бы его историю (каскад).
+create table if not exists staff_archive (
+  id text primary key,
+  name text not null,
+  position text,
+  shift_rate numeric not null default 0,
+  deleted_at timestamptz not null default now()
+);
+alter table staff_archive enable row level security;
+alter table shifts drop constraint if exists shifts_staff_id_fkey;
+alter table advance_requests drop constraint if exists advance_requests_staff_id_fkey;

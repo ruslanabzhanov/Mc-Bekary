@@ -210,11 +210,17 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   // Ставку можно менять только в текущем месяце; прошлые месяцы хранят ту, по которой посчитаны.
   const isCurrentMonth = month === monthKey(almatyToday());
 
+  // Те, кого уже удалили, но кто работал в этом (прошлом) месяце — их смены остаются как были.
+  const [formerStaff, setFormerStaff] = useState<StaffMember[]>([]);
+
   // Only internal employees are on the timesheet — point managers and territorial managers
   // are not paid per shift through this screen.
   const employees = useMemo(
-    () => staff.filter((s) => s.role === 'employee').sort((a, b) => a.name.localeCompare(b.name, 'ru')),
-    [staff]
+    () =>
+      [...staff.filter((s) => s.role === 'employee'), ...formerStaff.filter((f) => !staff.some((s) => s.id === f.id))].sort((a, b) =>
+        a.name.localeCompare(b.name, 'ru')
+      ),
+    [staff, formerStaff]
   );
 
   useEffect(() => {
@@ -384,7 +390,10 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
     setIsLoading(true);
     fetch(`/api/timesheet?month=${month}`)
       .then((r) => r.json())
-      .then((data) => setShifts(data.shifts || []))
+      .then((data) => {
+        setShifts(data.shifts || []);
+        setFormerStaff(Array.isArray(data.formerStaff) ? data.formerStaff : []);
+      })
       .catch((e) => console.error('Failed to load timesheet:', e))
       .finally(() => setIsLoading(false));
   };
