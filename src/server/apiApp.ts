@@ -3835,6 +3835,10 @@ export function createApiApp() {
       if (!staffId || !range || !Number.isFinite(numericRate) || numericRate < 0) {
         return res.status(400).json({ error: 'staffId, month (YYYY-MM) and a non-negative rate are required' });
       }
+      // Ставку пересчитывают только в текущем месяце; прошлые остаются со ставкой, по которой посчитаны.
+      if (String(month) !== almatyToday().slice(0, 7)) {
+        return res.status(400).json({ error: 'Ставку меняют только в текущем месяце — прошлые месяцы не пересчитываются.' });
+      }
       const { data: current, error: currentErr } = await supabase
         .from('shifts')
         .select('*')

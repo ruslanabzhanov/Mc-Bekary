@@ -15,6 +15,7 @@ import { CheckInCard } from './CheckInCard';
 import { MyTasksPanel } from './MyTasksPanel';
 import { Task, isTaskOverdue } from '../lib/tasks';
 import { mergeApprovedAdvances } from '../lib/advances';
+import { monthShiftRate } from '../lib/shiftRate';
 
 interface EmployeeViewProps {
   employee: StaffMember | null;
@@ -917,7 +918,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
                   <span className="text-[10px] font-black uppercase tracking-wider">Ставка/день</span>
                 </div>
                 <p className="text-xl font-black text-slate-900 tabular-nums leading-none">
-                  {employee.shiftRate ? formatMoney(employee.shiftRate) : '—'}
+                  {monthShiftRate(shifts, employee.shiftRate, isCurrentMonth) ? formatMoney(monthShiftRate(shifts, employee.shiftRate, isCurrentMonth)) : '—'}
                 </p>
               </div>
 

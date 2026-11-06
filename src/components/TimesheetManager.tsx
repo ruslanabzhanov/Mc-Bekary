@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { StaffMember, Shift, AdvanceRequest, EMPLOYEE_POSITIONS, isCourierPosition } from '../types';
 import { PrintTimesheetModal } from './PrintTimesheetModal';
+import { monthShiftRate } from '../lib/shiftRate';
 
 interface TimesheetManagerProps {
   staff: StaffMember[];
@@ -206,6 +207,8 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   const [isAddingPerson, setIsAddingPerson] = useState(false);
   const [addPersonError, setAddPersonError] = useState('');
   const [isLayoutLoaded, setIsLayoutLoaded] = useState(false);
+  // Ставку можно менять только в текущем месяце; прошлые месяцы хранят ту, по которой посчитаны.
+  const isCurrentMonth = month === monthKey(almatyToday());
 
   // Only internal employees are on the timesheet — point managers and territorial managers
   // are not paid per shift through this screen.
@@ -439,8 +442,9 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       return;
     }
 
-    // Rate is copied from the person's card at this moment and then frozen on the shift.
-    const rate = Number(member.shiftRate) || 0;
+    // Rate of the month on screen (the card's tariff now, the month's own one for a past month) is
+    // copied at this moment and then frozen on the shift.
+    const rate = rateForMonth(member);
     const ok = await write('/api/timesheet/shift', 'POST', { staffId: member.id, workDate: day, rate }, key);
     if (ok) {
       setShifts((prev) => [
@@ -452,8 +456,10 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
 
   // Full-shift money for this person on this day: the day's own frozen rate if it exists,
   // otherwise their current tariff. A half shift is always half of that.
+  const rateForMonth = (member: StaffMember) =>
+    monthShiftRate(shifts.filter((s) => s.staffId === member.id), member.shiftRate, isCurrentMonth) || Number(member.shiftRate) || 0;
   const fullRateOf = (member: StaffMember, existing?: Shift) =>
-    existing ? (Number(existing.rate) || 0) / unitsOf(existing) : Number(member.shiftRate) || 0;
+    existing ? (Number(existing.rate) || 0) / unitsOf(existing) : rateForMonth(member);
 
   // Put the day at exactly 1 or 0.5 (creating it if needed). For a courier — that many points.
   const setShiftUnits = async (member: StaffMember, day: string, units: number) => {
@@ -526,6 +532,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
   // new shifts start from it) and applied to every shift they already have in the month on
   // screen, so «days × tariff» holds. Other months keep the rate frozen on their shifts.
   const saveMonthRate = async (member: StaffMember, rate: number) => {
+    if (!isCurrentMonth) return; // прошлые месяцы не трогаем
     if (!Number.isFinite(rate) || rate < 0 || rate === (Number(member.shiftRate) || 0)) return;
     onUpdateStaffMember(member.id, { shiftRate: rate });
     const ok = await write('/api/timesheet/month-rate', 'POST', { staffId: member.id, month, rate }, `${member.id}:month-rate`);
@@ -579,7 +586,8 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       const mine = byStaff.get(m.id) || new Map<string, Shift>();
       const earned = Array.from(mine.values()).reduce((n, s) => n + (Number(s.rate) || 0), 0);
       const advance = advanceBy.get(m.id) || 0;
-      return { member: m, byDay: mine, days: Array.from(mine.values()).reduce((n, s) => n + unitsOf(s), 0), earned, advance, payout: earned - advance };
+      const rate = monthShiftRate(Array.from(mine.values()), m.shiftRate, isCurrentMonth);
+      return { member: m, rate, byDay: mine, days: Array.from(mine.values()).reduce((n, s) => n + unitsOf(s), 0), earned, advance, payout: earned - advance };
     };
 
     return groups
@@ -598,7 +606,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
         advance: g.rows.reduce((n, r) => n + r.advance, 0),
         payout: g.rows.reduce((n, r) => n + r.payout, 0),
       }));
-  }, [shifts, groups, employeeById, advanceRequests, month]);
+  }, [shifts, groups, employeeById, advanceRequests, month, isCurrentMonth]);
   const gridTotals = gridRows.reduce(
     (t, g) => ({ earned: t.earned + g.earned, advance: t.advance + g.advance, payout: t.payout + g.payout }),
     { earned: 0, advance: 0, payout: 0 }
@@ -955,6 +963,11 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                               );
                             })}
                             <td className={`${cellBorder} px-1.5 py-1 text-center font-bold text-slate-900`}>{r.days ? fmtUnits(r.days) : ''}</td>
+                            {!isCurrentMonth ? (
+                              <td className={`${cellBorder} px-1.5 py-1 text-right font-semibold text-slate-600 bg-slate-50`} title="Ставка того месяца — в прошлых месяцах она не меняется">
+                                {num(r.rate)}
+                              </td>
+                            ) : (
                             <td className={`${cellBorder} p-0`}>
                               <input
                                 key={`${r.member.id}-${r.member.shiftRate || 0}`}
@@ -973,6 +986,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                                 className="w-full min-w-[72px] h-7 px-1.5 text-right bg-amber-50/60 hover:bg-amber-100 focus:bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                               />
                             </td>
+                            )}
                             <td className={`${cellBorder} px-1.5 py-1 text-right font-bold text-slate-900`}>{num(r.earned)}</td>
                             <td className={`${cellBorder} p-0`}>
                               <input
@@ -1026,7 +1040,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
               </table>
             </div>
             <p className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-200">
-              Нажмите на клетку дня: первое нажатие — смена (1), второе — полсмены (0,5), третье — снять. Тарифную ставку меняйте прямо в таблице — она пересчитает смены этого месяца и сразу видна сотруднику в кабинете
+              Нажмите на клетку дня: первое нажатие — смена (1), второе — полсмены (0,5), третье — снять. Тарифную ставку меняйте прямо в таблице — она пересчитает смены этого месяца и сразу видна сотруднику в кабинете; прошлые месяцы остаются со своей ставкой и не меняются
               . Аванс — одобренные заявки за этот месяц; его можно поменять прямо в таблице (владелец и заведующий производством) — сумма сразу изменится и в кабинете сотрудника. У курьеров в клетке дня — число точек: нажмите и введите цифры, тариф у них за одну точку.
             </p>
           </div>
@@ -1091,7 +1105,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                     )}
                   </span>
                   <span className="text-sm font-black text-slate-900 tabular-nums whitespace-nowrap">
-                    {existing ? formatMoney(existing.rate) : formatMoney(member.shiftRate || 0)}
+                    {existing ? formatMoney(existing.rate) : formatMoney(rateForMonth(member))}
                   </span>
                 </button>
                 {isCourierPosition(member.position) && (
@@ -1149,12 +1163,13 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                 {isCourierPosition(selectedMember.position) ? 'Ставка за одну точку' : 'Ставка за смену'}
               </label>
               <input
-                key={`${selectedMember.id}-${selectedMember.shiftRate || 0}`}
+                key={`${selectedMember.id}-${selectedMember.shiftRate || 0}-${month}`}
                 type="number"
                 min="0"
                 step="500"
                 inputMode="numeric"
-                defaultValue={selectedMember.shiftRate || ''}
+                defaultValue={(isCurrentMonth ? selectedMember.shiftRate : rateForMonth(selectedMember)) || ''}
+                disabled={!isCurrentMonth}
                 placeholder="0"
                 onBlur={(e) => saveMonthRate(selectedMember, Number(e.target.value) || 0)}
                 onKeyDown={(e) => {
@@ -1163,8 +1178,9 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                 className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl bg-white font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <p className="text-[11px] text-slate-400 mt-1.5">
-                Видна сотруднику в кабинете. Пересчитывает отмеченные смены за {MONTHS[monthNum - 1].toLowerCase()} и
-                подставляется в новые; прошлые месяцы не меняются.
+                {isCurrentMonth
+                  ? `Видна сотруднику в кабинете. Пересчитывает отмеченные смены за ${MONTHS[monthNum - 1].toLowerCase()} и подставляется в новые; прошлые месяцы не меняются.`
+                  : 'Ставка того месяца. В прошлых месяцах её не меняют — если нужно поправить один день, измените сумму в строке этого дня.'}
               </p>
             </div>
           </div>
