@@ -121,6 +121,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   const photoInputRef = React.useRef<HTMLInputElement>(null);
   const [month, setMonth] = useState<string>(() => monthKey(almatyToday()));
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [bonus, setBonus] = useState(0); // премия за открытый месяц
   const [isLoading, setIsLoading] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [kaspiPhone, setKaspiPhone] = useState('');
@@ -170,6 +171,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
   useEffect(() => {
     if (!staffId) {
       setShifts([]);
+      setBonus(0);
       return;
     }
     let cancelled = false;
@@ -177,7 +179,10 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
     fetch(`/api/timesheet?month=${month}&staffId=${encodeURIComponent(staffId)}`)
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled) setShifts(data.shifts || []);
+        if (!cancelled) {
+          setShifts(data.shifts || []);
+          setBonus(Number(data.bonuses?.[staffId]) || 0);
+        }
       })
       .catch((e) => console.error('Failed to load own timesheet:', e))
       .finally(() => {
@@ -228,7 +233,7 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
         .reduce((sum, r) => sum + r.amount, 0),
     [myAdvanceRequests, month]
   );
-  const netPayout = earned - advanceTakenThisMonth;
+  const netPayout = earned + bonus - advanceTakenThisMonth;
 
   // The limit comes from the server — the same numbers it checks the request against.
   const openAdvanceForm = () => {
@@ -931,6 +936,16 @@ export const EmployeeView: React.FC<EmployeeViewProps> = ({
                   {String(shiftCount).replace('.', ',')} {!Number.isInteger(shiftCount) ? 'смены' : shiftCount === 1 ? 'смена' : shiftCount >= 2 && shiftCount <= 4 ? 'смены' : 'смен'}
                 </p>
               </div>
+
+              {bonus > 0 && (
+                <div id="cabinet-bonus" className="bg-sky-50/70 rounded-2xl border border-sky-200 p-4 shadow-xs">
+                  <div className="flex items-center gap-1.5 text-sky-700/70 mb-1.5">
+                    <Banknote className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Премия</span>
+                  </div>
+                  <p className="text-xl font-black text-sky-900 tabular-nums leading-none break-all">{formatMoney(bonus)}</p>
+                </div>
+              )}
 
               <div className="bg-amber-50/70 rounded-2xl border border-amber-200 p-4 shadow-xs">
                 <div className="flex items-center gap-1.5 text-amber-700/70 mb-1.5">

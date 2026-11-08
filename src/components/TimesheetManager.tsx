@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, Users, Check, X, Wallet, Printer, History, Table2,
-  ListOrdered, Plus, Trash2,
+  ListOrdered, Plus, Trash2, Download,
 } from 'lucide-react';
 import { StaffMember, Shift, AdvanceRequest, EMPLOYEE_POSITIONS, isCourierPosition } from '../types';
 import { PrintTimesheetModal } from './PrintTimesheetModal';
+import type { PrintGroup } from './PrintTimesheetModal';
+import { GRID_GROUPS, buildGroups } from '../lib/timesheetLayout';
+import type { LayoutGroup } from '../lib/timesheetLayout';
 import { monthShiftRate } from '../lib/shiftRate';
 
 interface TimesheetManagerProps {
@@ -19,63 +22,6 @@ interface TimesheetManagerProps {
   // Аванс, выставленный здесь вручную, надо отдать наверх, чтобы он сразу попал в кабинет и реестр.
   onAdvanceAdjusted?: (request: AdvanceRequest) => void;
 }
-
-// Sections of the monthly grid, in the order the paper timesheet lists people.
-const GRID_GROUPS: { label: string; positions: string[] }[] = [
-  { label: 'Руководство цеха', positions: ['Заведующий производством'] },
-  { label: 'Пекари', positions: ['Шеф-пекарь', 'Пекарь', 'Ночной пекарь'] },
-  { label: 'Кондитеры', positions: ['Кондитер'] },
-  { label: 'Курьеры', positions: ['Курьер'] },
-  {
-    label: 'Заготовщики',
-    positions: ['Заготовщик бара', 'Заготовщик кухни', 'Ночной заготовщик кухни', 'Заготовщик полуфабрикатов'],
-  },
-];
-
-// Saved row order and departments of the grid (app_settings → timesheet_layout). Display only:
-// shifts, rates and advances belong to the person, so moving rows never changes any money.
-interface LayoutGroup {
-  id: string;
-  label: string;
-  staffIds: string[];
-}
-
-const OTHER_LABEL = 'Прочие';
-const defaultGroupLabel = (m: StaffMember) =>
-  GRID_GROUPS.find((g) => m.position && g.positions.includes(m.position))?.label || OTHER_LABEL;
-
-// Groups with their people in display order. Without a saved layout — by position, as before.
-// Anyone not placed in the saved layout (a new hire) lands in the group of their position if it
-// exists, otherwise in «Прочие», so nobody ever drops off the timesheet.
-const buildGroups = (employees: StaffMember[], layout: LayoutGroup[] | null): LayoutGroup[] => {
-  const groups: LayoutGroup[] = layout
-    ? layout.map((g) => ({ id: g.id, label: g.label, staffIds: [] as string[] }))
-    : GRID_GROUPS.map((g, i) => ({ id: `default-${i}`, label: g.label, staffIds: [] as string[] }));
-  const byId = new Map(employees.map((m) => [m.id, m]));
-  const placed = new Set<string>();
-  if (layout) {
-    layout.forEach((g, i) => {
-      (g.staffIds || []).forEach((id) => {
-        if (byId.has(id) && !placed.has(id)) {
-          groups[i].staffIds.push(id);
-          placed.add(id);
-        }
-      });
-    });
-  }
-  employees
-    .filter((m) => !placed.has(m.id))
-    .forEach((m) => {
-      const label = defaultGroupLabel(m);
-      let g = groups.find((x) => x.label === label);
-      if (!g) {
-        g = { id: `default-${label}`, label, staffIds: [] };
-        groups.push(g);
-      }
-      g.staffIds.push(m.id);
-    });
-  return groups;
-};
 
 interface ShiftChangeEntry {
   id: number;
@@ -212,6 +158,8 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
 
   // Те, кого уже удалили, но кто работал в этом (прошлом) месяце — их смены остаются как были.
   const [formerStaff, setFormerStaff] = useState<StaffMember[]>([]);
+  // Премия за открытый месяц: сотрудник → сумма.
+  const [bonuses, setBonuses] = useState<Record<string, number>>({});
 
   // Only internal employees are on the timesheet — point managers and territorial managers
   // are not paid per shift through this screen.
@@ -393,6 +341,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       .then((data) => {
         setShifts(data.shifts || []);
         setFormerStaff(Array.isArray(data.formerStaff) ? data.formerStaff : []);
+        setBonuses(data.bonuses && typeof data.bonuses === 'object' ? data.bonuses : {});
       })
       .catch((e) => console.error('Failed to load timesheet:', e))
       .finally(() => setIsLoading(false));
@@ -527,6 +476,47 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
     }
   };
 
+  // Премия: начисление к зарплате за месяц, которое ставят владелец и заведующий производством.
+  const saveBonus = async (member: StaffMember, amount: number) => {
+    const current = bonuses[member.id] || 0;
+    if (!Number.isFinite(amount) || amount < 0 || Math.round(amount) === current) return;
+    const key = `${member.id}:bonus`;
+    setBusyKey(key);
+    setError(null);
+    try {
+      const res = await fetch('/api/timesheet/bonus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId: member.id, month, amount: Math.round(amount), initData: telegramInitData }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error || 'Не удалось сохранить премию. Попробуйте ещё раз.');
+        return;
+      }
+      setBonuses((prev) => ({ ...prev, [member.id]: Math.round(amount) }));
+    } catch (e) {
+      console.error('Bonus save failed:', e);
+      setError('Нет связи с сервером.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  // Табель за месяц в Excel (тот же способ скачивания, что у списка авансов).
+  const downloadExcel = () => {
+    const url = `${window.location.origin}/api/timesheet/export.xlsx?month=${month}`;
+    const fileName = `Табель — ${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}.xlsx`;
+    const tg = (window as any).Telegram?.WebApp;
+    if (typeof tg?.downloadFile === 'function') return tg.downloadFile({ url, file_name: fileName });
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const changeShiftRate = async (member: StaffMember, day: string, rate: number) => {
     const key = `${member.id}:${day}:rate`;
     const ok = await write('/api/timesheet/shift', 'POST', { staffId: member.id, workDate: day, rate }, key);
@@ -595,8 +585,9 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       const mine = byStaff.get(m.id) || new Map<string, Shift>();
       const earned = Array.from(mine.values()).reduce((n, s) => n + (Number(s.rate) || 0), 0);
       const advance = advanceBy.get(m.id) || 0;
+      const bonus = bonuses[m.id] || 0;
       const rate = monthShiftRate(Array.from(mine.values()), m.shiftRate, isCurrentMonth);
-      return { member: m, rate, byDay: mine, days: Array.from(mine.values()).reduce((n, s) => n + unitsOf(s), 0), earned, advance, payout: earned - advance };
+      return { member: m, rate, byDay: mine, days: Array.from(mine.values()).reduce((n, s) => n + unitsOf(s), 0), earned, bonus, advance, payout: earned + bonus - advance };
     };
 
     return groups
@@ -612,13 +603,14 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
       .map((g) => ({
         ...g,
         earned: g.rows.reduce((n, r) => n + r.earned, 0),
+        bonus: g.rows.reduce((n, r) => n + r.bonus, 0),
         advance: g.rows.reduce((n, r) => n + r.advance, 0),
         payout: g.rows.reduce((n, r) => n + r.payout, 0),
       }));
-  }, [shifts, groups, employeeById, advanceRequests, month, isCurrentMonth]);
+  }, [shifts, groups, employeeById, advanceRequests, month, isCurrentMonth, bonuses]);
   const gridTotals = gridRows.reduce(
-    (t, g) => ({ earned: t.earned + g.earned, advance: t.advance + g.advance, payout: t.payout + g.payout }),
-    { earned: 0, advance: 0, payout: 0 }
+    (t, g) => ({ earned: t.earned + g.earned, bonus: t.bonus + g.bonus, advance: t.advance + g.advance, payout: t.payout + g.payout }),
+    { earned: 0, bonus: 0, advance: 0, payout: 0 }
   );
 
   const [yearNum, monthNum] = month.split('-').map(Number);
@@ -662,6 +654,15 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
             {fmtUnits(monthTotals.count)} {shiftWord(monthTotals.count)} · {formatMoney(monthTotals.total)}
           </p>
         </div>
+        <button
+          id="btn-download-timesheet"
+          onClick={downloadExcel}
+          className="w-11 h-11 shrink-0 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700 flex items-center justify-center"
+          aria-label="Скачать табель в Excel"
+          title="Скачать табель за месяц в Excel"
+        >
+          <Download className="w-5 h-5" />
+        </button>
         <button
           onClick={() => setIsPrintOpen(true)}
           className="w-11 h-11 shrink-0 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 flex items-center justify-center"
@@ -904,6 +905,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                     <th className={`${cellBorder} px-1.5 py-1 min-w-[64px] leading-tight`}>Кол-во отработ. дней</th>
                     <th className={`${cellBorder} px-1.5 py-1 min-w-[70px] leading-tight`}>Тарифная ставка</th>
                     <th className={`${cellBorder} px-1.5 py-1 min-w-[84px] leading-tight`}>Общая сумма оплаты</th>
+                    <th className={`${cellBorder} px-1.5 py-1 min-w-[72px]`}>Премия</th>
                     <th className={`${cellBorder} px-1.5 py-1 min-w-[72px]`}>Аванс</th>
                     <th className={`${cellBorder} px-1.5 py-1 min-w-[84px]`}>К выдаче</th>
                   </tr>
@@ -916,11 +918,11 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                         <td className={`${cellBorder} ${stickyName} bg-sky-100 px-2 py-1 font-black text-slate-800`}>
                           {g.label}
                         </td>
-                        <td className={cellBorder} colSpan={monthDays.length + 6} />
+                        <td className={cellBorder} colSpan={monthDays.length + 7} />
                       </tr>
                       {g.rows.map((r) => {
                         rowNo += 1;
-                        const hasMoney = r.earned > 0 || r.advance > 0;
+                        const hasMoney = r.earned > 0 || r.advance > 0 || r.bonus > 0;
                         return (
                           <tr key={r.member.id} className="hover:bg-amber-50/40">
                             <td className={`${cellBorder} ${stickyNo} bg-white px-1 py-1 text-center text-slate-500`}>{rowNo}</td>
@@ -999,6 +1001,24 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                             <td className={`${cellBorder} px-1.5 py-1 text-right font-bold text-slate-900`}>{num(r.earned)}</td>
                             <td className={`${cellBorder} p-0`}>
                               <input
+                                key={`${r.member.id}-bonus-${r.bonus}`}
+                                type="number"
+                                min="0"
+                                step="1000"
+                                inputMode="numeric"
+                                defaultValue={r.bonus || ''}
+                                placeholder="0"
+                                disabled={busyKey === `${r.member.id}:bonus`}
+                                onBlur={(e) => saveBonus(r.member, Number(e.target.value) || 0)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                }}
+                                title="Премия за месяц — начисление к зарплате. Нажмите, введите сумму и Enter"
+                                className="w-full min-w-[72px] h-7 px-1.5 text-right bg-sky-50/70 hover:bg-sky-100 focus:bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </td>
+                            <td className={`${cellBorder} p-0`}>
+                              <input
                                 key={`${r.member.id}-adv-${r.advance}`}
                                 type="number"
                                 min="0"
@@ -1030,6 +1050,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                         <td className={`${cellBorder} ${stickyName} bg-sky-200 px-2 py-1`}>Итого: {g.label.toLowerCase()}</td>
                         <td className={cellBorder} colSpan={monthDays.length + 3} />
                         <td className={`${cellBorder} px-1.5 py-1 text-right`}>{num(g.earned)}</td>
+                        <td className={`${cellBorder} px-1.5 py-1 text-right`}>{num(g.bonus)}</td>
                         <td className={`${cellBorder} px-1.5 py-1 text-right`}>{num(g.advance)}</td>
                         <td className={`${cellBorder} px-1.5 py-1 text-right`}>{num(g.payout)}</td>
                       </tr>
@@ -1042,6 +1063,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
                     <td className={`${cellBorder} ${stickyName} bg-slate-800 px-2 py-1.5`}>ИТОГО ПО ЦЕХУ</td>
                     <td className={cellBorder} colSpan={monthDays.length + 3} />
                     <td className={`${cellBorder} px-1.5 py-1.5 text-right`}>{num(gridTotals.earned)}</td>
+                    <td className={`${cellBorder} px-1.5 py-1.5 text-right`}>{num(gridTotals.bonus)}</td>
                     <td className={`${cellBorder} px-1.5 py-1.5 text-right`}>{num(gridTotals.advance)}</td>
                     <td className={`${cellBorder} px-1.5 py-1.5 text-right`}>{num(gridTotals.payout)}</td>
                   </tr>
@@ -1050,7 +1072,7 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
             </div>
             <p className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-200">
               Нажмите на клетку дня: первое нажатие — смена (1), второе — полсмены (0,5), третье — снять. Тарифную ставку меняйте прямо в таблице — она пересчитает смены этого месяца и сразу видна сотруднику в кабинете; прошлые месяцы остаются со своей ставкой и не меняются
-              . Аванс — одобренные заявки за этот месяц; его можно поменять прямо в таблице (владелец и заведующий производством) — сумма сразу изменится и в кабинете сотрудника. У курьеров в клетке дня — число точек: нажмите и введите цифры, тариф у них за одну точку.
+              . Премия — начисление к зарплате за месяц (владелец и заведующий производством вводят сумму прямо в клетке). К выдаче = начислено + премия − аванс. Аванс — одобренные заявки за этот месяц; его можно поменять прямо в таблице (владелец и заведующий производством) — сумма сразу изменится и в кабинете сотрудника. У курьеров в клетке дня — число точек: нажмите и введите цифры, тариф у них за одну точку.
             </p>
           </div>
         );
@@ -1420,8 +1442,9 @@ export const TimesheetManager: React.FC<TimesheetManagerProps> = ({
         <PrintTimesheetModal
           month={month}
           monthLabel={`${MONTHS[monthNum - 1]} ${yearNum}`}
-          employees={orderedEmployees}
-          shifts={shifts}
+          groups={gridRows as PrintGroup[]}
+          totals={gridTotals}
+          monthDays={monthDays}
           onClose={() => setIsPrintOpen(false)}
         />
       )}

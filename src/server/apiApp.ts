@@ -12,6 +12,9 @@ import { buildDeviationMessage } from '../lib/deviationMessage.js';
 import { computeReimbursementTotals, reimbursementFormula } from '../lib/reimbursement.js';
 import { TASK_ALLOWED_MIME, TASK_FILE_MAX_BYTES, formatTaskDate } from '../lib/tasks.js';
 import { mergeApprovedAdvances } from '../lib/advances.js';
+import { buildGroups } from '../lib/timesheetLayout.js';
+import type { LayoutGroup } from '../lib/timesheetLayout.js';
+import { monthShiftRate } from '../lib/shiftRate.js';
 import {
   shopFromDb,
   shopToDb,
@@ -758,6 +761,48 @@ function getClaudeClient() {
     return null;
   }
   return new Anthropic({ apiKey });
+}
+
+// Премия за месяц (начисление сверх заработанного по табелю). Лежит в app_settings отдельной
+// строкой на человека и месяц — две одновременные правки разных людей не затирают друг друга.
+const bonusKey = (month: string, staffId: string) => `timesheet_bonus:${month}:${staffId}`;
+async function loadBonuses(month: string, staffId?: string): Promise<Record<string, number>> {
+  const prefix = `timesheet_bonus:${month}:`;
+  const base = supabase.from('app_settings').select('key, value');
+  const { data, error } = await (staffId ? base.eq('key', bonusKey(month, staffId)) : base.like('key', `${prefix}%`));
+  if (error) {
+    console.error('Failed to load bonuses:', error);
+    return {};
+  }
+  const out: Record<string, number> = {};
+  (data || []).forEach((r: any) => {
+    const n = Number(r.value);
+    if (Number.isFinite(n) && n !== 0) out[String(r.key).slice(prefix.length)] = n;
+  });
+  return out;
+}
+
+// Те, кого уже удалили, показываются только в месяцах до месяца удаления; остальные смены
+// удалённых скрыты. Если таблицы архива ещё нет — работает как раньше.
+async function splitFormerStaff(month: string, shifts: any[]) {
+  const [{ data: liveRows }, archiveRes] = await Promise.all([
+    supabase.from('staff').select('id'),
+    supabase.from('staff_archive').select('*'),
+  ]);
+  const live = new Set((liveRows || []).map((r: any) => r.id));
+  const monthOfIso = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7);
+  const former = (archiveRes.error ? [] : archiveRes.data || []).filter(
+    (a: any) => !live.has(a.id) && a.deleted_at && monthOfIso(a.deleted_at) > month
+  );
+  const formerIds = new Set(former.map((a: any) => a.id));
+  const visible = shifts.filter((x: any) => live.has(x.staff_id) || formerIds.has(x.staff_id));
+  const withShifts = new Set(visible.map((x: any) => x.staff_id));
+  return {
+    visible,
+    formerStaff: former
+      .filter((a: any) => withShifts.has(a.id))
+      .map((a: any) => ({ id: a.id, name: a.name, role: 'employee', shopId: null, position: a.position || undefined, shiftRate: Number(a.shift_rate) || 0 })),
+  };
 }
 
 export function createApiApp() {
@@ -3771,32 +3816,184 @@ export function createApiApp() {
 
       const { data, error } = await query;
       if (error) throw error;
-      if (staffId) return res.json({ shifts: (data || []).map(shiftFromDb), formerStaff: [] });
-
-      // Уволенных (удалённых) сотрудников показываем только в месяцах ДО месяца удаления: там их
-      // смены остаются как были. В месяце удаления и позже их в табеле уже нет.
-      const [{ data: liveRows }, archiveRes] = await Promise.all([
-        supabase.from('staff').select('id'),
-        supabase.from('staff_archive').select('*'),
-      ]);
-      const live = new Set((liveRows || []).map((r: any) => r.id));
-      const monthOfIso = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' }).slice(0, 7);
       const month = String(req.query.month);
-      const former = (archiveRes.error ? [] : archiveRes.data || []).filter(
-        (a: any) => !live.has(a.id) && a.deleted_at && monthOfIso(a.deleted_at) > month
-      );
-      const formerIds = new Set(former.map((a: any) => a.id));
-      const visible = (data || []).filter((s: any) => live.has(s.staff_id) || formerIds.has(s.staff_id));
-      const withShifts = new Set(visible.map((s: any) => s.staff_id));
-      res.json({
-        shifts: visible.map(shiftFromDb),
-        formerStaff: former
-          .filter((a: any) => withShifts.has(a.id))
-          .map((a: any) => ({ id: a.id, name: a.name, role: 'employee', shopId: null, position: a.position || undefined, shiftRate: Number(a.shift_rate) || 0 })),
-      });
+      if (staffId) return res.json({ shifts: (data || []).map(shiftFromDb), formerStaff: [], bonuses: await loadBonuses(month, staffId) });
+
+      const { visible, formerStaff } = await splitFormerStaff(month, data || []);
+      res.json({ shifts: visible.map(shiftFromDb), formerStaff, bonuses: await loadBonuses(month) });
     } catch (e) {
       console.error('Failed to load timesheet:', e);
       res.status(500).json({ error: 'Failed to load timesheet' });
+    }
+  });
+
+  // Премия сотруднику за месяц — начисление к зарплате. Ставят владелец и заведующий производством.
+  app.post('/api/timesheet/bonus', async (req, res) => {
+    try {
+      const { staffId, month, amount, initData } = req.body || {};
+      if (!(await canManageDeadline(String(initData || '')))) {
+        return res.status(403).json({ error: 'Премию могут ставить владелец и заведующий производством (откройте приложение через Telegram).' });
+      }
+      const value = Math.round(Number(amount));
+      if (!staffId || !/^\d{4}-\d{2}$/.test(String(month || '')) || !Number.isFinite(value) || value < 0 || value > 100000000) {
+        return res.status(400).json({ error: 'Укажите сотрудника, месяц и сумму премии (не меньше нуля).' });
+      }
+      const { data: person, error: personErr } = await supabase.from('staff').select('id').eq('id', String(staffId)).maybeSingle();
+      if (personErr) throw personErr;
+      if (!person) return res.status(404).json({ error: 'Сотрудник не найден.' });
+      const key = bonusKey(String(month), String(staffId));
+      if (value === 0) {
+        const { error } = await supabase.from('app_settings').delete().eq('key', key);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('app_settings').upsert({ key, value: String(value), updated_at: new Date().toISOString() });
+        if (error) throw error;
+      }
+      res.json({ success: true, amount: value });
+    } catch (e) {
+      console.error('Failed to save a bonus:', e);
+      res.status(500).json({ error: 'Не удалось сохранить премию. Попробуйте ещё раз.' });
+    }
+  });
+
+  // Табель за месяц в Excel — та же таблица, что на экране: подразделения, дни, начислено, премия,
+  // аванс и «к выдаче».
+  app.get('/api/timesheet/export.xlsx', async (req, res) => {
+    try {
+      const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : almatyToday().slice(0, 7);
+      const range = monthRange(month);
+      if (!range) return res.status(400).json({ error: 'month must be YYYY-MM' });
+      const [y, m] = month.split('-').map(Number);
+      const nextMonth = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+      const { startIso } = almatyDayRangeUtc(`${month}-01`);
+      const { startIso: endIso } = almatyDayRangeUtc(nextMonth);
+      const [staffR, shiftsR, layoutR, advR] = await Promise.all([
+        supabase.from('staff').select('*'),
+        supabase.from('shifts').select('*').gte('work_date', range.from).lte('work_date', range.to),
+        supabase.from('app_settings').select('value').eq('key', 'timesheet_layout').maybeSingle(),
+        supabase.from('advance_requests').select('staff_id, amount').eq('status', 'approved').gte('created_at', startIso).lt('created_at', endIso),
+      ]);
+      for (const r of [staffR, shiftsR, advR]) if (r.error) throw r.error;
+      const { visible, formerStaff } = await splitFormerStaff(month, shiftsR.data || []);
+      const bonuses = await loadBonuses(month);
+      const shifts = visible.map(shiftFromDb);
+      const isCurrent = month === almatyToday().slice(0, 7);
+
+      const live = (staffR.data || []).map(staffFromDb).filter((x: any) => x.role === 'employee');
+      const employees = [...live, ...formerStaff.filter((f: any) => !live.some((x: any) => x.id === f.id))].sort((a: any, b: any) =>
+        String(a.name).localeCompare(String(b.name), 'ru')
+      );
+      let layout: LayoutGroup[] | null = null;
+      try {
+        const parsed = layoutR.data?.value ? JSON.parse(layoutR.data.value) : null;
+        layout = Array.isArray(parsed?.groups) ? parsed.groups : null;
+      } catch {
+        layout = null;
+      }
+      const groups = buildGroups(employees as any, layout);
+      const byId = new Map(employees.map((x: any) => [x.id, x]));
+      const advanceBy = new Map<string, number>();
+      (advR.data || []).forEach((r: any) => advanceBy.set(r.staff_id, (advanceBy.get(r.staff_id) || 0) + (Number(r.amount) || 0)));
+
+      const dayCount = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const days = Array.from({ length: dayCount }, (_, i) => i + 1);
+      const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+      const weekdayOf = (d: number) => new Date(`${month}-${String(d).padStart(2, '0')}T12:00:00+05:00`).getDay();
+      const monthLabel = new Date(`${month}-15T12:00:00+05:00`).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric', timeZone: 'Asia/Almaty' });
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Master Bakery';
+      const ws = wb.addWorksheet('Табель', {
+        views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }],
+        pageSetup: { paperSize: 8 as unknown as ExcelJS.PaperSize, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+      });
+      const lastCol = 3 + dayCount + 6;
+      const thin: Partial<ExcelJS.Borders> = {
+        top: { style: 'thin', color: { argb: 'FF94A3B8' } }, left: { style: 'thin', color: { argb: 'FF94A3B8' } },
+        bottom: { style: 'thin', color: { argb: 'FF94A3B8' } }, right: { style: 'thin', color: { argb: 'FF94A3B8' } },
+      };
+      const fill = (argb: string): ExcelJS.Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+      const box = (row: ExcelJS.Row) => { for (let c = 1; c <= lastCol; c++) row.getCell(c).border = thin; };
+
+      ws.addRow([`Табель учёта рабочего времени за ${monthLabel}`]).font = { bold: true, size: 14 };
+      ws.addRow([]);
+      const head = ws.addRow(['№', 'ФИО', 'Должность', ...days.map((d) => d), 'Кол-во дней', 'Ставка', 'Начислено', 'Премия', 'Аванс', 'К выдаче']);
+      head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      head.height = 32;
+      head.eachCell((c, col) => {
+        c.fill = fill(col > 3 && col <= 3 + dayCount && [0, 6].includes(weekdayOf(col - 3)) ? 'FF065F46' : 'FF059669');
+        c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      });
+      box(head);
+      const wk = ws.addRow(['', '', '', ...days.map((d) => WEEKDAYS[weekdayOf(d)]), '', '', '', '', '', '']);
+      wk.font = { size: 8, color: { argb: 'FF64748B' } };
+      wk.eachCell((c) => { c.alignment = { horizontal: 'center' }; });
+
+      const money = (row: ExcelJS.Row, from: number) => { for (let c = from; c <= lastCol; c++) row.getCell(c).numFmt = '#,##0'; };
+      const tot = { earned: 0, bonus: 0, advance: 0, payout: 0 };
+      let no = 0;
+      groups.forEach((g) => {
+        const members = g.staffIds.map((id) => byId.get(id)).filter(Boolean) as any[];
+        if (members.length === 0) return;
+        const gh = ws.addRow(['', g.label]);
+        gh.font = { bold: true };
+        for (let c = 1; c <= lastCol; c++) gh.getCell(c).fill = fill('FFE0F2FE');
+        box(gh);
+        const sub = { earned: 0, bonus: 0, advance: 0, payout: 0 };
+        members.forEach((mem) => {
+          const mine = shifts.filter((x: any) => x.staffId === mem.id);
+          const earned = mine.reduce((n: number, x: any) => n + (Number(x.rate) || 0), 0);
+          const unitsSum = mine.reduce((n: number, x: any) => n + (Number(x.units ?? 1) || 1), 0);
+          const bonus = bonuses[mem.id] || 0;
+          const advance = advanceBy.get(mem.id) || 0;
+          const payout = earned + bonus - advance;
+          const rate = monthShiftRate(mine, mem.shiftRate, isCurrent);
+          const cells = days.map((d) => {
+            const sh = mine.find((x: any) => x.workDate === `${month}-${String(d).padStart(2, '0')}`);
+            return sh ? Number(sh.units ?? 1) || 1 : '';
+          });
+          no += 1;
+          const row = ws.addRow([no, mem.name, mem.position || '', ...cells, unitsSum || '', rate || '', earned || '', bonus || '', advance || '', earned || bonus || advance ? payout : '']);
+          box(row);
+          money(row, 3 + dayCount + 2);
+          for (let c = 4; c <= 3 + dayCount; c++) {
+            const cell = row.getCell(c);
+            cell.alignment = { horizontal: 'center' };
+            if (cell.value !== '' && cell.value !== null) cell.fill = fill(Number(cell.value) === 0.5 ? 'FFFDE68A' : 'FFD1FAE5');
+          }
+          row.getCell(3 + dayCount + 1).alignment = { horizontal: 'center' };
+          const payCell = row.getCell(lastCol);
+          payCell.font = { bold: true };
+          if (earned || bonus || advance) payCell.fill = fill(payout > 0 ? 'FF86EFAC' : 'FFFCA5A5');
+          sub.earned += earned; sub.bonus += bonus; sub.advance += advance; sub.payout += payout;
+        });
+        const sr = ws.addRow(['', `Итого: ${g.label.toLowerCase()}`, '', ...days.map(() => ''), '', '', sub.earned, sub.bonus, sub.advance, sub.payout]);
+        sr.font = { bold: true };
+        for (let c = 1; c <= lastCol; c++) sr.getCell(c).fill = fill('FFBAE6FD');
+        box(sr);
+        money(sr, 3 + dayCount + 2);
+        tot.earned += sub.earned; tot.bonus += sub.bonus; tot.advance += sub.advance; tot.payout += sub.payout;
+      });
+      const fr = ws.addRow(['', 'ИТОГО ПО ЦЕХУ', '', ...days.map(() => ''), '', '', tot.earned, tot.bonus, tot.advance, tot.payout]);
+      fr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      for (let c = 1; c <= lastCol; c++) fr.getCell(c).fill = fill('FF1E293B');
+      box(fr);
+      money(fr, 3 + dayCount + 2);
+
+      ws.getColumn(1).width = 5;
+      ws.getColumn(2).width = 28;
+      ws.getColumn(3).width = 22;
+      for (let d = 1; d <= dayCount; d++) ws.getColumn(3 + d).width = 4.2;
+      [11, 10, 13, 11, 11, 13].forEach((w, i) => (ws.getColumn(3 + dayCount + 1 + i).width = w));
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const fileName = `Табель — ${monthLabel}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="timesheet-${month}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      res.send(Buffer.from(buffer as ArrayBuffer));
+    } catch (e) {
+      console.error('Failed to export the timesheet:', e);
+      res.status(500).json({ error: 'Не удалось собрать файл' });
     }
   });
 
