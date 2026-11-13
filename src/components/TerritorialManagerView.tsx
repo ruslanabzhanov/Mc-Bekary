@@ -174,6 +174,14 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
         )}
       </div>
 
+      {/* Аналитика всего участка: в этом же разделе, отдельной кнопки не нужно */}
+      {shops.length > 1 && (
+        <div id="area-analytics" className="space-y-3">
+          <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 px-1">Аналитика участка</h3>
+          <AnalyticsView shops={shops} variant="area" />
+        </div>
+      )}
+
       {/* Плитки точек. Цвет — это статус заявки за сегодня, чтобы отстающую точку было
           видно, не открывая её: серая значит, что заявки нет вовсе. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -474,7 +482,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
             {shopPanel === 'analytics' && (
               <>
                 <h4 className="text-sm font-extrabold text-slate-900 mb-4">Аналитика точки</h4>
-                <AnalyticsView shops={[selectedShop]} />
+                <AnalyticsView shops={[selectedShop]} variant="shop" />
               </>
             )}
           </div>

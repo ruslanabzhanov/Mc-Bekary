@@ -5,12 +5,16 @@ import {
 } from 'lucide-react';
 import { CoffeeShop } from '../types';
 import { ConsumptionWidget } from './ConsumptionWidget';
+import { AnalyticsInsights } from './AnalyticsInsights';
+import type { Insights, AnalyticsVariant } from './AnalyticsInsights';
 
 interface AnalyticsViewProps {
   shops: CoffeeShop[];
+  // prod — руководитель производства (вся сеть), area — территориальный (его точки), shop — одна точка.
+  variant?: AnalyticsVariant;
 }
 
-type Period = 'day' | 'week' | 'month' | 'year';
+type Period = 'day' | 'week' | 'month' | 'year' | 'custom';
 type Metric = 'qty' | 'sum';
 
 interface SeriesBucket {
@@ -31,6 +35,7 @@ interface AnalyticsResponse {
   peak: { label: string; bucketLabel: string; qty: number; sum: number } | null;
   notSubmittedToday: { count: number; shopNames: string[] } | null;
   comparison: { label: string; qty: number; sum: number; deltaQtyPct: number | null; deltaSumPct: number | null };
+  insights?: Insights;
   last7Days: {
     dates: string[];
     shops: { shopId: number; shopName: string; days: Record<string, { time: string; managerName: string } | null> }[];
@@ -42,6 +47,7 @@ const PERIOD_TABS: { key: Period; label: string }[] = [
   { key: 'week', label: 'Неделя' },
   { key: 'month', label: 'Месяц' },
   { key: 'year', label: 'Год' },
+  { key: 'custom', label: 'Календарь' },
 ];
 
 const CHART_COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#f43f5e', '#0ea5e9', '#8b5cf6', '#64748b', '#14b8a6'];
@@ -64,9 +70,12 @@ const formatDateShort = (iso: string) => {
   return `${Number(d)}.${m}`;
 };
 
-export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
+export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops, variant }) => {
+  const kind: AnalyticsVariant = variant || (shops.length === 1 ? 'shop' : 'prod');
   const [period, setPeriod] = useState<Period>('day');
   const [date, setDate] = useState(() => almatyToday());
+  const [fromDate, setFromDate] = useState(() => addDaysIso(almatyToday(), -6));
+  const [toDate, setToDate] = useState(() => almatyToday());
   const [metric, setMetric] = useState<Metric>('qty');
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -84,7 +93,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
     let cancelled = false;
     setIsLoading(true);
     setSelectedIdx(null);
-    fetch(`/api/analytics?shopIds=${shopIdsKey}&period=${period}&date=${date}`)
+    const range = period === 'custom' ? `&from=${fromDate}&to=${toDate}` : '';
+    fetch(`/api/analytics?shopIds=${shopIdsKey}&period=${period}&date=${date}${range}${kind === 'prod' ? '&labor=1' : ''}`)
       .then((r) => r.json())
       .then((d) => {
         if (!cancelled) setData(d);
@@ -96,7 +106,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
     return () => {
       cancelled = true;
     };
-  }, [shopIdsKey, period, date]);
+  }, [shopIdsKey, period, date, fromDate, toDate, kind]);
 
   const changePeriod = (p: Period) => {
     setPeriod(p);
@@ -104,6 +114,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
   };
 
   const shiftDate = (dir: 1 | -1) => {
+    if (period === 'custom') return;
     if (period === 'day') return setDate((d) => addDaysIso(d, dir));
     if (period === 'week') return setDate((d) => addDaysIso(d, dir * 7));
     if (period === 'month') {
@@ -126,6 +137,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
       ? almatyWeekStart(date) === almatyWeekStart(today)
       : period === 'month'
       ? date.slice(0, 7) === today.slice(0, 7)
+      : period === 'custom'
+      ? false
       : date.slice(0, 4) === today.slice(0, 4);
 
   const series = data?.series || [];
@@ -136,14 +149,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
   // had orders — always available, and each day reads directly as above or below it.
   const orderDays = values.filter((v) => v > 0);
   const lineAvg = orderDays.length > 0 ? Math.round(orderDays.reduce((n, v) => n + v, 0) / orderDays.length) : 0;
-  const showAvgLine = lineAvg > 0 && orderDays.length >= 2 && (period === 'week' || period === 'month');
+  const showAvgLine = lineAvg > 0 && orderDays.length >= 2 && (period === 'week' || period === 'month' || period === 'custom');
   const maxValue = Math.max(1, ...values, showAvgLine ? lineAvg : 0);
   const avgY = 110 - (lineAvg / maxValue) * 100;
   const fmtMetric = (v: number) => (metric === 'qty' ? formatQty(v) : formatMoney(v));
 
   // Thin the X-axis labels so 24/31 points don't collide — every point stays clickable
   // (the hit target below), only the printed label is skipped.
-  const labelEvery = period === 'day' ? 3 : period === 'month' ? 5 : 1;
+  const labelEvery = period === 'day' ? 3 : period === 'month' ? 5 : period === 'custom' ? Math.max(1, Math.ceil((data?.series.length || 7) / 8)) : 1;
 
   const selected = selectedIdx != null ? series[selectedIdx] : null;
 
@@ -155,12 +168,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
     <div className="space-y-4 pb-10">
       {/* Period + metric controls */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3 space-y-3">
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-5 gap-1.5">
           {PERIOD_TABS.map((t) => (
             <button
               key={t.key}
               onClick={() => changePeriod(t.key)}
-              className={`min-h-[38px] rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
+              className={`min-h-[38px] rounded-lg text-[10px] sm:text-xs font-bold uppercase tracking-tight transition-colors ${
                 period === t.key ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -169,7 +182,33 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
           ))}
         </div>
 
-        <div className="flex items-center justify-between gap-2">
+        {period === 'custom' && (
+          <div id="analytics-range" className="grid grid-cols-2 gap-2">
+            <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
+              с
+              <input
+                type="date"
+                value={fromDate}
+                max={toDate}
+                onChange={(e) => e.target.value && setFromDate(e.target.value)}
+                className="flex-1 min-w-0 px-2 min-h-[40px] text-sm border border-slate-300 rounded-lg bg-white font-bold text-slate-900"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
+              по
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate}
+                max={almatyToday()}
+                onChange={(e) => e.target.value && setToDate(e.target.value)}
+                className="flex-1 min-w-0 px-2 min-h-[40px] text-sm border border-slate-300 rounded-lg bg-white font-bold text-slate-900"
+              />
+            </label>
+          </div>
+        )}
+
+        <div className={`flex items-center justify-between gap-2 ${period === 'custom' ? 'hidden' : ''}`}>
           <button
             onClick={() => shiftDate(-1)}
             className="w-9 h-9 shrink-0 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600"
@@ -438,6 +477,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
             )}
           </div>
 
+          {data.insights && (
+            <AnalyticsInsights insights={data.insights} metric={metric} variant={kind} compareLabel={data.comparison.label} />
+          )}
+
           {/* Category breakdown — always by quantity */}
           {data.categoryBreakdown.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4">
@@ -488,7 +531,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops }) => {
           <ConsumptionWidget shopIdsKey={shopIdsKey} />
 
           {/* Top products */}
-          {data.topProducts.length > 0 && (
+          {kind === 'shop' && data.topProducts.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100">
                 <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">Топ-5 блюд (шт)</h3>

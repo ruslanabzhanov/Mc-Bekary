@@ -3011,7 +3011,7 @@ export function createApiApp() {
   // There is no separate POS/kassa in this app — "sales" here means submitted orders
   // (order_history), the same source every other history screen already uses.
 
-  type AnalyticsPeriod = 'day' | 'week' | 'month' | 'year';
+  type AnalyticsPeriod = 'day' | 'week' | 'month' | 'year' | 'custom';
   type SeriesBucket = { bucket: string; label: string; qty: number; sum: number };
 
   const RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
@@ -3082,7 +3082,8 @@ export function createApiApp() {
     period: AnalyticsPeriod,
     rangeStart: string,
     rows: { submitted_at: string; items: Record<string, number> }[],
-    priceById: Map<string, number>
+    priceById: Map<string, number>,
+    rangeEnd?: string
   ): SeriesBucket[] {
     const buckets = new Map<string, { qty: number; sum: number }>();
     const order: string[] = [];
@@ -3098,6 +3099,8 @@ export function createApiApp() {
       for (let h = 0; h < 24; h++) ensure(String(h).padStart(2, '0'));
     } else if (period === 'week') {
       for (let i = 0; i < 7; i++) ensure(addDays(rangeStart, i));
+    } else if (period === 'custom') {
+      for (let d = rangeStart; rangeEnd && d < rangeEnd; d = addDays(d, 1)) ensure(d);
     } else if (period === 'month') {
       const [y, m] = rangeStart.split('-').map(Number);
       const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -3138,7 +3141,7 @@ export function createApiApp() {
       let label: string;
       if (period === 'day') label = `${key}:00`;
       else if (period === 'week') label = `${RU_WEEKDAY_SHORT[almatyWeekdayIndex(key)]} ${Number(key.split('-')[2])}`;
-      else if (period === 'month') label = String(Number(key.split('-')[2]));
+      else if (period === 'month' || period === 'custom') label = String(Number(key.split('-')[2]));
       else label = RU_MONTHS_SHORT[Number(key.split('-')[1]) - 1];
       return { bucket: key, label, qty: b.qty, sum: Math.round(b.sum) };
     });
@@ -3293,6 +3296,203 @@ export function createApiApp() {
     }
   });
 
+  // Разбор заявок для руководителя и территориального: кто сколько заказывает, какие позиции растут
+  // и падают, кто опаздывает, как шли последние две недели. Всё из order_history — это заказы точек,
+  // а не продажи (продаж и остатков в приложении нет).
+  async function buildInsights(a: {
+    shopIds: number[];
+    shopMeta: { id: number; name: string }[];
+    currentRows: any[];
+    previousRows: any[];
+    priceById: Map<string, number>;
+    nameById: Map<string, string>;
+    withLabor: boolean;
+  }) {
+    const deadline = await getOrderDeadline();
+    const [dh, dm] = deadline.split(':').map(Number);
+    const dlMin = dh * 60 + dm;
+    const minutesOf = (iso: string) => Math.floor((new Date(iso).getTime() + 5 * 3600000) / 60000) % 1440;
+    const rowTotals = (row: any) => {
+      let qty = 0;
+      let sum = 0;
+      Object.entries(row.items || {}).forEach(([pid, v]) => {
+        const n = Number(v) || 0;
+        if (n <= 0 || !a.priceById.has(pid)) return;
+        qty += n;
+        sum += n * (a.priceById.get(pid) || 0);
+      });
+      return { qty, sum };
+    };
+    const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+
+    // --- позиции: что выросло и упало к прошлому периоду ---
+    const cur = new Map<string, number>();
+    const prev = new Map<string, number>();
+    const fill = (rows: any[], into: Map<string, number>) =>
+      rows.forEach((row) =>
+        Object.entries(row.items || {}).forEach(([pid, v]) => {
+          const n = Number(v) || 0;
+          if (n > 0 && a.priceById.has(pid)) into.set(pid, (into.get(pid) || 0) + n);
+        })
+      );
+    fill(a.currentRows, cur);
+    fill(a.previousRows, prev);
+    const ids = new Set<string>([...cur.keys(), ...prev.keys()]);
+    const products = Array.from(ids)
+      .map((id) => {
+        const price = a.priceById.get(id) || 0;
+        const qty = cur.get(id) || 0;
+        const prevQty = prev.get(id) || 0;
+        return { id, name: a.nameById.get(id) || id, qty, prevQty, sum: Math.round(qty * price), prevSum: Math.round(prevQty * price) };
+      })
+      .sort((x, y) => y.qty + y.prevQty - (x.qty + x.prevQty))
+      .slice(0, 200);
+
+    // --- точки: рейтинг, динамика, как часто вовремя ---
+    const perShop = new Map<number, { qty: number; sum: number; prevQty: number; prevSum: number; subs: number; late: number; redDays: number }>();
+    a.shopMeta.forEach((m) => perShop.set(m.id, { qty: 0, sum: 0, prevQty: 0, prevSum: 0, subs: 0, late: 0, redDays: 0 }));
+    let subsAll = 0;
+    let lateAll = 0;
+    let minutesSum = 0;
+    a.currentRows.forEach((row) => {
+      const e = perShop.get(row.shop_id);
+      if (!e) return;
+      const t = rowTotals(row);
+      e.qty += t.qty;
+      e.sum += t.sum;
+      e.subs += 1;
+      const m = minutesOf(row.submitted_at);
+      minutesSum += m;
+      subsAll += 1;
+      if (m > dlMin) {
+        e.late += 1;
+        lateAll += 1;
+      }
+    });
+    a.previousRows.forEach((row) => {
+      const e = perShop.get(row.shop_id);
+      if (!e) return;
+      const t = rowTotals(row);
+      e.prevQty += t.qty;
+      e.prevSum += t.sum;
+    });
+    const shopRanking = a.shopMeta.map((m) => {
+      const e = perShop.get(m.id)!;
+      return {
+        shopId: m.id,
+        name: m.name,
+        qty: e.qty,
+        sum: Math.round(e.sum),
+        prevQty: e.prevQty,
+        prevSum: Math.round(e.prevSum),
+        submissions: e.subs,
+        onTimePct: e.subs ? Math.round(((e.subs - e.late) / e.subs) * 100) : null,
+      };
+    });
+    const timeliness = {
+      deadline,
+      submissions: subsAll,
+      late: lateAll,
+      onTimePct: subsAll ? Math.round(((subsAll - lateAll) / subsAll) * 100) : null,
+      avgTime: subsAll ? hhmm(Math.round(minutesSum / subsAll)) : null,
+    };
+
+    // --- последние 6 недель: по дням недели, прогноз на завтра, 14 дней по точкам ---
+    const today = almatyToday();
+    const histStart = addDays(today, -42);
+    const { startIso: histStartIso } = almatyDayRangeUtc(histStart);
+    const { data: histRows, error: histErr } = await supabase
+      .from('order_history')
+      .select('shop_id, items, submitted_at')
+      .in('shop_id', a.shopIds)
+      .gte('submitted_at', histStartIso);
+    if (histErr) throw histErr;
+    const latest = new Map<string, any>();
+    (histRows || []).forEach((row: any) => {
+      const day = new Date(row.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+      const key = `${row.shop_id}:${day}`;
+      const ex = latest.get(key);
+      if (!ex || new Date(row.submitted_at) > new Date(ex.submitted_at)) latest.set(key, { ...row, day });
+    });
+    const days = Array.from(latest.values()).map((row) => ({ ...row, ...rowTotals(row), min: minutesOf(row.submitted_at) }));
+    const perDay = new Map<string, { qty: number; sum: number }>();
+    days.forEach((r) => {
+      const d = perDay.get(r.day) || { qty: 0, sum: 0 };
+      d.qty += r.qty;
+      d.sum += r.sum;
+      perDay.set(r.day, d);
+    });
+    // среднее по дням недели (пн..вс) за последние 28 дней без сегодняшнего
+    const dowBuckets: { qty: number[]; sum: number[] }[] = Array.from({ length: 7 }, () => ({ qty: [], sum: [] }));
+    const weekdayMon0 = (iso: string) => (almatyWeekdayIndex(iso) + 6) % 7;
+    perDay.forEach((v, day) => {
+      if (day >= today || day < addDays(today, -28) || v.qty <= 0) return;
+      dowBuckets[weekdayMon0(day)].qty.push(v.qty);
+      dowBuckets[weekdayMon0(day)].sum.push(v.sum);
+    });
+    const avgOf = (arr: number[]) => (arr.length ? Math.round(arr.reduce((n, x) => n + x, 0) / arr.length) : 0);
+    const dowAvg = dowBuckets.map((b) => ({ qty: avgOf(b.qty), sum: avgOf(b.sum), days: b.qty.length }));
+    const tomorrow = addDays(today, 1);
+    const tb = dowBuckets[weekdayMon0(tomorrow)];
+    // Берём до 4 последних таких же дней недели, выбросив явно нетипичные (день с тестовой или неполной заявкой).
+    const median = (arr: number[]) => (arr.length ? [...arr].sort((x, y) => x - y)[Math.floor(arr.length / 2)] : 0);
+    const recent = tb.qty.map((q, i) => ({ q, s: tb.sum[i] })).slice(-6);
+    const med = median(recent.map((r) => r.q));
+    const kept = recent.filter((r) => r.q >= med * 0.6 && r.q <= med * 1.6).slice(-4);
+    const lastSame = kept.map((r) => r.q);
+    const lastSameSum = kept.map((r) => r.s);
+    const forecast =
+      lastSame.length >= 2
+        ? { date: tomorrow, qty: avgOf(lastSame), qtyMin: Math.min(...lastSame), qtyMax: Math.max(...lastSame), sum: avgOf(lastSameSum), samples: lastSame.length }
+        : null;
+
+    // 14 дней по точкам: вовремя / опоздала / не подала / заявка заметно отличалась от обычной для точки
+    const heatDates: string[] = [];
+    for (let i = 13; i >= 0; i--) heatDates.push(addDays(today, -i));
+    const byShopDay = new Map<string, any>();
+    days.forEach((r) => byShopDay.set(`${r.shop_id}:${r.day}`, r));
+    const heat = a.shopMeta.map((m) => {
+      const mine = days.filter((r) => r.shop_id === m.id && r.qty > 0);
+      const cells = heatDates.map((d) => {
+        const r = byShopDay.get(`${m.id}:${d}`);
+        if (!r || r.qty <= 0) return { date: d, status: 'miss', time: null as string | null };
+        const others = mine.filter((x) => x.day !== d).map((x) => x.qty);
+        let status = r.min > dlMin ? 'late' : 'ok';
+        if (others.length >= 5) {
+          const mean = others.reduce((n, x) => n + x, 0) / others.length;
+          const off = Math.abs(r.qty - mean) / (mean || 1);
+          if (off >= 0.4) status = 'c';
+          else if (off >= 0.2) status = 'w';
+        }
+        return { date: d, status, time: hhmm(r.min) };
+      });
+      return { shopId: m.id, name: m.name, cells };
+    });
+    // красные дни за период по точкам (для рейтинга)
+    heat.forEach((h) => {
+      const e = perShop.get(h.shopId);
+      if (e) e.redDays = h.cells.filter((c) => c.status === 'c').length;
+    });
+    const redDaysByShop: Record<number, number> = {};
+    heat.forEach((h) => (redDaysByShop[h.shopId] = h.cells.filter((c) => c.status === 'c').length));
+
+    // --- зарплата цеха на одну штуку (только для руководителя) ---
+    let labor: { month: string; perPiece: number; payroll: number; qty: number } | null = null;
+    if (a.withLabor) {
+      const month = today.slice(0, 7);
+      const monthQty = days.filter((r) => r.day.startsWith(month)).reduce((n, r) => n + r.qty, 0);
+      const [{ data: sh }, { data: liveRows }] = await Promise.all([
+        supabase.from('shifts').select('staff_id, rate').gte('work_date', `${month}-01`).lte('work_date', today),
+        supabase.from('staff').select('id'),
+      ]);
+      const live = new Set((liveRows || []).map((r: any) => r.id));
+      const payroll = (sh || []).filter((r: any) => live.has(r.staff_id)).reduce((n: number, r: any) => n + (Number(r.rate) || 0), 0);
+      labor = { month, perPiece: monthQty > 0 ? Math.round(payroll / monthQty) : 0, payroll: Math.round(payroll), qty: monthQty };
+    }
+
+    return { products, shopRanking, redDaysByShop, timeliness, dowAvg, forecast, heat: { dates: heatDates, shops: heat }, labor };
+  }
+
   app.get('/api/analytics', async (req, res) => {
     try {
       const shopIds = String(req.query.shopIds || '')
@@ -3301,13 +3501,29 @@ export function createApiApp() {
         .filter((n) => Number.isFinite(n));
       if (shopIds.length === 0) return res.status(400).json({ error: 'shopIds is required' });
 
-      const period: AnalyticsPeriod = (['day', 'week', 'month', 'year'] as const).includes(req.query.period as any)
+      const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+      const isCustom = req.query.period === 'custom' && isoRe.test(String(req.query.from || '')) && isoRe.test(String(req.query.to || ''));
+      const period: AnalyticsPeriod = isCustom
+        ? 'custom'
+        : (['day', 'week', 'month', 'year'] as const).includes(req.query.period as any)
         ? (req.query.period as AnalyticsPeriod)
         : 'day';
-      const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : almatyToday();
+      const dateStr = isoRe.test(String(req.query.date || '')) ? String(req.query.date) : almatyToday();
 
-      const current = periodRange(period, dateStr);
-      const previous = previousPeriodRange(period, dateStr);
+      let current: { start: string; end: string; label: string };
+      let previous: { start: string; end: string; label: string };
+      if (isCustom) {
+        let from = String(req.query.from);
+        let to = String(req.query.to);
+        if (to < from) [from, to] = [to, from];
+        const nDays = Math.min(366, Math.round((new Date(`${to}T12:00:00+05:00`).getTime() - new Date(`${from}T12:00:00+05:00`).getTime()) / 86400000) + 1);
+        const end = addDays(from, nDays);
+        current = { start: from, end, label: `${formatDayMonth(from)} – ${formatDayMonth(addDays(end, -1))}` };
+        previous = { start: addDays(from, -nDays), end: from, label: `предыдущие ${nDays} дн.` };
+      } else {
+        current = periodRange(period, dateStr);
+        previous = previousPeriodRange(period, dateStr);
+      }
 
       const { startIso: queryStartIso } = almatyDayRangeUtc(previous.start);
       const { startIso: currentStartIso } = almatyDayRangeUtc(current.start);
@@ -3350,7 +3566,7 @@ export function createApiApp() {
       const currentRows = dedupedRows.filter((r) => new Date(r.submitted_at) >= new Date(currentStartIso));
       const previousRows = dedupedRows.filter((r) => new Date(r.submitted_at) < new Date(currentStartIso));
 
-      const series = buildAnalyticsSeries(period, current.start, currentRows, priceById);
+      const series = buildAnalyticsSeries(period, current.start, currentRows, priceById, current.end);
 
       let totalQty = 0;
       let totalSum = 0;
@@ -3398,6 +3614,9 @@ export function createApiApp() {
         if (!peakBucket || s.sum > peakBucket.sum) peakBucket = s;
       }
       const peakLabel = period === 'day' ? 'Пиковый час' : period === 'year' ? 'Лучший месяц' : 'Лучший день';
+
+      const shopMeta = (shopRows || []).map((r: any) => ({ id: r.id, name: (r.district || '').trim() || r.address || `Точка №${r.id}` }));
+      const insights = await buildInsights({ shopIds, shopMeta, currentRows, previousRows, priceById, nameById, withLabor: req.query.labor === '1' });
 
       let notSubmittedToday: { count: number; shopNames: string[] } | null = null;
       if (period === 'day' && dateStr === almatyToday()) {
@@ -3478,6 +3697,7 @@ export function createApiApp() {
           deltaSumPct: pct(totalSum, prevSum),
         },
         last7Days,
+        insights,
       });
     } catch (e) {
       console.error('Failed to compute analytics:', e);

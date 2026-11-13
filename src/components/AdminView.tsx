@@ -1191,7 +1191,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
 
           <div className="p-4 sm:p-6 max-w-3xl mx-auto">
-            <AnalyticsView shops={shops} />
+            <AnalyticsView shops={shops} variant="prod" />
           </div>
         </div>
       )}

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, History, Clock, UserRound, ArrowLeft, PackageSearch, Loader2 } from 'lucide-react';
 import { CoffeeShop, Product, OrderHistoryEntry } from '../types';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
+import { AnalyticsView } from './AnalyticsView';
 
 interface OrderHistoryModalProps {
   isOpen: boolean;
@@ -23,10 +24,13 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({ isOpen, on
   const [history, setHistory] = useState<OrderHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<OrderHistoryEntry | null>(null);
+  // Та же аналитика, что у руководителя, но по одной точке: графики, время подачи, что растёт и падает.
+  const [tab, setTab] = useState<'history' | 'analysis'>('history');
 
   useEffect(() => {
     if (!isOpen) return;
     setSelectedEntry(null);
+    setTab('history');
     setIsLoading(true);
     fetch(`/api/orders/${shop.id}/history`)
       .then((res) => res.json())
@@ -82,7 +86,7 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({ isOpen, on
             )}
             <div className="min-w-0">
               <h3 className="text-sm sm:text-base font-black tracking-tight text-white truncate">
-                {selectedEntry ? 'Состав заявки' : 'История заявок'}
+                {selectedEntry ? 'Состав заявки' : tab === 'analysis' ? 'Разбор заявок' : 'История заявок'}
               </h3>
               <p className="text-[11px] text-indigo-200 truncate">
                 Точка №{shop.id} — {cleanShopName}
@@ -99,9 +103,28 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({ isOpen, on
           </button>
         </div>
 
+        {!selectedEntry && (
+          <div className="grid grid-cols-2 gap-1.5 p-2 border-b border-slate-100 bg-white">
+            {([['history', 'Заявки'], ['analysis', 'Разбор']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                id={`order-history-tab-${key}`}
+                onClick={() => setTab(key)}
+                className={`min-h-[40px] rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
+                  tab === key ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* CONTENT */}
         <div className="flex-1 overflow-y-auto p-3 sm:p-4">
-          {isLoading ? (
+          {!selectedEntry && tab === 'analysis' ? (
+            <AnalyticsView shops={[shop]} variant="shop" />
+          ) : isLoading ? (
             <div className="flex flex-col items-center justify-center py-12 text-slate-400">
               <Loader2 className="w-6 h-6 animate-spin mb-2" />
               <span className="text-xs font-semibold">Загрузка...</span>
