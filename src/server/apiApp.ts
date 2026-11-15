@@ -4047,6 +4047,71 @@ export function createApiApp() {
     }
   });
 
+  // Выбор точек «для просмотра». Территориальным управляющим, которым это включили (список в
+  // app_settings → territorial_self_pick), можно из всех точек отметить те, данные которых хочется
+  // видеть. Закрепление точки за управляющим и сообщения об отклонениях это не меняет.
+  const watchKey = (staffId: string) => `territorial_watch:${staffId}`;
+  async function selfPickEnabled(staffId: string): Promise<boolean> {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', 'territorial_self_pick').maybeSingle();
+    try {
+      const list = data?.value ? JSON.parse(data.value) : [];
+      return Array.isArray(list) && list.map(String).includes(staffId);
+    } catch {
+      return false;
+    }
+  }
+  app.get('/api/territorial-watch', async (req, res) => {
+    try {
+      const staffId = String(req.query.staffId || '');
+      if (!staffId) return res.status(400).json({ error: 'staffId is required' });
+      const enabled = await selfPickEnabled(staffId);
+      let shopIds: number[] = [];
+      if (enabled) {
+        const { data } = await supabase.from('app_settings').select('value').eq('key', watchKey(staffId)).maybeSingle();
+        try {
+          const parsed = data?.value ? JSON.parse(data.value) : [];
+          if (Array.isArray(parsed)) shopIds = parsed.map(Number).filter((n) => Number.isFinite(n));
+        } catch {
+          shopIds = [];
+        }
+      }
+      res.json({ enabled, shopIds });
+    } catch (e) {
+      console.error('Failed to read the watch list:', e);
+      res.status(500).json({ error: 'Failed to read the watch list' });
+    }
+  });
+  app.post('/api/territorial-watch', async (req, res) => {
+    try {
+      const { staffId, shopIds, initData } = req.body || {};
+      if (!staffId || !Array.isArray(shopIds)) return res.status(400).json({ error: 'staffId and shopIds are required' });
+      if (!(await selfPickEnabled(String(staffId)))) return res.status(403).json({ error: 'Выбор точек для вас не включён.' });
+      // Подтверждаем, что запрос от самого этого управляющего (или владельца) — по подписи Telegram.
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      const verified = botToken && initData ? verifyTelegramInitData(String(initData), botToken) : null;
+      if (!verified || !verified.valid || verified.userId == null) {
+        return res.status(403).json({ error: 'Нет подтверждения доступа. Откройте приложение через Telegram.' });
+      }
+      const isOwner = !!process.env.OWNER_TELEGRAM_ID && String(verified.userId) === String(process.env.OWNER_TELEGRAM_ID);
+      const { data: person, error: personErr } = await supabase.from('staff').select('id, role, telegram_user_id').eq('id', String(staffId)).maybeSingle();
+      if (personErr) throw personErr;
+      if (!person || person.role !== 'territorial_manager') return res.status(404).json({ error: 'Территориальный управляющий не найден.' });
+      if (!isOwner && String(person.telegram_user_id || '') !== String(verified.userId)) {
+        return res.status(403).json({ error: 'Это выбор другого человека.' });
+      }
+      const { data: shopRows, error: shopErr } = await supabase.from('shops').select('id');
+      if (shopErr) throw shopErr;
+      const known = new Set((shopRows || []).map((r: any) => Number(r.id)));
+      const clean = Array.from(new Set(shopIds.map(Number))).filter((n) => known.has(n));
+      const { error } = await supabase.from('app_settings').upsert({ key: watchKey(String(staffId)), value: JSON.stringify(clean), updated_at: new Date().toISOString() });
+      if (error) throw error;
+      res.json({ success: true, shopIds: clean });
+    } catch (e) {
+      console.error('Failed to save the watch list:', e);
+      res.status(500).json({ error: 'Не удалось сохранить. Попробуйте ещё раз.' });
+    }
+  });
+
   // Премия сотруднику за месяц — начисление к зарплате. Ставят владелец и заведующий производством.
   app.post('/api/timesheet/bonus', async (req, res) => {
     try {

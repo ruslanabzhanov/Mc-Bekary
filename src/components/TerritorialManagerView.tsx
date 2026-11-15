@@ -27,6 +27,8 @@ interface TerritorialManagerViewProps {
   onPickManager?: (staffId: string) => void;
   // Только для Владельца: все точки сети, чтобы добавлять их на участок и убирать с него.
   allShops?: CoffeeShop[];
+  // Выбор точек для просмотра (включается отдельным людям): галочки по всем точкам сети.
+  pick?: { allShops: CoffeeShop[]; assignedIds: number[]; selectedIds: number[]; onSave: (ids: number[]) => Promise<boolean> };
   // Управление персоналом своих точек: сменить должность, убрать человека.
   onUpdateStaffMember?: (staffId: string, updates: Partial<StaffMember>) => void;
   onDeleteStaffMember?: (staffId: string) => void;
@@ -83,12 +85,36 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   onDeleteStaffMember,
   orderDeadline,
   allShops,
+  pick,
 }) => {
   // Владелец правит участок выбранного управляющего. Точка может быть только у одного
   // территориального, поэтому занятые другими в списке «Добавить» заблокированы.
   const editedManager = allManagers?.find((m) => m.id === selectedManagerId) || null;
   const canEditArea = !!(allShops && editedManager && onUpdateStaffMember);
   const [isAddShopOpen, setIsAddShopOpen] = useState(false);
+  const [isPickOpen, setIsPickOpen] = useState(false);
+  const [pickDraft, setPickDraft] = useState<number[]>([]);
+  const [pickQuery, setPickQuery] = useState('');
+  const [isPickSaving, setIsPickSaving] = useState(false);
+  const [pickError, setPickError] = useState('');
+  useTelegramBackButton(isPickOpen, () => setIsPickOpen(false));
+  // Точки, которые он только смотрит (не закреплены за ним): по ним нельзя подавать заявку и менять персонал.
+  const watchOnly = new Set(pick ? shops.filter((s) => !pick.assignedIds.includes(s.id)).map((s) => s.id) : []);
+  const openPick = () => {
+    setPickDraft(pick ? pick.selectedIds : []);
+    setPickQuery('');
+    setPickError('');
+    setIsPickOpen(true);
+  };
+  const savePick = async () => {
+    if (!pick) return;
+    setIsPickSaving(true);
+    setPickError('');
+    const ok = await pick.onSave(pickDraft);
+    setIsPickSaving(false);
+    if (!ok) return setPickError('Не удалось сохранить. Откройте приложение через Telegram и попробуйте ещё раз.');
+    setIsPickOpen(false);
+  };
   useTelegramBackButton(isAddShopOpen, () => setIsAddShopOpen(false));
   const shopTitle = (shop: CoffeeShop) => shop.district.trim() || shop.address;
   const ownerOfShop = (shopId: number) =>
@@ -185,7 +211,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
       {/* Плитки точек. Цвет — это статус заявки за сегодня, чтобы отстающую точку было
           видно, не открывая её: серая значит, что заявки нет вовсе. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {shops.length === 0 && !canEditArea ? (
+        {shops.length === 0 && !canEditArea && !pick ? (
           <div className="col-span-full bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-400 italic text-sm">
             За вами пока не закреплено ни одной точки.
           </div>
@@ -207,6 +233,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                 </div>
                 <div className="font-bold text-slate-900 text-sm truncate">
                   {shop.district.trim() || shop.address}
+                  {watchOnly.has(shop.id) && <span className="ml-1.5 text-[9px] font-black uppercase text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded align-middle">смотрю</span>}
                 </div>
                 <div className="text-[11px] text-slate-500 truncate">{shop.address}</div>
                 <div className="text-[11px] text-slate-600 mt-1.5 flex items-center gap-1 truncate">
@@ -227,6 +254,16 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
               </div>
             );
           })
+        )}
+        {pick && !canEditArea && (
+          <button
+            id="btn-pick-shops"
+            onClick={openPick}
+            className="rounded-xl p-4 border-2 border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40 text-slate-500 hover:text-indigo-700 flex items-center justify-center gap-2 min-h-[104px] font-bold text-sm uppercase tracking-wider transition-all"
+          >
+            <Plus className="w-5 h-5" />
+            Выбрать точки
+          </button>
         )}
         {canEditArea && (
           <button
@@ -287,6 +324,68 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                     </div>
                   );
                 })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isPickOpen && pick && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" onClick={() => !isPickSaving && setIsPickOpen(false)}>
+          <div id="shop-picker-dialog" className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <div className="min-w-0">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Какие точки смотреть</h3>
+                <p className="text-[11px] text-slate-500">Отметьте точки, данные которых хотите видеть. Выбрано: {pickDraft.length + pick.assignedIds.length}</p>
+              </div>
+              <button onClick={() => setIsPickOpen(false)} disabled={isPickSaving} className="w-10 h-10 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-3 border-b border-slate-100">
+              <input
+                id="shop-picker-search"
+                value={pickQuery}
+                onChange={(e) => setPickQuery(e.target.value)}
+                placeholder="Найти точку"
+                className="w-full px-3 min-h-[44px] text-base border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div className="overflow-y-auto divide-y divide-slate-100">
+              {pick.allShops
+                .filter((sh) => (shopTitle(sh) + ' ' + sh.address).toLowerCase().includes(pickQuery.trim().toLowerCase()))
+                .map((sh) => {
+                  const assigned = pick.assignedIds.includes(sh.id);
+                  const checked = assigned || pickDraft.includes(sh.id);
+                  return (
+                    <label key={sh.id} className={`flex items-center gap-3 px-4 min-h-[56px] cursor-pointer ${checked ? 'bg-indigo-50/50' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={assigned}
+                        onChange={(e) => setPickDraft((d) => (e.target.checked ? [...d, sh.id] : d.filter((id) => id !== sh.id)))}
+                        className="w-5 h-5 shrink-0 accent-indigo-600"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold text-slate-900 truncate">{shopTitle(sh)}</span>
+                        <span className="block text-[11px] text-slate-500 truncate">{assigned ? 'закреплена за вами' : sh.address}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+            </div>
+            {pickError && <p className="mx-4 mt-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{pickError}</p>}
+            <div className="p-3 border-t border-slate-200 flex gap-2">
+              <button onClick={() => setIsPickOpen(false)} disabled={isPickSaving} className="flex-1 min-h-[48px] rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-bold">
+                Отмена
+              </button>
+              <button
+                id="btn-save-pick"
+                onClick={savePick}
+                disabled={isPickSaving}
+                className="flex-1 min-h-[48px] rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-bold uppercase tracking-wider"
+              >
+                {isPickSaving ? 'Сохраняем…' : 'Сохранить'}
+              </button>
             </div>
           </div>
         </div>
@@ -378,6 +477,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                     </span>
                   </button>
 
+                  {!watchOnly.has(selectedShop.id) && (
                   <button
                     onClick={() => {
                       setOrderingShopId(selectedShop.id);
@@ -392,6 +492,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                     </span>
                     <Send className="w-6 h-6 mt-1.5" />
                   </button>
+                  )}
                 </div>
               </>
             )}
@@ -423,7 +524,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                               {member.phone || 'телефон не указан'}
                             </p>
                           </div>
-                          {onDeleteStaffMember && (
+                          {onDeleteStaffMember && !watchOnly.has(selectedShop.id) && (
                             <button
                               onClick={() => {
                                 if (window.confirm(`Убрать «${member.name}» из персонала?`)) {
@@ -438,7 +539,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
                           )}
                         </div>
 
-                        {onUpdateStaffMember && (
+                        {onUpdateStaffMember && !watchOnly.has(selectedShop.id) && (
                           <div>
                             <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
                               Должность

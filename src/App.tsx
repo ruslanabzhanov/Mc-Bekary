@@ -1261,6 +1261,42 @@ export default function App() {
     staff.find((s) => s.id === (previewTerritorialId || currentTerritorialManagerId)) ||
     (isOwnerVerified && !currentTerritorialManagerId ? territorialManagers[0] || null : null);
 
+  // Выбор точек «для просмотра» — включён только у тех территориальных, кому его дал владелец.
+  const [watchCfg, setWatchCfg] = useState<{ enabled: boolean; shopIds: number[] }>({ enabled: false, shopIds: [] });
+  const watchStaffId = currentTerritorialManager?.id;
+  useEffect(() => {
+    if (!watchStaffId) {
+      setWatchCfg({ enabled: false, shopIds: [] });
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/territorial-watch?staffId=${encodeURIComponent(watchStaffId)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setWatchCfg({ enabled: !!d.enabled, shopIds: Array.isArray(d.shopIds) ? d.shopIds : [] });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [watchStaffId]);
+  const saveWatchShops = async (ids: number[]) => {
+    if (!watchStaffId) return false;
+    try {
+      const res = await fetch('/api/territorial-watch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId: watchStaffId, shopIds: ids, initData: telegramInitData }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return false;
+      setWatchCfg((c) => ({ ...c, shopIds: Array.isArray(d.shopIds) ? d.shopIds : ids }));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // The failed write to shout about. A submit outranks a draft, and this device's own point
   // outranks another one, so the banner names the thing most likely to matter right now.
   const failedOrderSync = (() => {
@@ -1668,7 +1704,8 @@ export default function App() {
             <TerritorialManagerView
               orderDeadline={orderDeadline}
               managerName={currentTerritorialManager?.name || 'Территориальный управляющий'}
-              shops={shops.filter((s) => currentTerritorialManager?.assignedShopIds?.includes(s.id))}
+              shops={shops.filter((s) => currentTerritorialManager?.assignedShopIds?.includes(s.id) || (watchCfg.enabled && watchCfg.shopIds.includes(s.id)))}
+              pick={watchCfg.enabled && !isOwnerVerified ? { allShops: shops, assignedIds: currentTerritorialManager?.assignedShopIds || [], selectedIds: watchCfg.shopIds, onSave: saveWatchShops } : undefined}
               orders={orders}
               products={products}
               staff={staff}
