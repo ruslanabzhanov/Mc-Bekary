@@ -6,12 +6,15 @@ import {
 import { CoffeeShop } from '../types';
 import { ConsumptionWidget } from './ConsumptionWidget';
 import { AnalyticsInsights } from './AnalyticsInsights';
+import { DeviationHeat } from './DeviationHeat';
 import type { Insights, AnalyticsVariant } from './AnalyticsInsights';
 
 interface AnalyticsViewProps {
   shops: CoffeeShop[];
   // prod — руководитель производства (вся сеть), area — территориальный (его точки), shop — одна точка.
   variant?: AnalyticsVariant;
+  // Период задаёт внешний экран (чипы и календарь у территориального): свои вкладки периода прячем.
+  externalRange?: { from: string; to: string };
 }
 
 type Period = 'day' | 'week' | 'month' | 'year' | 'custom';
@@ -70,12 +73,14 @@ const formatDateShort = (iso: string) => {
   return `${Number(d)}.${m}`;
 };
 
-export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops, variant }) => {
+export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops, variant, externalRange }) => {
   const kind: AnalyticsVariant = variant || (shops.length === 1 ? 'shop' : 'prod');
-  const [period, setPeriod] = useState<Period>('day');
+  const [period, setPeriod] = useState<Period>(externalRange ? 'custom' : 'day');
   const [date, setDate] = useState(() => almatyToday());
-  const [fromDate, setFromDate] = useState(() => addDaysIso(almatyToday(), -6));
-  const [toDate, setToDate] = useState(() => almatyToday());
+  const [ownFrom, setFromDate] = useState(() => addDaysIso(almatyToday(), -6));
+  const [ownTo, setToDate] = useState(() => almatyToday());
+  const fromDate = externalRange ? externalRange.from : ownFrom;
+  const toDate = externalRange ? externalRange.to : ownTo;
   const [metric, setMetric] = useState<Metric>('qty');
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -168,7 +173,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops, variant }) 
     <div className="space-y-4 pb-10">
       {/* Period + metric controls */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3 space-y-3">
-        <div className="grid grid-cols-5 gap-1.5">
+        <div className={`grid grid-cols-5 gap-1.5 ${externalRange ? 'hidden' : ''}`}>
           {PERIOD_TABS.map((t) => (
             <button
               key={t.key}
@@ -182,7 +187,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops, variant }) 
           ))}
         </div>
 
-        {period === 'custom' && (
+        {period === 'custom' && !externalRange && (
           <div id="analytics-range" className="grid grid-cols-2 gap-2">
             <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
               с
@@ -208,7 +213,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops, variant }) 
           </div>
         )}
 
-        <div className={`flex items-center justify-between gap-2 ${period === 'custom' ? 'hidden' : ''}`}>
+        <div className={`flex items-center justify-between gap-2 ${period === 'custom' || externalRange ? 'hidden' : ''}`}>
           <button
             onClick={() => shiftDate(-1)}
             className="w-9 h-9 shrink-0 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600"
@@ -480,6 +485,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ shops, variant }) 
           {data.insights && (
             <AnalyticsInsights insights={data.insights} metric={metric} variant={kind} compareLabel={data.comparison.label} />
           )}
+
+          {kind !== 'prod' && (() => {
+            const heatTo = (() => {
+              const last = addDaysIso(data.range.end, -1);
+              return last > almatyToday() ? almatyToday() : last;
+            })();
+            // Для одного дня и года показываем последние недели, иначе карта из одной клетки.
+            const heatFrom = period === 'day' ? addDaysIso(heatTo, -13) : data.range.start;
+            return <DeviationHeat shopIds={shops.map((s) => s.id)} from={heatFrom} to={heatTo} />;
+          })()}
 
           {/* Category breakdown — always by quantity */}
           {data.categoryBreakdown.length > 0 && (

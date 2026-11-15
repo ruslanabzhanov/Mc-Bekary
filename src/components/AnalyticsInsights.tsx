@@ -29,7 +29,6 @@ export interface Insights {
   timeliness: { deadline: string; submissions: number; late: number; onTimePct: number | null; avgTime: string | null };
   dowAvg: { qty: number; sum: number; days: number }[];
   forecast: { date: string; qty: number; qtyMin: number; qtyMax: number; sum: number; samples: number } | null;
-  heat: { dates: string[]; shops: { shopId: number; name: string; cells: { date: string; status: string; time: string | null }[] }[] };
   labor: { month: string; perPiece: number; payroll: number; qty: number } | null;
 }
 
@@ -272,41 +271,6 @@ export const AnalyticsInsights: React.FC<Props> = ({ insights, metric, variant, 
             </table>
           </div>
           <p className="text-[10px] text-slate-400 mt-2">«Не как обычно»: дни из последних двух недель, когда заявка точки заметно отличалась от её обычной.</p>
-        </Card>
-      )}
-
-      {/* Как шли последние две недели */}
-      {variant !== 'prod' && insights.heat.shops.length > 0 && (
-        <Card id="analytics-heat" title="Как идут точки" sub="последние 14 дней: каждая клетка это день">
-          <div className="space-y-1 mt-1">
-            <div className="grid items-center gap-[3px]" style={{ gridTemplateColumns: `84px repeat(${insights.heat.dates.length}, minmax(0,1fr))` }}>
-              <span />
-              {insights.heat.dates.map((d) => (
-                <span key={d} className="text-[8px] text-slate-400 font-bold text-center">{Number(d.slice(8))}</span>
-              ))}
-            </div>
-            {insights.heat.shops.map((s) => (
-              <div key={s.shopId} className="grid items-center gap-[3px]" style={{ gridTemplateColumns: `84px repeat(${s.cells.length}, minmax(0,1fr))` }}>
-                <span className="text-[10px] font-bold text-slate-700 truncate pr-1">{s.name}</span>
-                {s.cells.map((c) => (
-                  <span
-                    key={c.date}
-                    title={`${dayMonth(c.date)}${c.time ? ` · подана в ${c.time}` : ' · не подана'}`}
-                    className={`aspect-square rounded-[4px] ${
-                      c.status === 'ok' ? 'bg-emerald-500' : c.status === 'w' ? 'bg-amber-400' : c.status === 'c' ? 'bg-rose-500' : c.status === 'late' ? 'bg-indigo-300' : 'border border-dashed border-slate-300'
-                    }`}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-[10px] font-bold text-slate-500">
-            <span><i className="inline-block w-2.5 h-2.5 rounded-[3px] bg-emerald-500 align-[-1px] mr-1" />вовремя</span>
-            <span><i className="inline-block w-2.5 h-2.5 rounded-[3px] bg-amber-400 align-[-1px] mr-1" />немного не как обычно</span>
-            <span><i className="inline-block w-2.5 h-2.5 rounded-[3px] bg-rose-500 align-[-1px] mr-1" />сильно</span>
-            <span><i className="inline-block w-2.5 h-2.5 rounded-[3px] bg-indigo-300 align-[-1px] mr-1" />позже дедлайна</span>
-            <span><i className="inline-block w-2.5 h-2.5 rounded-[3px] border border-dashed border-slate-300 align-[-1px] mr-1" />не подана</span>
-          </div>
         </Card>
       )}
 

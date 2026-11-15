@@ -3296,6 +3296,147 @@ export function createApiApp() {
     }
   });
 
+  // ===== Как шли заявки точки относительно её обычной заявки =====
+  // Норма на дату D — по заявкам этой же точки за 3 недели до D (по дню, последняя подача), без
+  // дней-выбросов: те же правила, что у подсветки на экране заказа. День зелёный, если всё
+  // как обычно; жёлтый, если заметно отличаются 3 позиции и больше; красный, если есть позиция
+  // с сильным отличием. Мало истории (меньше 5 дней) — оценить нечем.
+  type DayLevel = 'red' | 'yellow' | 'ok' | 'new' | 'none';
+  const dayLevel = (l: string): DayLevel => (l.startsWith('red') ? 'red' : l.startsWith('yellow') ? 'yellow' : l === 'new' ? 'new' : l === 'none' ? 'none' : 'ok');
+
+  function normsAtDate(byDay: Map<string, Record<string, any>>, date: string, valid: Set<string>) {
+    const start = addDays(date, -21);
+    const total = (items: Record<string, any>) => Object.entries(items || {}).reduce((a, [pid, v]) => a + (valid.has(pid) ? Number(v) || 0 : 0), 0);
+    let days = Array.from(byDay.entries()).filter(([d]) => d < date && d >= start).map(([, items]) => items);
+    const totals = days.map(total).sort((a, b) => a - b);
+    if (totals.length >= 5) {
+      const mid = totals.length >> 1;
+      const median = totals.length % 2 ? totals[mid] : (totals[mid - 1] + totals[mid]) / 2;
+      days = days.filter((it) => total(it) >= median * 0.4 && total(it) <= median * 2.5);
+    }
+    const sums = new Map<string, { sum: number; d: number }>();
+    days.forEach((items) =>
+      Object.entries(items || {}).forEach(([pid, q]) => {
+        const n = Number(q) || 0;
+        if (n <= 0 || !valid.has(pid)) return;
+        const e = sums.get(pid) || { sum: 0, d: 0 };
+        e.sum += n;
+        e.d += 1;
+        sums.set(pid, e);
+      })
+    );
+    const norms: Record<string, { avg: number; d: number }> = {};
+    sums.forEach((e, pid) => (norms[pid] = { avg: Math.round((e.sum / days.length) * 10) / 10, d: e.d }));
+    return { n: days.length, usualTotal: days.length ? Math.round(days.reduce((a, it) => a + total(it), 0) / days.length) : 0, norms };
+  }
+
+  function classifyDayItems(items: Record<string, any>, nr: ReturnType<typeof normsAtDate>, valid: Set<string>) {
+    let red = 0;
+    let yellow = 0;
+    const ids = new Set<string>([...Object.keys(nr.norms), ...Object.keys(items || {}).filter((k) => valid.has(k))]);
+    const rows: { id: string; qty: number; avg: number | null; d: number; level: DayLevel; diff: number }[] = [];
+    ids.forEach((pid) => {
+      const qty = Number(items?.[pid]) || 0;
+      const norm = nr.norms[pid] || null;
+      const level = dayLevel(classifyDeviation(qty, norm));
+      if (qty === 0 && !norm) return;
+      if (level === 'red') red += 1;
+      else if (level === 'yellow') yellow += 1;
+      rows.push({ id: pid, qty, avg: norm ? norm.avg : null, d: norm ? norm.d : 0, level, diff: norm ? Math.round((qty - norm.avg) * 10) / 10 : qty });
+    });
+    const status = nr.n < 5 ? 'nodata' : red >= 1 ? 'red' : yellow >= 3 ? 'yellow' : 'ok';
+    return { status, red, yellow, rows };
+  }
+
+  async function loadShopDays(shopIds: number[], from: string, to: string) {
+    const { startIso } = almatyDayRangeUtc(addDays(from, -22));
+    const { startIso: endIso } = almatyDayRangeUtc(addDays(to, 1));
+    const [{ data: rows, error }, { data: prodRows }] = await Promise.all([
+      supabase.from('order_history').select('shop_id, items, submitted_at, manager_name').in('shop_id', shopIds).gte('submitted_at', startIso).lt('submitted_at', endIso),
+      supabase.from('products').select('id, name'),
+    ]);
+    if (error) throw error;
+    const valid = new Set<string>((prodRows || []).map((r: any) => r.id));
+    const names = new Map<string, string>((prodRows || []).map((r: any) => [r.id, r.name]));
+    const byShop = new Map<number, Map<string, { items: Record<string, any>; at: string; manager: string }>>();
+    (rows || []).forEach((r: any) => {
+      const day = new Date(r.submitted_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Almaty' });
+      const m = byShop.get(r.shop_id) || new Map();
+      const ex = m.get(day);
+      if (!ex || r.submitted_at > ex.at) m.set(day, { items: r.items || {}, at: r.submitted_at, manager: r.manager_name || '' });
+      byShop.set(r.shop_id, m);
+    });
+    return { byShop, valid, names };
+  }
+  const almatyHm = (iso: string) => new Date(iso).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hour12: false });
+
+  async function computeHeat(shopIds: number[], fromIn: string, toIn: string) {
+    let from = fromIn;
+    const to = toIn;
+    if (to < from) from = to;
+    if (new Date(`${to}T12:00:00+05:00`).getTime() - new Date(`${from}T12:00:00+05:00`).getTime() > 61 * 86400000) from = addDays(to, -61);
+    const dates: string[] = [];
+    for (let d = from; d <= to; d = addDays(d, 1)) dates.push(d);
+    const [{ byShop, valid }, { data: shopRows }] = await Promise.all([loadShopDays(shopIds, from, to), supabase.from('shops').select('id, address, district').in('id', shopIds)]);
+    const meta = (shopRows || []).map((r: any) => ({ id: r.id, name: (r.district || '').trim() || r.address || `Точка №${r.id}` }));
+    const shops = meta.map((m) => {
+      const days = byShop.get(m.id) || new Map();
+      const byDay = new Map<string, Record<string, any>>(Array.from(days.entries()).map(([d, v]: any) => [d, v.items]));
+      const cells = dates.map((date) => {
+        const day = days.get(date);
+        if (!day) return { date, status: 'miss', time: null as string | null, red: 0, yellow: 0 };
+        const res = classifyDayItems(day.items, normsAtDate(byDay, date, valid), valid);
+        return { date, status: res.status, time: almatyHm(day.at), red: res.red, yellow: res.yellow };
+      });
+      return { shopId: m.id, name: m.name, cells };
+    });
+    return { from, to, dates, shops };
+  }
+
+  app.get('/api/analytics/heat', async (req, res) => {
+    try {
+      const shopIds = String(req.query.shopIds || '').split(',').map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n));
+      const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+      if (shopIds.length === 0 || !isoRe.test(String(req.query.from || '')) || !isoRe.test(String(req.query.to || ''))) {
+        return res.status(400).json({ error: 'shopIds, from and to (YYYY-MM-DD) are required' });
+      }
+      res.json(await computeHeat(shopIds, String(req.query.from), String(req.query.to)));
+    } catch (e) {
+      console.error('Failed to compute the order heat map:', e);
+      res.status(500).json({ error: 'Failed to compute the order heat map' });
+    }
+  });
+
+  // Заявка точки за один день: кто подал, что подал, где отличается от обычной заявки и на сколько.
+  app.get('/api/analytics/day', async (req, res) => {
+    try {
+      const shopId = parseInt(String(req.query.shopId || ''), 10);
+      const date = String(req.query.date || '');
+      if (!Number.isFinite(shopId) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'shopId and date (YYYY-MM-DD) are required' });
+      const [{ byShop, valid, names }, { data: shopRow }] = await Promise.all([loadShopDays([shopId], date, date), supabase.from('shops').select('id, address, district').eq('id', shopId).maybeSingle()]);
+      const days = byShop.get(shopId) || new Map();
+      const day = days.get(date);
+      const shopName = (shopRow?.district || '').trim() || shopRow?.address || `Точка №${shopId}`;
+      if (!day) return res.json({ shopId, shopName, date, submitted: false });
+      const byDay = new Map<string, Record<string, any>>(Array.from(days.entries()).map(([d, v]: any) => [d, v.items]));
+      const nr = normsAtDate(byDay, date, valid);
+      const cls = classifyDayItems(day.items, nr, valid);
+      const total = Object.entries(day.items).reduce((a, [pid, v]) => a + (valid.has(pid) ? Number(v) || 0 : 0), 0);
+      const order = { red: 0, yellow: 1, new: 2, ok: 3, none: 4 } as Record<string, number>;
+      const items = cls.rows
+        .map((r) => ({ id: r.id, name: names.get(r.id) || r.id, qty: r.qty, avg: r.avg, diff: r.diff, level: r.level }))
+        .sort((a, b) => order[a.level] - order[b.level] || Math.abs(b.diff) - Math.abs(a.diff) || a.name.localeCompare(b.name, 'ru'));
+      res.json({
+        shopId, shopName, date, submitted: true, time: almatyHm(day.at), managerName: day.manager,
+        status: cls.status, red: cls.red, yellow: cls.yellow, enoughHistory: nr.n >= 5,
+        totalQty: total, usualQty: nr.usualTotal, historyDays: nr.n, items,
+      });
+    } catch (e) {
+      console.error('Failed to load a day order:', e);
+      res.status(500).json({ error: 'Failed to load the day order' });
+    }
+  });
+
   // Разбор заявок для руководителя и территориального: кто сколько заказывает, какие позиции растут
   // и падают, кто опаздывает, как шли последние две недели. Всё из order_history — это заказы точек,
   // а не продажи (продаж и остатков в приложении нет).
@@ -3307,6 +3448,8 @@ export function createApiApp() {
     priceById: Map<string, number>;
     nameById: Map<string, string>;
     withLabor: boolean;
+    rangeFrom: string;
+    rangeTo: string;
   }) {
     const deadline = await getOrderDeadline();
     const [dh, dm] = deadline.split(':').map(Number);
@@ -3446,35 +3589,10 @@ export function createApiApp() {
         ? { date: tomorrow, qty: avgOf(lastSame), qtyMin: Math.min(...lastSame), qtyMax: Math.max(...lastSame), sum: avgOf(lastSameSum), samples: lastSame.length }
         : null;
 
-    // 14 дней по точкам: вовремя / опоздала / не подала / заявка заметно отличалась от обычной для точки
-    const heatDates: string[] = [];
-    for (let i = 13; i >= 0; i--) heatDates.push(addDays(today, -i));
-    const byShopDay = new Map<string, any>();
-    days.forEach((r) => byShopDay.set(`${r.shop_id}:${r.day}`, r));
-    const heat = a.shopMeta.map((m) => {
-      const mine = days.filter((r) => r.shop_id === m.id && r.qty > 0);
-      const cells = heatDates.map((d) => {
-        const r = byShopDay.get(`${m.id}:${d}`);
-        if (!r || r.qty <= 0) return { date: d, status: 'miss', time: null as string | null };
-        const others = mine.filter((x) => x.day !== d).map((x) => x.qty);
-        let status = r.min > dlMin ? 'late' : 'ok';
-        if (others.length >= 5) {
-          const mean = others.reduce((n, x) => n + x, 0) / others.length;
-          const off = Math.abs(r.qty - mean) / (mean || 1);
-          if (off >= 0.4) status = 'c';
-          else if (off >= 0.2) status = 'w';
-        }
-        return { date: d, status, time: hhmm(r.min) };
-      });
-      return { shopId: m.id, name: m.name, cells };
-    });
-    // красные дни за период по точкам (для рейтинга)
-    heat.forEach((h) => {
-      const e = perShop.get(h.shopId);
-      if (e) e.redDays = h.cells.filter((c) => c.status === 'c').length;
-    });
+    // Дни за выбранный период, когда заявка точки сильно отличалась от обычной (красные дни).
+    const heatNow = await computeHeat(a.shopIds, a.rangeFrom, a.rangeTo);
     const redDaysByShop: Record<number, number> = {};
-    heat.forEach((h) => (redDaysByShop[h.shopId] = h.cells.filter((c) => c.status === 'c').length));
+    heatNow.shops.forEach((h) => (redDaysByShop[h.shopId] = h.cells.filter((c) => c.status === 'red').length));
 
     // --- зарплата цеха на одну штуку (только для руководителя) ---
     let labor: { month: string; perPiece: number; payroll: number; qty: number } | null = null;
@@ -3490,7 +3608,7 @@ export function createApiApp() {
       labor = { month, perPiece: monthQty > 0 ? Math.round(payroll / monthQty) : 0, payroll: Math.round(payroll), qty: monthQty };
     }
 
-    return { products, shopRanking, redDaysByShop, timeliness, dowAvg, forecast, heat: { dates: heatDates, shops: heat }, labor };
+    return { products, shopRanking, redDaysByShop, timeliness, dowAvg, forecast, labor };
   }
 
   app.get('/api/analytics', async (req, res) => {
@@ -3616,7 +3734,7 @@ export function createApiApp() {
       const peakLabel = period === 'day' ? 'Пиковый час' : period === 'year' ? 'Лучший месяц' : 'Лучший день';
 
       const shopMeta = (shopRows || []).map((r: any) => ({ id: r.id, name: (r.district || '').trim() || r.address || `Точка №${r.id}` }));
-      const insights = await buildInsights({ shopIds, shopMeta, currentRows, previousRows, priceById, nameById, withLabor: req.query.labor === '1' });
+      const insights = await buildInsights({ shopIds, shopMeta, currentRows, previousRows, priceById, nameById, withLabor: req.query.labor === '1', rangeFrom: current.start, rangeTo: addDays(current.end, -1) > almatyToday() ? almatyToday() : addDays(current.end, -1) });
 
       let notSubmittedToday: { count: number; shopNames: string[] } | null = null;
       if (period === 'day' && dateStr === almatyToday()) {

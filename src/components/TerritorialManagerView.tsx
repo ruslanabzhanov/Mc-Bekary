@@ -6,6 +6,7 @@ import { ShopOrderHistoryTable } from './ShopOrderHistoryTable';
 import { ManagerView } from './ManagerView';
 import { OrderPreviewModal } from './OrderPreviewModal';
 import { AnalyticsView } from './AnalyticsView';
+import { TerritorialStaffPanel, TerritorialAnalyticsPanel } from './TerritorialHub';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 import {
   X, MapPin, User, Clock, Compass, Send, Users, ClipboardList, Trash2,
@@ -92,6 +93,7 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
   const editedManager = allManagers?.find((m) => m.id === selectedManagerId) || null;
   const canEditArea = !!(allShops && editedManager && onUpdateStaffMember);
   const [isAddShopOpen, setIsAddShopOpen] = useState(false);
+  const [hubPanel, setHubPanel] = useState<'staff' | 'analytics' | null>(null);
   const [isPickOpen, setIsPickOpen] = useState(false);
   const [pickDraft, setPickDraft] = useState<number[]>([]);
   const [pickQuery, setPickQuery] = useState('');
@@ -200,13 +202,30 @@ export const TerritorialManagerView: React.FC<TerritorialManagerViewProps> = ({
         )}
       </div>
 
-      {/* Аналитика всего участка: в этом же разделе, отдельной кнопки не нужно */}
-      {shops.length > 1 && (
-        <div id="area-analytics" className="space-y-3">
-          <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 px-1">Аналитика участка</h3>
-          <AnalyticsView shops={shops} variant="area" />
-        </div>
-      )}
+      {/* Два раздела сверху: персонал всех точек и аналитика по выбранным точкам */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          id="btn-open-area-staff"
+          onClick={() => setHubPanel('staff')}
+          className="bg-white hover:bg-indigo-50/60 active:bg-indigo-100 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 shadow-sm transition-all text-center flex flex-col items-center justify-center min-h-[104px]"
+        >
+          <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest">Персонал</span>
+          <Users className="w-6 h-6 text-slate-900 mt-1.5" />
+          <span className="text-[11px] text-slate-500 mt-1">люди всех точек</span>
+        </button>
+        <button
+          id="btn-open-area-analytics"
+          onClick={() => setHubPanel('analytics')}
+          className="bg-white hover:bg-indigo-50/60 active:bg-indigo-100 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 shadow-sm transition-all text-center flex flex-col items-center justify-center min-h-[104px]"
+        >
+          <span className="text-[10px] font-black uppercase text-indigo-700 tracking-widest">Аналитика</span>
+          <BarChart3 className="w-6 h-6 text-slate-900 mt-1.5" />
+          <span className="text-[11px] text-slate-500 mt-1">заявки по точкам</span>
+        </button>
+      </div>
+
+      {hubPanel === 'staff' && <TerritorialStaffPanel shops={shops} staff={staff} onClose={() => setHubPanel(null)} />}
+      {hubPanel === 'analytics' && <TerritorialAnalyticsPanel shops={shops} onClose={() => setHubPanel(null)} />}
 
       {/* Плитки точек. Цвет — это статус заявки за сегодня, чтобы отстающую точку было
           видно, не открывая её: серая значит, что заявки нет вовсе. */}
