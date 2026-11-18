@@ -1155,10 +1155,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
       )}
 
       {isDishPollsOpen && isOwner && (
-        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+        <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: 'linear-gradient(180deg,#f3f8f5 0%,#eef4f0 100%)' }}>
           <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm">
             <h2 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center space-x-2">
-              <Vote className="w-5 h-5 text-indigo-600" />
+              <Vote className="w-5 h-5 text-[#0f7a4f]" />
               <span>Голосования</span>
             </h2>
             <button

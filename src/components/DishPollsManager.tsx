@@ -541,7 +541,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
         <div className="flex items-center justify-between gap-2">
           <button
             onClick={closeWorkspace}
-            className="flex items-center gap-1.5 text-sm font-bold text-indigo-700 hover:text-indigo-900"
+            className="flex items-center gap-1.5 text-sm font-bold text-emerald-700 hover:text-emerald-900"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Ко всем голосованиям</span>
@@ -550,7 +550,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
             <button
               onClick={() => switchMode(mode === 'analytics' ? 'vote' : 'analytics')}
               className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all ${
-                mode === 'analytics' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                mode === 'analytics' ? 'bg-[#0f7a4f] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
               }`}
               title="Аналитика"
             >
@@ -559,7 +559,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
             <button
               onClick={() => switchMode(mode === 'settings' ? 'vote' : 'settings')}
               className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all ${
-                mode === 'settings' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                mode === 'settings' ? 'bg-[#0f7a4f] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
               }`}
               title="Настройки"
             >
@@ -568,7 +568,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center gap-2">
+        <div className="bg-white rounded-3xl border border-emerald-900/5 shadow-[0_6px_24px_rgba(15,60,40,.06)] p-4 shadow-sm flex items-center gap-2">
           <h3 className="text-lg font-extrabold text-slate-900 flex-1 min-w-0 break-words leading-tight">{workspacePoll.name}</h3>
           <span
             className={`shrink-0 text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${
@@ -582,7 +582,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
         {/* ---- Settings mode ---- */}
         {mode === 'settings' && (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4">
+            <div className="bg-white rounded-3xl border border-emerald-900/5 shadow-[0_6px_24px_rgba(15,60,40,.06)] p-4 space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
                   Название голосования
@@ -601,7 +601,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                     if (!settingsName.trim()) setSettingsName(workspacePoll.name);
                   }}
                   onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                  className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+                  className="w-full px-3 min-h-[48px] text-base border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 font-medium"
                 />
               </div>
 
@@ -629,7 +629,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                           }
                         }}
                         onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                        className="flex-1 px-3 min-h-[44px] text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                        className="flex-1 px-3 min-h-[44px] text-sm border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
                       />
                       {settingsDishNames.length > 1 && (
                         <button
@@ -644,7 +644,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                 </div>
                 <button
                   onClick={handleAddDish}
-                  className="mt-2 flex items-center gap-1.5 text-xs font-bold text-indigo-700 hover:text-indigo-900 uppercase tracking-wider"
+                  className="mt-2 flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-900 uppercase tracking-wider"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Добавить блюдо</span>
@@ -656,7 +656,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+            <div className="bg-white rounded-3xl border border-emerald-900/5 shadow-[0_6px_24px_rgba(15,60,40,.06)] p-4 space-y-3">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                 Критерии оценки
               </label>
@@ -674,11 +674,11 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   onChange={(e) => setNewCriterion(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddCriterion())}
                   placeholder="Новый критерий…"
-                  className="flex-1 px-3 min-h-[40px] text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                  className="flex-1 px-3 min-h-[40px] text-sm border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
                 />
                 <button
                   onClick={handleAddCriterion}
-                  className="min-h-[40px] px-3 flex items-center gap-1 text-xs font-bold text-indigo-700 hover:text-indigo-900 uppercase tracking-wider"
+                  className="min-h-[40px] px-3 flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 uppercase tracking-wider"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Добавить</span>
@@ -720,7 +720,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
           <div className="space-y-4">
             {/* Оба фильтра сразу под названием голосования, в один ряд — по ним чаще всего и
                 хотят посмотреть, кто как оценил конкретное блюдо или конкретный человек. */}
-            <div ref={filtersCardRef} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+            <div ref={filtersCardRef} className="bg-white rounded-3xl border border-emerald-900/5 shadow-[0_6px_24px_rgba(15,60,40,.06)] p-4 space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
@@ -729,7 +729,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   <select
                     value={filterDishIndex}
                     onChange={(e) => setFilterDishIndex(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full px-2 min-h-[44px] text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
+                    className="w-full px-2 min-h-[44px] text-xs sm:text-sm border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 bg-white"
                   >
                     <option value="">Все</option>
                     {workspacePoll.dishNames.map((n, i) => (
@@ -744,7 +744,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   <select
                     value={filterPersonKey}
                     onChange={(e) => setFilterPersonKey(e.target.value)}
-                    className="w-full px-2 min-h-[44px] text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
+                    className="w-full px-2 min-h-[44px] text-xs sm:text-sm border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 bg-white"
                   >
                     <option value="">Все</option>
                     {people.map((p) => (
@@ -758,7 +758,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
 
               {filterDishIndex !== '' && (
                 <div className="divide-y divide-slate-100 border-t border-slate-100 pt-2">
-                  <p className="text-[11px] font-black uppercase text-indigo-700 pb-1">
+                  <p className="text-[11px] font-black uppercase text-emerald-700 pb-1">
                     {workspacePoll.dishNames[filterDishIndex]} — кто как оценил
                   </p>
                   {dishFilterRows.length === 0 ? (
@@ -789,7 +789,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
 
               {personFilterVote && (
                 <div className="divide-y divide-slate-100 border-t border-slate-100 pt-2">
-                  <p className="text-[11px] font-black uppercase text-indigo-700 pb-1">
+                  <p className="text-[11px] font-black uppercase text-emerald-700 pb-1">
                     {personFilterVote.telegramName} — все его оценки
                   </p>
                   {personFilterVote.entries.map((entry, i) => (
@@ -823,7 +823,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setIsPrintOpen(true)}
-                  className="flex items-center justify-center gap-1.5 min-h-[44px] px-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold uppercase tracking-wider text-indigo-700 transition-all"
+                  className="flex items-center justify-center gap-1.5 min-h-[44px] px-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold uppercase tracking-wider text-emerald-700 transition-all"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>Распечатать</span>
@@ -841,18 +841,18 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
             {isAnalyticsLoading ? (
               <p className="text-center text-sm text-slate-400 py-6">Загружаем…</p>
             ) : !analyticsResults || analyticsResults.votes.length === 0 ? (
-              <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-400 italic text-sm">
+              <div className="bg-white border border-emerald-900/5 rounded-3xl shadow-[0_6px_24px_rgba(15,60,40,.06)] p-8 text-center text-slate-400 italic text-sm">
                 Пока никто не проголосовал.
               </div>
             ) : (
               <>
                 {/* Ключевые цифры — сразу видно с телефона, не листая вниз. */}
-                <div className="bg-indigo-600 rounded-2xl p-4 flex items-center justify-between text-white shadow-sm">
+                <div className="bg-[#0f7a4f] rounded-2xl p-4 flex items-center justify-between text-white shadow-sm">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200">Проголосовало</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Проголосовало</p>
                     <p className="text-3xl font-black tabular-nums leading-tight">{analyticsResults.votes.length}</p>
                   </div>
-                  <Vote className="w-9 h-9 text-indigo-300" />
+                  <Vote className="w-9 h-9 text-emerald-300" />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -892,10 +892,10 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   <button
                     key={dishIndex}
                     onClick={() => viewDishVotes(dishIndex)}
-                    className="w-full text-left bg-white rounded-2xl border border-slate-200 hover:border-indigo-300 p-4 space-y-3 transition-all"
+                    className="w-full text-left bg-white rounded-3xl border border-emerald-900/5 shadow-[0_6px_24px_rgba(15,60,40,.06)] hover:border-emerald-300 p-4 space-y-3 transition-all"
                   >
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-black uppercase tracking-wider text-indigo-700">{dishName}</h4>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-emerald-700">{dishName}</h4>
                       <span className="text-sm font-black text-slate-900 tabular-nums">
                         {overallDishScore(dishIndex).toFixed(1)}
                       </span>
@@ -911,7 +911,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                           <div className="flex items-center gap-2 shrink-0">
                             <div className="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-indigo-600 rounded-full"
+                                className="h-full bg-[#0f7a4f] rounded-full"
                                 style={{ width: `${((avg || 0) / 10) * 100}%` }}
                               />
                             </div>
@@ -925,7 +925,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   </button>
                 ))}
 
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
+                <div className="bg-white rounded-3xl border border-emerald-900/5 shadow-[0_6px_24px_rgba(15,60,40,.06)] p-4 space-y-2">
                   <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
                     Критерии в среднем по всем блюдам
                   </h4>
@@ -998,13 +998,13 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
       <div className="space-y-4">
         <button
           onClick={() => setIsCreating(false)}
-          className="flex items-center gap-1.5 text-sm font-bold text-indigo-700 hover:text-indigo-900"
+          className="flex items-center gap-1.5 text-sm font-bold text-emerald-700 hover:text-emerald-900"
         >
           <ChevronLeft className="w-4 h-4" />
           <span>Отмена</span>
         </button>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-5">
+        <div className="bg-white rounded-3xl border border-emerald-900/5 shadow-[0_6px_24px_rgba(15,60,40,.06)] p-4 space-y-5">
           <div>
             <label htmlFor="poll-name-input" className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
               Название голосования
@@ -1019,7 +1019,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               placeholder="Например: Дегустация 20.09"
               enterKeyHint="done"
               autoComplete="off"
-              className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
+              className="w-full px-3 min-h-[48px] text-base border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 font-medium"
             />
           </div>
 
@@ -1035,7 +1035,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   onClick={() => toggleCriterion(c)}
                   className={`min-h-[40px] px-3 rounded-lg text-xs font-bold transition-all ${
                     selectedCriteria.includes(c)
-                      ? 'bg-indigo-600 text-white shadow-sm'
+                      ? 'bg-[#0f7a4f] text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -1050,7 +1050,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                   .map((c) => (
                     <span
                       key={c}
-                      className="flex items-center gap-1 bg-indigo-600 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg"
+                      className="flex items-center gap-1 bg-[#0f7a4f] text-white text-xs font-bold px-2.5 py-1.5 rounded-lg"
                     >
                       {c}
                       <button onClick={() => toggleCriterion(c)}>
@@ -1067,11 +1067,11 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
                 onChange={(e) => setCustomCriterion(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomCriterion())}
                 placeholder="Свой критерий…"
-                className="flex-1 px-3 min-h-[40px] text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                className="flex-1 px-3 min-h-[40px] text-sm border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
               />
               <button
                 onClick={addCustomCriterion}
-                className="min-h-[40px] px-3 flex items-center gap-1 text-xs font-bold text-indigo-700 hover:text-indigo-900 uppercase tracking-wider"
+                className="min-h-[40px] px-3 flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 uppercase tracking-wider"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Добавить</span>
@@ -1114,7 +1114,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               type="button"
               onClick={() => setAllowComments((v) => !v)}
               className={`w-11 h-6 shrink-0 rounded-full relative transition-colors ${
-                allowComments ? 'bg-indigo-600' : 'bg-slate-300'
+                allowComments ? 'bg-[#0f7a4f]' : 'bg-slate-300'
               }`}
             >
               <span
@@ -1133,7 +1133,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
 
           <button
             onClick={handleCreate}
-            className="w-full min-h-[52px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
+            className="w-full min-h-[52px] bg-[#0f7a4f] hover:bg-[#0a6d3e] text-white font-bold text-sm uppercase tracking-wider rounded-full shadow-md transition-all"
           >
             Создать голосование
           </button>
@@ -1147,7 +1147,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
     <div className="space-y-4">
       <button
         onClick={() => openCreateForm()}
-        className="w-full min-h-[52px] flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
+        className="w-full min-h-[52px] flex items-center justify-center gap-2 bg-[#0f7a4f] hover:bg-[#0a6d3e] text-white font-bold text-sm uppercase tracking-wider rounded-full shadow-md transition-all"
       >
         <Plus className="w-4 h-4" />
         <span>Новое голосование</span>
@@ -1156,13 +1156,13 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
       {isLoading ? (
         <p className="text-center text-sm text-slate-400 py-6">Загружаем…</p>
       ) : polls.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-400 italic text-sm">
+        <div className="bg-white border border-emerald-900/5 rounded-3xl shadow-[0_6px_24px_rgba(15,60,40,.06)] p-8 text-center text-slate-400 italic text-sm">
           Голосований пока не было.
         </div>
       ) : (
         <div className="space-y-3">
           {polls.map((poll) => (
-            <div key={poll.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+            <div key={poll.id} className="bg-white border border-emerald-900/5 rounded-3xl shadow-[0_6px_24px_rgba(15,60,40,.06)] p-4 shadow-sm space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -1185,7 +1185,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
 
               <button
                 onClick={() => openWorkspace(poll)}
-                className="w-full flex items-center justify-center gap-1.5 min-h-[44px] bg-indigo-600 hover:bg-indigo-700 rounded-lg text-xs font-bold uppercase tracking-wider text-white transition-all"
+                className="w-full flex items-center justify-center gap-1.5 min-h-[44px] bg-[#0f7a4f] hover:bg-[#0a6d3e] rounded-lg text-xs font-bold uppercase tracking-wider text-white transition-all"
               >
                 <Vote className="w-3.5 h-3.5" />
                 <span>Открыть голосование</span>
@@ -1194,7 +1194,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => handleCopyLink(poll)}
-                  className="flex items-center justify-center gap-1.5 min-h-[40px] bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold uppercase tracking-wider text-indigo-700 transition-all"
+                  className="flex items-center justify-center gap-1.5 min-h-[40px] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold uppercase tracking-wider text-emerald-700 transition-all"
                 >
                   {copiedId === poll.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedId === poll.id ? 'Скопировано' : 'Ссылка'}</span>
@@ -1264,7 +1264,7 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
             <p className="text-[11px] text-slate-400 text-center break-all">{linkFor(qrPoll.id)}</p>
             <button
               onClick={() => handleDownloadQr(qrPoll)}
-              className="w-full min-h-[48px] flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
+              className="w-full min-h-[48px] flex items-center justify-center gap-2 bg-[#0f7a4f] hover:bg-[#0a6d3e] text-white font-bold text-sm uppercase tracking-wider rounded-full shadow-md transition-all"
             >
               <Download className="w-4 h-4" />
               <span>Скачать QR</span>
