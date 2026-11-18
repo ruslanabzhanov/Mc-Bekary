@@ -1070,15 +1070,19 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-5">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+            <label htmlFor="poll-name-input" className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
               Название голосования
             </label>
+            {/* Без autoFocus: на iPhone в Telegram поле, в которое фокус поставили программно (не касанием),
+                оказывается «уже активным», и нажатие на него больше не открывает клавиатуру. */}
             <input
+              id="poll-name-input"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Например: Дегустация 20.09"
-              autoFocus
+              enterKeyHint="done"
+              autoComplete="off"
               className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
             />
           </div>
