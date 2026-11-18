@@ -4,7 +4,7 @@ import {
   BarChart3, Printer, CheckCircle2, Download, FileSpreadsheet,
 } from 'lucide-react';
 import { DishPoll, DishPollVote, SUGGESTED_DISH_POLL_CRITERIA } from '../types';
-import { ScoreInput } from './DishPollVoteScreen';
+import { DishVotePanel } from './DishVotePanel';
 import { PrintDishPollReport } from './PrintDishPollReport';
 import { useTelegramBackButton } from '../hooks/useTelegramBackButton';
 
@@ -943,102 +943,38 @@ export const DishPollsManager: React.FC<DishPollsManagerProps> = ({ telegramInit
 
         {/* ---- Vote mode ---- */}
         {mode === 'vote' && (
-          activeDishIndex === null ? (
-            <div className="space-y-4">
-              <div className="bg-white rounded-2xl border border-slate-200 p-4">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Ваше имя
-                </label>
-                <input
-                  type="text"
-                  value={voterName}
-                  onChange={(e) => setVoterName(e.target.value)}
-                  placeholder="Имя дегустатора"
-                  className="w-full px-3 min-h-[48px] text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 font-medium"
-                />
-              </div>
-
-              {voteSaved && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-3 text-sm font-bold">
-                  Оценки сохранены!
-                </div>
-              )}
-              {voteMissing && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl px-4 py-3 text-sm font-medium">
-                  Не проголосовали за: {voteMissing.join(', ')}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-2">
-                {workspacePoll.dishNames.map((dishName, i) => {
-                  const done = isDishDone(i);
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => setActiveDishIndex(i)}
-                      className={`min-h-[72px] rounded-xl border p-3 text-sm font-bold text-left transition-all flex flex-col justify-between ${
-                        done
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                          : 'bg-white border-slate-200 text-slate-900 hover:border-indigo-300'
-                      }`}
-                    >
-                      <span className="block break-words hyphens-auto leading-snug">{dishName}</span>
-                      {done && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <button
-                onClick={handleSaveVote}
-                disabled={isSavingVote}
-                className="w-full min-h-[52px] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
-              >
-                {isSavingVote ? 'Сохраняем…' : 'Сохранить оценки'}
-              </button>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-6">
-              <button
-                onClick={() => setActiveDishIndex(null)}
-                className="flex items-center gap-1.5 text-sm font-bold text-indigo-700 hover:text-indigo-900"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span>Назад к блюдам</span>
-              </button>
-              <h4 className="text-sm font-black uppercase tracking-wider text-indigo-700">
-                {workspacePoll.dishNames[activeDishIndex]}
-              </h4>
-              {workspacePoll.criteria.map((c) => (
-                <ScoreInput
-                  key={c}
-                  label={c}
-                  value={voteEntries[activeDishIndex]?.scores[c]}
-                  onChange={(v) => updateVoteScore(activeDishIndex, c, v)}
-                />
-              ))}
-              {workspacePoll.allowComments && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                    Комментарий (необязательно)
+          <div className="-mx-4 sm:-mx-6 rounded-3xl overflow-hidden">
+            <DishVotePanel
+              title={workspacePoll.name}
+              subtitle="Дегустация внутри приложения"
+              dishNames={workspacePoll.dishNames}
+              criteria={workspacePoll.criteria}
+              allowComments={workspacePoll.allowComments}
+              entries={voteEntries}
+              onScore={updateVoteScore}
+              onComment={updateVoteComment}
+              onSubmit={handleSaveVote}
+              isSubmitting={isSavingVote}
+              notice={voteSaved ? 'Оценки сохранены!' : null}
+              missing={voteMissing}
+              header={
+                <div className="bg-white rounded-3xl border border-emerald-900/5 shadow-[0_6px_24px_rgba(15,60,40,.06)] p-4">
+                  <label htmlFor="voter-name-input" className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                    Ваше имя
                   </label>
-                  <textarea
-                    value={voteEntries[activeDishIndex]?.comment || ''}
-                    onChange={(e) => updateVoteComment(activeDishIndex, e.target.value)}
-                    rows={3}
-                    placeholder="Что понравилось, что можно улучшить?"
-                    className="w-full px-3 py-2 text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                  <input
+                    id="voter-name-input"
+                    type="text"
+                    value={voterName}
+                    onChange={(e) => setVoterName(e.target.value)}
+                    placeholder="Имя дегустатора"
+                    autoComplete="off"
+                    className="w-full px-3 min-h-[48px] text-base border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-600 text-slate-900 font-medium"
                   />
                 </div>
-              )}
-              <button
-                onClick={() => setActiveDishIndex(null)}
-                className="w-full min-h-[48px] bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all"
-              >
-                Готово
-              </button>
-            </div>
-          )
+              }
+            />
+          </div>
         )}
 
         {isPrintOpen && analyticsResults && (

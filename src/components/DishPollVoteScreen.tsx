@@ -1,63 +1,29 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, ChevronLeft } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import masterCoffeeCroissant from '../assets/images/master_coffee_croissant.png';
 import { DishPoll } from '../types';
+import { DishVotePanel } from './DishVotePanel';
+import type { VoteDraft } from './DishVotePanel';
 
 interface DishPollVoteScreenProps {
   pollId: string;
 }
 
-// Ноль — это «ещё не оценил», а не оценка: ползунок стоит на нуле, пока человек его не
-// сдвинул, и блюдо не считается оценённым. Шаг 0,5 — чтобы можно было поставить 7,5.
-// Экспортируется, потому что внутренний экран дегустации у владельца (DishPollsManager)
-// использует ровно тот же элемент.
-export const ScoreInput: React.FC<{ label: string; value?: number; onChange: (v: number) => void }> = ({
-  label,
-  value,
-  onChange,
-}) => {
-  const rated = typeof value === 'number' && value > 0;
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-sm font-bold text-slate-900">{label}</span>
-        <span className={`text-xl font-black tabular-nums ${rated ? 'text-indigo-700' : 'text-slate-300'}`}>
-          {rated ? (Number.isInteger(value) ? value : value!.toFixed(1)) : '—'}
-        </span>
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={10}
-        step={0.5}
-        value={value ?? 0}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-indigo-600 h-2"
-      />
-      <div className="flex justify-between text-[10px] text-slate-400 mt-0.5 px-0.5">
-        <span>0</span>
-        <span>5</span>
-        <span>10</span>
-      </div>
-    </div>
-  );
-};
+// Элемент оценки живёт в DishVotePanel; экспорт оставлен, чтобы не ломать прежние импорты.
+export { ScoreInput } from './DishVotePanel';
 
 const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
-    <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-sm border border-slate-200">
+  <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(180deg,#f3f8f5 0%,#eef4f0 100%)' }}>
+    <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-[0_10px_40px_rgba(15,60,40,.10)] border border-emerald-900/5">
       <div className="flex flex-col items-center text-center mb-4">
-        <img src={masterCoffeeCroissant} alt="Master Bakery" className="w-14 h-14 object-contain mb-2" />
+        <span className="w-16 h-16 rounded-full bg-[#0f7a4f] flex items-center justify-center mb-2">
+          <img src={masterCoffeeCroissant} alt="Master Bakery" className="w-10 h-10 object-contain" />
+        </span>
       </div>
       {children}
     </div>
   </div>
 );
-
-interface VoteDraft {
-  scores: Record<string, number>;
-  comment?: string;
-}
 
 // Дегустация из десяти блюд идёт долго: телефон блокируется, Telegram сворачивается, окно
 // приложения выгружается. Незаконченные оценки живут только в памяти экрана, поэтому
@@ -107,7 +73,6 @@ const clearDraft = (pollId: string, userId: string | number) => {
 export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }) => {
   const [poll, setPoll] = useState<DishPoll | null | undefined>(undefined);
   const [entries, setEntries] = useState<Record<number, VoteDraft>>({});
-  const [activeDishIndex, setActiveDishIndex] = useState<number | null>(null);
   const [missing, setMissing] = useState<string[] | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [alreadyVoted, setAlreadyVoted] = useState(false);
@@ -257,7 +222,7 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
         </p>
         <button
           onClick={() => setAlreadyVoted(false)}
-          className="w-full min-h-[48px] mt-4 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all"
+          className="w-full min-h-[52px] mt-4 bg-[#0f7a4f] hover:bg-[#0a6d3e] text-white font-black text-sm rounded-full transition-all"
         >
           Изменить мои оценки
         </button>
@@ -266,101 +231,22 @@ export const DishPollVoteScreen: React.FC<DishPollVoteScreenProps> = ({ pollId }
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4">
-      <div className="max-w-sm mx-auto space-y-4 pb-10">
-        <div className="flex flex-col items-center text-center pt-4">
-          <img src={masterCoffeeCroissant} alt="Master Bakery" className="w-14 h-14 object-contain mb-2" />
-          <h1 className="text-xl font-extrabold text-slate-900">{poll.name}</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Нажмите на блюдо и оцените его по каждому пункту, двигая ползунок
-          </p>
-        </div>
-
-        {activeDishIndex === null ? (
-          <>
-            {missing && (
-              <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl px-4 py-3 text-sm font-medium">
-                Не проголосовали за: {missing.join(', ')}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2">
-              {poll.dishNames.map((dishName, i) => {
-                const done = isDishDone(i);
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setActiveDishIndex(i)}
-                    className={`min-h-[72px] rounded-xl border p-3 text-sm font-bold text-left transition-all flex flex-col justify-between ${
-                      done
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                        : 'bg-white border-slate-200 text-slate-900 hover:border-indigo-300'
-                    }`}
-                  >
-                    <span className="block break-words hyphens-auto leading-snug">{dishName}</span>
-                    {done && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            {error && (
-              <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl px-4 py-3 text-sm font-medium">
-                {error}
-              </div>
-            )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="w-full min-h-[52px] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-md transition-all"
-            >
-              {isSubmitting ? 'Сохраняем…' : 'Сохранить оценки'}
-            </button>
-          </>
-        ) : (
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-6">
-            <button
-              onClick={() => setActiveDishIndex(null)}
-              className="flex items-center gap-1.5 text-sm font-bold text-indigo-700 hover:text-indigo-900"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              <span>Назад к блюдам</span>
-            </button>
-            <h2 className="text-sm font-black uppercase tracking-wider text-indigo-700">
-              {poll.dishNames[activeDishIndex]}
-            </h2>
-            {poll.criteria.map((c) => (
-              <ScoreInput
-                key={c}
-                label={c}
-                value={entries[activeDishIndex]?.scores[c]}
-                onChange={(v) => updateScore(activeDishIndex, c, v)}
-              />
-            ))}
-            {poll.allowComments && (
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Комментарий (необязательно)
-                </label>
-                <textarea
-                  value={entries[activeDishIndex]?.comment || ''}
-                  onChange={(e) => updateComment(activeDishIndex, e.target.value)}
-                  rows={3}
-                  placeholder="Что понравилось, что можно улучшить?"
-                  className="w-full px-3 py-2 text-base border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
-                />
-              </div>
-            )}
-            <button
-              onClick={() => setActiveDishIndex(null)}
-              className="w-full min-h-[48px] bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all"
-            >
-              Готово
-            </button>
-          </div>
-        )}
-      </div>
+    <div className="min-h-screen" style={{ background: 'linear-gradient(180deg,#f3f8f5 0%,#eef4f0 100%)' }}>
+      <DishVotePanel
+        title={poll.name}
+        subtitle="Дегустация · Master Bakery"
+        logo={<img src={masterCoffeeCroissant} alt="" className="w-8 h-8 object-contain" />}
+        dishNames={poll.dishNames}
+        criteria={poll.criteria}
+        allowComments={poll.allowComments}
+        entries={entries}
+        onScore={updateScore}
+        onComment={updateComment}
+        onSubmit={handleSubmit}
+        isSubmitting={isSubmitting}
+        missing={missing}
+        error={error}
+      />
     </div>
   );
 };
